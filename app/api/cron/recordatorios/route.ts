@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '', 
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
-
 export async function GET(request: Request) {
   try {
+    // Inicializamos las herramientas DENTRO de la función para evitar el error de compilación
+    const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy');
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '', 
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    );
+
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const startOfTomorrow = new Date(tomorrow.setHours(0, 0, 0, 0)).toISOString();
