@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
+// Inicialización segura para Vercel
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -44,6 +45,7 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
+  // Motor IA
   const [isListening, setIsListening] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -323,7 +325,7 @@ export default function AdminPanel() {
         <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col justify-between sticky top-0 h-screen z-20">
           <div>
             <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-              <div className="h-9 w-9 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-lg shadow-sm">SC</div>
+              <div className="h-9 w-9 bg-blue-600 text-white rounded-xl flex items-center justify-center font-black text-lg shadow-sm">SC</div>
               <div>
                 <h1 className="font-bold text-slate-900 text-base leading-none">Sistema Clínico</h1>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gestión Profesional</span>
@@ -332,30 +334,30 @@ export default function AdminPanel() {
 
             <div className="p-4 space-y-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mb-2 tracking-wider">Hoy</p>
-              <button onClick={() => { setActiveTab('inicio'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inicio' && !activePatient ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('inicio'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inicio' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 🏠 Inicio
               </button>
-              <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 📅 Calendario
               </button>
 
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
-              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 👥 Pacientes <span className="ml-auto bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{visibleAppointments.length}</span>
               </button>
-              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 💼 Terapias y Servicios
               </button>
-              <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 💰 Boletas y Pagos
               </button>
-              <button onClick={() => { setActiveTab('resenas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'resenas' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('resenas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'resenas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 ⭐ Reseñas
               </button>
-              <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 🏥 Equipo y Boxes
               </button>
-              <button onClick={() => { setActiveTab('talleres'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'talleres' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <button onClick={() => { setActiveTab('talleres'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'talleres' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 🏷️ Talleres
               </button>
             </div>
@@ -381,7 +383,7 @@ export default function AdminPanel() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowApptModal(true)} className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
+              <button onClick={() => setShowApptModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
             </div>
           </header>
 
@@ -395,19 +397,19 @@ export default function AdminPanel() {
                 <form onSubmit={handleAdminSchedule} className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase">Detalles Médicos</h3></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{services.filter(s => s.professional_id === adminAppt.professional_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{services.filter(s => s.professional_id === adminAppt.professional_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase mt-2">Datos del Paciente</h3></div>
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
+                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
+                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
                   </div>
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100"><button type="button" onClick={() => setShowApptModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl">Cancelar</button><button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-slate-900 rounded-xl">{loading ? 'Agendando...' : 'Confirmar Cita'}</button></div>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100"><button type="button" onClick={() => setShowApptModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl">Cancelar</button><button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl">{loading ? 'Agendando...' : 'Confirmar Cita'}</button></div>
                 </form>
               </div>
             </div>
@@ -419,15 +421,15 @@ export default function AdminPanel() {
               <div className="animate-fade-in space-y-6">
                 <div className="flex items-center gap-4"><button onClick={() => {setActivePatient(null); setNoteMotivo(''); setNoteDesarrollo(''); setNotePlan('');}} className="text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm hover:bg-slate-50">← Volver</button><h2 className="text-2xl font-bold text-slate-900">Ficha Clínica</h2></div>
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex items-center gap-5">
-                  <div className="h-16 w-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-2xl font-bold shadow-inner">{activePatient.patient_name.charAt(0).toUpperCase()}</div>
-                  <div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">{activePatient.patient_name} <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-200">ACTIVO</span></h3><p className="text-sm text-slate-500 mt-1">RUT: {activePatient.patient_rut} | Tel: {activePatient.patient_phone}</p></div>
+                  <div className="h-16 w-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold shadow-inner">{activePatient.patient_name.charAt(0).toUpperCase()}</div>
+                  <div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">{activePatient.patient_name} <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">ACTIVO</span></h3><p className="text-sm text-slate-500 mt-1">RUT: {activePatient.patient_rut} | Tel: {activePatient.patient_phone}</p></div>
                 </div>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col">
                     <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center rounded-t-2xl">
                       <h3 className="font-bold text-slate-800 text-sm">Nueva Evolución con IA</h3>
-                      <button type="button" onClick={toggleListening} disabled={isAnalyzing} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${isListening ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-slate-900 text-white border border-slate-900'}`}>
+                      <button type="button" onClick={toggleListening} disabled={isAnalyzing} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${isListening ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-600 text-white border border-blue-600'}`}>
                         {isListening ? '⏹ Detener' : isAnalyzing ? '⏳ Procesando...' : '✨ Asistente IA (Dictar)'}
                       </button>
                     </div>
@@ -437,9 +439,9 @@ export default function AdminPanel() {
                     )}
                     
                     <form onSubmit={handleSaveNote} className="p-6 flex flex-col gap-4">
-                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivo</label><input type="text" className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={noteMotivo} onChange={(e) => setNoteMotivo(e.target.value)} /></div>
-                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Desarrollo</label><textarea required className="w-full h-36 border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all resize-none" value={noteDesarrollo} onChange={(e) => setNoteDesarrollo(e.target.value)} /></div>
-                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Plan</label><input type="text" className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={notePlan} onChange={(e) => setNotePlan(e.target.value)} /></div>
+                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivo</label><input type="text" className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={noteMotivo} onChange={(e) => setNoteMotivo(e.target.value)} /></div>
+                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Desarrollo</label><textarea required className="w-full h-36 border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all resize-none" value={noteDesarrollo} onChange={(e) => setNoteDesarrollo(e.target.value)} /></div>
+                      <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Plan</label><input type="text" className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={notePlan} onChange={(e) => setNotePlan(e.target.value)} /></div>
                       <button type="submit" disabled={savingNote || isListening || isAnalyzing} className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800 shadow-md">🔒 Firmar y Guardar</button>
                     </form>
                   </div>
@@ -462,52 +464,126 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA INICIO REDISEÑADA */}
             {!activePatient && activeTab === 'inicio' && (
-              <div className="space-y-8 animate-fade-in">
-                <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-slate-900">Buenas tardes, {session.user.email.split('@')[0]}.</h2>
-                  <p className="text-slate-500 text-sm mt-1">Resumen general de tu práctica clínica y rendimiento.</p>
+              <div className="animate-fade-in flex flex-col items-center pt-12 pb-20 px-4 w-full max-w-4xl mx-auto">
+                
+                {/* Icono central superior */}
+                <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pacientes Activos</p>
-                    <p className="text-3xl font-black text-slate-900 mt-2">{visibleAppointments.length}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sesiones esta semana</p>
-                    <p className="text-3xl font-black text-slate-900 mt-2">{currentMonthAppointments.length}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Reseñas Promedio</p>
-                    <p className="text-3xl font-black text-amber-500 mt-2">
-                      {reviews.length > 0 ? `⭐ ${(reviews.reduce((acc, rev) => acc + (rev.rating || 5), 0) / reviews.length).toFixed(1)}` : 'Sin reseñas'}
-                    </p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ingresos del Mes</p>
-                    <p className="text-3xl font-black text-slate-900 mt-2">${totalIncome.toLocaleString('es-CL')}</p>
+                {/* Título Principal */}
+                <h2 className="text-3xl font-medium text-slate-900 mb-8">¿Cómo puedo ayudarte hoy, {session.user.email.split('@')[0]}?</h2>
+
+                {/* Botones de acción rápida */}
+                <div className="flex flex-wrap justify-center gap-3 mb-8">
+                  <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    ¿Cuál es mi agenda de hoy?
+                  </button>
+                  <button onClick={() => setShowApptModal(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                    Crear un paciente
+                  </button>
+                  <button onClick={() => setActiveTab('finanzas')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                    Ver pagos pendientes
+                  </button>
+                </div>
+
+                {/* Caja de búsqueda / comando principal */}
+                <div className="w-full bg-white border border-blue-200 rounded-2xl p-4 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                  <input 
+                    type="text" 
+                    placeholder="Escribe tu consulta o elige un paciente para empezar" 
+                    className="w-full text-sm text-slate-900 placeholder-slate-400 bg-transparent border-none focus:outline-none focus:ring-0 mb-4 px-2"
+                  />
+                  <div className="flex items-center justify-between mt-2 pt-4 border-t border-slate-100">
+                    
+                    {/* Selector de Paciente */}
+                    <div className="relative w-48">
+                      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      <select 
+                        onChange={(e) => {
+                          const appt = visibleAppointments.find(a => a.id === e.target.value);
+                          if (appt) openFicha(appt);
+                        }}
+                        className="appearance-none w-full bg-transparent border border-slate-200 text-slate-600 text-sm rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:border-blue-400 cursor-pointer"
+                      >
+                        <option value="">Elegir paciente</option>
+                        {visibleAppointments.map(app => (
+                          <option key={app.id} value={app.id}>{app.patient_name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Botones Enviar */}
+                    <div className="flex items-center gap-3">
+                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                      </button>
+                      <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors shadow-sm">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 transform -rotate-45 -mt-1"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                        Enviar
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                  <h3 className="font-bold text-slate-900 text-base mb-4">Agenda de hoy y próximas sesiones</h3>
-                  <div className="space-y-3">
-                    {visibleAppointments.length === 0 ? <p className="text-slate-400 text-sm py-4 text-center">No hay sesiones programadas.</p> :
-                      visibleAppointments.slice(0, 5).map(app => (
-                        <div key={app.id} onClick={() => openFicha(app)} className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl cursor-pointer transition-colors">
-                          <div className="flex items-center gap-4">
-                            <div className="h-10 w-10 bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center justify-center">{app.patient_name.charAt(0)}</div>
+                {/* Columnas inferiores */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12 w-full mt-12 px-4">
+                  
+                  {/* Columna Izquierda: Próximas Citas */}
+                  <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Próximas Citas</h3>
+                    <div className="space-y-4">
+                      {visibleAppointments.length === 0 ? (
+                        <p className="text-sm text-slate-500">No tienes citas próximas.</p>
+                      ) : (
+                        visibleAppointments.slice(0, 4).map(app => (
+                          <div key={app.id} onClick={() => openFicha(app)} className="flex items-start gap-3 cursor-pointer group">
+                            <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 group-hover:scale-125 transition-transform"></div>
                             <div>
-                              <p className="font-bold text-slate-900 text-sm">{app.patient_name}</p>
-                              <p className="text-xs text-slate-500">{new Date(app.start_time).toLocaleString('es-CL', {dateStyle: 'short', timeStyle: 'short'})} con {getProfName(app.professional_id)}</p>
+                              <p className="text-sm font-medium text-slate-700 group-hover:text-blue-600 transition-colors">{app.patient_name}</p>
+                              <p className="text-xs text-slate-400">{new Date(app.start_time).toLocaleString('es-CL', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                             </div>
                           </div>
-                          <span className="text-xs font-bold text-slate-700 bg-slate-200 px-3 py-1 rounded-full">Ver Ficha →</span>
-                        </div>
-                      ))}
+                        ))
+                      )}
+                    </div>
                   </div>
+
+                  {/* Columna Derecha: Accesos Rápidos */}
+                  <div>
+                    <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Accesos Rápidos</h3>
+                    <div className="space-y-4">
+                      <button onClick={() => setActiveTab('finanzas')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
+                        Revisar mis boletas y rendimiento
+                      </button>
+                      <button onClick={() => setActiveTab('agenda')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
+                        Ver mi agenda interactiva completa
+                      </button>
+                      <button onClick={() => setActiveTab('equipo')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
+                        Asignar y gestionar boxes clínicos
+                      </button>
+                      
+                      <button onClick={() => setActiveTab('pacientes')} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors mt-6 pt-4">
+                        Ver todos mis pacientes <span className="text-lg leading-none">›</span>
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
+                
+                {/* Toggle Inferior decorativo */}
+                <div className="mt-16 flex items-center gap-3">
+                  <button className="w-8 h-4 bg-blue-100 rounded-full relative transition-colors cursor-default">
+                     <div className="w-3 h-3 bg-white rounded-full absolute left-4 top-0.5 shadow-sm"></div>
+                  </button>
+                  <span className="text-xs font-medium text-slate-400">Página de inicio configurada por defecto</span>
+                </div>
+
               </div>
             )}
 
@@ -518,16 +594,16 @@ export default function AdminPanel() {
                     <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Cuadrícula</button>
                     <button onClick={() => setViewMode('list')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Lista</button>
                   </div>
-                  <button onClick={() => setShowApptModal(true)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
+                  <button onClick={() => setShowApptModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
                 </div>
 
                 {viewMode === 'calendar' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
                     <div className="min-w-[900px]">
                       <div className="flex justify-between p-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
-                        <button onClick={prevWeek} className="hover:text-slate-900">← Semana Anterior</button>
+                        <button onClick={prevWeek} className="hover:text-blue-600">← Semana Anterior</button>
                         <span>Semana {currentWeekStart.toLocaleDateString('es-CL')}</span>
-                        <button onClick={nextWeek} className="hover:text-slate-900">Semana Siguiente →</button>
+                        <button onClick={nextWeek} className="hover:text-blue-600">Semana Siguiente →</button>
                       </div>
                       <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 text-center text-xs font-bold text-slate-500 py-3">
                         <div>Hora</div>
@@ -568,7 +644,7 @@ export default function AdminPanel() {
                                     <div 
                                       key={app.id} 
                                       onClick={(e) => { e.stopPropagation(); openFicha(app); }} 
-                                      className="bg-slate-100 border-l-4 border-slate-500 text-slate-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-slate-200"
+                                      className="bg-blue-50 border-l-4 border-blue-500 text-blue-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-blue-100"
                                     >
                                       {app.patient_name}
                                     </div>
@@ -654,7 +730,7 @@ export default function AdminPanel() {
                           <XAxis dataKey="name" tick={{fontSize: 12}} />
                           <YAxis tick={{fontSize: 12}} />
                           <Tooltip formatter={(v:any) => [`$${v.toLocaleString('es-CL')}`, 'Ingresos']} />
-                          <Bar dataKey="ingresos" fill="#10b981" radius={[8,8,0,0]} />
+                          <Bar dataKey="ingresos" fill="#3b82f6" radius={[8,8,0,0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -666,7 +742,7 @@ export default function AdminPanel() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], value: currentMonthAppointments.filter(a => a.professional_id === p.id).length}))} dataKey="value" innerRadius={70} outerRadius={100} paddingAngle={5}>
-                            {visibleProfessionals.map((_, i) => <Cell key={i} fill={['#10b981', '#4f46e5', '#f59e0b', '#ef4444'][i%4]} />)}
+                            {visibleProfessionals.map((_, i) => <Cell key={i} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i%4]} />)}
                           </Pie>
                           <Tooltip />
                         </PieChart>
@@ -737,18 +813,18 @@ export default function AdminPanel() {
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase">Registrar Nuevo Profesional</h3>
                   <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
-                    <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
-                    <input required type="text" placeholder="Clave temporal (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
+                    <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
+                    <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
+                    <input required type="text" placeholder="Clave temporal (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
                     
-                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}>
+                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}>
                       <option value="">Sin Box (Opcional)</option>
                       {visibleBoxes.map(b => (
                         <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
                     </select>
 
-                    <button type="submit" disabled={isCreatingProf} className="bg-slate-900 text-white font-bold py-3 rounded-xl">Registrar</button>
+                    <button type="submit" disabled={isCreatingProf} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Registrar</button>
                   </form>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -761,7 +837,7 @@ export default function AdminPanel() {
                             {p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}
                           </p>
                         </div>
-                        <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold">Eliminar</button>
+                        <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors">Eliminar</button>
                       </div>
                     ))}
                   </div>
@@ -774,10 +850,10 @@ export default function AdminPanel() {
                 <h2 className="text-2xl font-bold text-slate-900">Servicios y Terapias</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <form onSubmit={handleCreateService} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Profesional</label><select required className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfId} onChange={e => setNewProfId(e.target.value)}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nombre Servicio</label><input required type="text" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newName} onChange={e => setNewName(e.target.value)} /></div>
-                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Precio ($)</label><input required type="number" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newPrice} onChange={e => setNewPrice(e.target.value)} /></div>
-                    <button type="submit" className="bg-slate-900 text-white font-bold py-3 rounded-xl">Crear Servicio</button>
+                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Profesional</label><select required className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfId} onChange={e => setNewProfId(e.target.value)}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nombre Servicio</label><input required type="text" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newName} onChange={e => setNewName(e.target.value)} /></div>
+                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Precio ($)</label><input required type="number" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newPrice} onChange={e => setNewPrice(e.target.value)} /></div>
+                    <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Crear Servicio</button>
                   </form>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -785,7 +861,7 @@ export default function AdminPanel() {
                     {services.map(s => (
                       <div key={s.id} className="p-5 flex justify-between items-center">
                         <div><p className="font-bold text-slate-900">{s.name}</p><p className="text-xs text-slate-500">Precio: ${s.price?.toLocaleString('es-CL')}</p></div>
-                        <button onClick={() => handleDeleteService(s.id)} className="text-red-600 text-xs font-bold">Eliminar</button>
+                        <button onClick={() => handleDeleteService(s.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors">Eliminar</button>
                       </div>
                     ))}
                   </div>
@@ -798,14 +874,14 @@ export default function AdminPanel() {
                 <h2 className="text-2xl font-bold text-slate-900">Talleres Grupales</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <form onSubmit={handleCreateWorkshop} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <input required type="text" placeholder="Título del taller" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all md:col-span-2" value={wsTitle} onChange={e => setWsTitle(e.target.value)} />
-                    <select required className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsProfId} onChange={e => setWsProfId(e.target.value)}><option value="" disabled>Facilitador...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                    <select required className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsBoxId} onChange={e => setWsBoxId(e.target.value)}><option value="" disabled>Box / Sala...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-                    <input required type="number" placeholder="Precio ($)" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsPrice} onChange={e => setWsPrice(e.target.value)} />
-                    <input required type="number" placeholder="Cupos" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsCapacity} onChange={e => setWsCapacity(e.target.value)} />
-                    <input required type="date" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsDate} onChange={e => setWsDate(e.target.value)} />
-                    <input required type="time" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={wsTime} onChange={e => setWsTime(e.target.value)} />
-                    <button type="submit" className="bg-slate-900 text-white font-bold py-3 rounded-xl md:col-span-4">Programar Taller</button>
+                    <input required type="text" placeholder="Título del taller" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={wsTitle} onChange={e => setWsTitle(e.target.value)} />
+                    <select required className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsProfId} onChange={e => setWsProfId(e.target.value)}><option value="" disabled>Facilitador...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                    <select required className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsBoxId} onChange={e => setWsBoxId(e.target.value)}><option value="" disabled>Box / Sala...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+                    <input required type="number" placeholder="Precio ($)" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsPrice} onChange={e => setWsPrice(e.target.value)} />
+                    <input required type="number" placeholder="Cupos" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsCapacity} onChange={e => setWsCapacity(e.target.value)} />
+                    <input required type="date" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsDate} onChange={e => setWsDate(e.target.value)} />
+                    <input required type="time" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={wsTime} onChange={e => setWsTime(e.target.value)} />
+                    <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl md:col-span-4 transition-colors">Programar Taller</button>
                   </form>
                 </div>
               </div>
@@ -821,7 +897,7 @@ export default function AdminPanel() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
         <div className="text-center">
-          <div className="h-12 w-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl mx-auto mb-3">SC</div>
+          <div className="h-12 w-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl mx-auto mb-3">SC</div>
           <h1 className="text-xl font-bold text-slate-900">Acceso Clínico</h1>
         </div>
         <form onSubmit={handleLogin} className="space-y-4">
@@ -830,7 +906,7 @@ export default function AdminPanel() {
             <input 
               type="email" 
               required 
-              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" 
+              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" 
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
             />
@@ -840,12 +916,12 @@ export default function AdminPanel() {
             <input 
               type="password" 
               required 
-              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" 
+              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" 
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
             />
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 mt-2">
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors mt-2">
             Iniciar Sesión
           </button>
           
