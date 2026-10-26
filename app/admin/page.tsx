@@ -5,11 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Obtenemos el ID del centro directamente desde las variables de entorno
 const ENV_CENTER_ID = process.env.NEXT_PUBLIC_CENTER_ID || '';
 
 export default function AdminPanel() {
@@ -30,7 +29,6 @@ export default function AdminPanel() {
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   
-  // El centro queda fijo y aislado según la variable de entorno
   const [adminCenterId, setAdminCenterId] = useState<string>(ENV_CENTER_ID);
 
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
@@ -39,7 +37,6 @@ export default function AdminPanel() {
   const [showApptModal, setShowApptModal] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
-  // Estados Ficha Clínica
   const [activePatient, setActivePatient] = useState<any | null>(null);
   const [patientNotes, setPatientNotes] = useState<any[]>([]);
   const [noteMotivo, setNoteMotivo] = useState('');
@@ -47,7 +44,6 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // --- MOTOR DE INTELIGENCIA ARTIFICIAL ---
   const [isListening, setIsListening] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -107,7 +103,6 @@ export default function AdminPanel() {
     setIsAnalyzing(false);
     setTranscript('');
   };
-  // ------------------------------------------
 
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState('');
@@ -208,7 +203,6 @@ export default function AdminPanel() {
     const startDateTime = new Date(`${adminAppt.date}T${adminAppt.time}:00-03:00`).toISOString();
     const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
     
-    // 1. Guardar en Supabase
     const { error } = await supabase.from('appointments').insert([{
       center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
       patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
@@ -216,7 +210,6 @@ export default function AdminPanel() {
     }]);
 
     if (!error) {
-      // 2. Enviar correo automático mediante Resend si el paciente tiene email
       if (adminAppt.patient_email) {
         const profName = professionals.find(p => p.id === adminAppt.professional_id)?.name || 'Profesional';
         try {
@@ -327,7 +320,6 @@ export default function AdminPanel() {
     return (
       <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex">
         
-        {/* BARRA LATERAL IZQUIERDA */}
         <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col justify-between sticky top-0 h-screen z-20">
           <div>
             <div className="p-6 border-b border-slate-100 flex items-center gap-3">
@@ -380,10 +372,8 @@ export default function AdminPanel() {
           </div>
         </aside>
 
-        {/* CONTENIDO PRINCIPAL */}
         <div className="flex-1 flex flex-col min-w-0">
           
-          {/* HEADER SUPERIOR */}
           <header className="bg-white border-b border-slate-200 h-16 px-8 flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center gap-4">
               <span className="bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-3 text-sm font-bold text-slate-700">
@@ -425,7 +415,6 @@ export default function AdminPanel() {
 
           <main className="p-8 max-w-7xl w-full mx-auto space-y-8">
             
-            {/* VISTA DE FICHA CLÍNICA ACTIVA */}
             {activePatient && (
               <div className="animate-fade-in space-y-6">
                 <div className="flex items-center gap-4"><button onClick={() => {setActivePatient(null); setNoteMotivo(''); setNoteDesarrollo(''); setNotePlan('');}} className="text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm hover:bg-slate-50">← Volver</button><h2 className="text-2xl font-bold text-slate-900">Ficha Clínica</h2></div>
@@ -473,7 +462,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA INICIO */}
             {!activePatient && activeTab === 'inicio' && (
               <div className="space-y-8 animate-fade-in">
                 <div>
@@ -523,7 +511,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA CALENDARIO */}
             {!activePatient && activeTab === 'agenda' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -617,7 +604,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA PACIENTES */}
             {!activePatient && activeTab === 'pacientes' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Listado de Pacientes</h2>
@@ -640,7 +626,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA FINANZAS Y BOLETAS */}
             {!activePatient && activeTab === 'finanzas' && (
               <div className="space-y-8 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Boletas, Pagos y Rendimiento</h2>
@@ -692,7 +677,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA RESEÑAS DINÁMICAS */}
             {!activePatient && activeTab === 'resenas' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-center">
@@ -747,7 +731,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA EQUIPO */}
             {!activePatient && activeTab === 'equipo' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Gestión de Equipo y Boxes</h2>
@@ -786,7 +769,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA TERAPIAS */}
             {!activePatient && activeTab === 'terapias' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Servicios y Terapias</h2>
@@ -811,7 +793,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA TALLERES */}
             {!activePatient && activeTab === 'talleres' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Talleres Grupales</h2>
