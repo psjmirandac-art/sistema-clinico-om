@@ -753,10 +753,18 @@ export default function AdminPanel() {
                 <h2 className="text-2xl font-bold text-slate-900">Gestión de Equipo y Boxes</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase">Registrar Nuevo Profesional</h3>
-                  <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
                     <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
                     <input required type="text" placeholder="Clave temporal (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
+                    
+                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}>
+                      <option value="">Sin Box (Opcional)</option>
+                      {visibleBoxes.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+
                     <button type="submit" disabled={isCreatingProf} className="bg-slate-900 text-white font-bold py-3 rounded-xl">Registrar</button>
                   </form>
                 </div>
@@ -764,7 +772,12 @@ export default function AdminPanel() {
                   <div className="divide-y divide-slate-100">
                     {visibleProfessionals.map(p => (
                       <div key={p.id} className="p-5 flex justify-between items-center">
-                        <div><p className="font-bold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email}</p></div>
+                        <div>
+                          <p className="font-bold text-slate-900">{p.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}
+                          </p>
+                        </div>
                         <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold">Eliminar</button>
                       </div>
                     ))}
