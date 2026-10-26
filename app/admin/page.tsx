@@ -207,15 +207,41 @@ export default function AdminPanel() {
     e.preventDefault(); setLoading(true);
     const startDateTime = new Date(`${adminAppt.date}T${adminAppt.time}:00-03:00`).toISOString();
     const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
+    
+    // 1. Guardar en Supabase
     const { error } = await supabase.from('appointments').insert([{
       center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
       patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
       start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
     }]);
+
     if (!error) {
-      setShowApptModal(false); setAdminAppt({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
-      loadData(); alert('Cita agendada exitosamente.');
-    } else { alert('Error al agendar cita.'); }
+      // 2. Enviar correo automático mediante Resend si el paciente tiene email
+      if (adminAppt.patient_email) {
+        const profName = professionals.find(p => p.id === adminAppt.professional_id)?.name || 'Profesional';
+        try {
+          await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              patient_email: adminAppt.patient_email,
+              patient_name: adminAppt.patient_name,
+              professional_name: profName,
+              start_time: startDateTime,
+            }),
+          });
+        } catch (mailError) {
+          console.error('Error enviando el correo:', mailError);
+        }
+      }
+
+      setShowApptModal(false); 
+      setAdminAppt({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+      loadData(); 
+      alert('Cita agendada y correo de confirmación enviado exitosamente.');
+    } else { 
+      alert('Error al agendar cita.'); 
+    }
     setLoading(false);
   };
 
@@ -246,7 +272,6 @@ export default function AdminPanel() {
     e.preventDefault(); 
     setIsCreatingProf(true);
 
-    // 1. Crear el usuario en Auth usando un cliente temporal (evita cerrar la sesión del admin)
     const tempSupabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false, autoRefreshToken: false }
     });
@@ -262,7 +287,6 @@ export default function AdminPanel() {
       return;
     }
 
-    // 2. Guardar sus datos en la base de datos
     const { error: dbError } = await supabase.from('professionals').insert([{ 
       name: newProfName, 
       email: newProfEmail.toLowerCase(), 
@@ -531,10 +555,34 @@ export default function AdminPanel() {
                                 const appD = new Date(app.start_time);
                                 return appD.getDate() === day.getDate() && appD.getMonth() === day.getMonth() && appD.getHours() === hour;
                               });
+
+                              const handleCellClick = () => {
+                                const year = day.getFullYear();
+                                const month = String(day.getMonth() + 1).padStart(2, '0');
+                                const d = String(day.getDate()).padStart(2, '0');
+                                const h = String(hour).padStart(2, '0');
+                                
+                                setAdminAppt(prev => ({
+                                  ...prev,
+                                  date: `${year}-${month}-${d}`,
+                                  time: `${h}:00`
+                                }));
+                                setShowApptModal(true);
+                              };
+
                               return (
-                                <div key={day.toISOString()} className="p-1 border-r border-slate-100">
+                                <div 
+                                  key={day.toISOString()} 
+                                  onClick={handleCellClick}
+                                  className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]"
+                                  title="Hacer clic para agendar en este horario"
+                                >
                                   {cellAppts.map(app => (
-                                    <div key={app.id} onClick={() => openFicha(app)} className="bg-slate-100 border-l-4 border-slate-500 text-slate-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold">
+                                    <div 
+                                      key={app.id} 
+                                      onClick={(e) => { e.stopPropagation(); openFicha(app); }} 
+                                      className="bg-slate-100 border-l-4 border-slate-500 text-slate-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-slate-200"
+                                    >
                                       {app.patient_name}
                                     </div>
                                   ))}
