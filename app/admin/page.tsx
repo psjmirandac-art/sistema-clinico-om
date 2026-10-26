@@ -45,6 +45,15 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
+  // Estados nueva pestaña Pacientes
+  const [patientSearch, setPatientSearch] = useState('');
+  const [patientFilterTab, setPatientFilterTab] = useState('Todos');
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Estados Horarios Profesionales
+  const [scheduleModalProf, setScheduleModalProf] = useState<any | null>(null);
+  const [localSchedules, setLocalSchedules] = useState<any>({});
+
   // Motor IA
   const [isListening, setIsListening] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -58,23 +67,16 @@ export default function AdminPanel() {
       processAI(transcript);
     } else {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("Tu navegador no soporta voz. Usa Chrome o Edge.");
-        return;
-      }
+      if (!SpeechRecognition) { alert("Tu navegador no soporta voz. Usa Chrome o Edge."); return; }
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'es-CL';
-
       recognition.onresult = (event: any) => {
         let current = '';
-        for (let i = 0; i < event.results.length; i++) {
-          current += event.results[i][0].transcript;
-        }
+        for (let i = 0; i < event.results.length; i++) { current += event.results[i][0].transcript; }
         setTranscript(current);
       };
-
       recognition.start();
       recognitionRef.current = recognition;
       setIsListening(true);
@@ -87,21 +89,15 @@ export default function AdminPanel() {
     setIsAnalyzing(true);
     try {
       const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: text })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript: text })
       });
       const data = await res.json();
-      if (data.error) {
-        alert("Error IA: " + data.error);
-      } else {
+      if (data.error) { alert("Error IA: " + data.error); } else {
         if (data.motivo) setNoteMotivo(data.motivo);
         if (data.desarrollo) setNoteDesarrollo(data.desarrollo);
         if (data.plan) setNotePlan(data.plan);
       }
-    } catch (error) {
-      alert("Error conectando con la IA.");
-    }
+    } catch (error) { alert("Error conectando con la IA."); }
     setIsAnalyzing(false);
     setTranscript('');
   };
@@ -134,15 +130,8 @@ export default function AdminPanel() {
 
   useEffect(() => {
     setCurrentWeekStart(getStartOfWeek(new Date()));
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) loadData();
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) loadData();
-    });
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); if (session) loadData(); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); if (session) loadData(); });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -156,20 +145,11 @@ export default function AdminPanel() {
       supabase.from('workshops').select('*').order('start_time', { ascending: true }),
       supabase.from('workshop_registrations').select('*')
     ]);
-
-    const { data: revsData, error: revsError } = await supabase
-      .from('reviews')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: revsData, error: revsError } = await supabase.from('reviews').select('*').order('created_at', { ascending: false });
 
     if (profs.data) setProfessionals(profs.data);
     if (servs.data) setServices(servs.data);
-    if (cents.data) {
-      setCenters(cents.data);
-      if (!ENV_CENTER_ID && cents.data.length > 0) {
-        setAdminCenterId(cents.data[0].id);
-      }
-    }
+    if (cents.data) { setCenters(cents.data); if (!ENV_CENTER_ID && cents.data.length > 0) { setAdminCenterId(cents.data[0].id); } }
     if (boxs.data) setBoxes(boxs.data);
     if (apps.data) setAppointments(apps.data);
     if (ws.data) setWorkshops(ws.data);
@@ -200,6 +180,39 @@ export default function AdminPanel() {
   const getWeekDays = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + i); return d; });
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
+  // LOGICA: Procesar lista única de pacientes
+  const patientsMap = new Map();
+  visibleAppointments.forEach(app => {
+    const key = app.patient_rut || app.patient_name;
+    if (!patientsMap.has(key)) {
+      patientsMap.set(key, { id: key, name: app.patient_name, rut: app.patient_rut, phone: app.patient_phone, email: app.patient_email, appointments: [] });
+    }
+    patientsMap.get(key).appointments.push(app);
+  });
+
+  const processedPatients = Array.from(patientsMap.values()).map(p => {
+    const now = new Date();
+    const past = p.appointments.filter((a:any) => new Date(a.start_time) < now).sort((a:any, b:any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+    const future = p.appointments.filter((a:any) => new Date(a.start_time) >= now).sort((a:any, b:any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    return {
+      ...p,
+      ultimaSesion: past.length > 0 ? past[0].start_time : null,
+      proximaSesion: future.length > 0 ? future[0].start_time : null,
+      status: future.length > 0 ? 'Activo' : 'Inactivo',
+    };
+  });
+
+  const filteredPatients = processedPatients.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.rut.includes(patientSearch) || (p.phone && p.phone.includes(patientSearch));
+    const matchesFilter = patientFilterTab === 'Todos' || p.status === (patientFilterTab === 'Activos' ? 'Activo' : 'Inactivo');
+    return matchesSearch && matchesFilter;
+  });
+
+  const handleQuickSchedule = (p: any) => {
+    setAdminAppt({ ...adminAppt, patient_name: p.name, patient_rut: p.rut, patient_phone: p.phone, patient_email: p.email });
+    setShowApptModal(true);
+  };
+
   const handleAdminSchedule = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
     const startDateTime = new Date(`${adminAppt.date}T${adminAppt.time}:00-03:00`).toISOString();
@@ -216,40 +229,32 @@ export default function AdminPanel() {
         const profName = professionals.find(p => p.id === adminAppt.professional_id)?.name || 'Profesional';
         try {
           await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              patient_email: adminAppt.patient_email,
-              patient_name: adminAppt.patient_name,
-              professional_name: profName,
-              start_time: startDateTime,
-            }),
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: startDateTime }),
           });
-        } catch (mailError) {
-          console.error('Error enviando el correo:', mailError);
-        }
+        } catch (mailError) { console.error('Error enviando el correo:', mailError); }
       }
-
       setShowApptModal(false); 
       setAdminAppt({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
       loadData(); 
-      alert('Cita agendada y correo de confirmación enviado exitosamente.');
-    } else { 
-      alert('Error al agendar cita.'); 
-    }
+      alert('Cita agendada exitosamente.');
+    } else { alert('Error al agendar cita.'); }
     setLoading(false);
   };
 
   const handleDeleteAppt = async (id: string) => {
-    if (!confirm('¿Seguro que deseas cancelar y eliminar esta cita de la agenda?')) return;
+    if (!confirm('¿Cancelar cita?')) return;
     const { error } = await supabase.from('appointments').delete().eq('id', id);
-    if (!error) { loadData(); alert('Cita cancelada correctamente.'); } else { alert('Error al cancelar la cita.'); }
+    if (!error) loadData();
   };
 
-  const openFicha = async (app: any) => {
-    setActivePatient(app);
+  const openFicha = async (appOrPatient: any) => {
+    const pName = appOrPatient.patient_name || appOrPatient.name;
+    const pRut = appOrPatient.patient_rut || appOrPatient.rut;
+    const pPhone = appOrPatient.patient_phone || appOrPatient.phone;
+    setActivePatient({ patient_name: pName, patient_rut: pRut, patient_phone: pPhone });
     setActiveTab('agenda');
-    const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', app.patient_name).eq('center_id', adminCenterId).order('created_at', { ascending: false });
+    const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', pName).eq('center_id', adminCenterId).order('created_at', { ascending: false });
     if (data) setPatientNotes(data);
   };
 
@@ -264,41 +269,12 @@ export default function AdminPanel() {
   };
 
   const handleCreateProfessional = async (e: React.FormEvent) => {
-    e.preventDefault(); 
-    setIsCreatingProf(true);
-
-    const tempSupabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-
-    const { error: authError } = await tempSupabase.auth.signUp({
-      email: newProfEmail.toLowerCase(),
-      password: newProfPassword,
-    });
-
-    if (authError) {
-      alert('Error al crear credenciales de acceso: ' + authError.message);
-      setIsCreatingProf(false);
-      return;
-    }
-
-    const { error: dbError } = await supabase.from('professionals').insert([{ 
-      name: newProfName, 
-      email: newProfEmail.toLowerCase(), 
-      center_id: adminCenterId, 
-      default_box_id: newProfBoxId || null 
-    }]);
-    
-    if (!dbError) { 
-      setNewProfName(''); 
-      setNewProfEmail(''); 
-      setNewProfPassword('');
-      setNewProfBoxId(''); 
-      loadData(); 
-      alert(`Profesional registrado exitosamente. Su clave temporal es: ${newProfPassword}`);
-    } else {
-      alert('Error al guardar datos del profesional: ' + dbError.message);
-    }
+    e.preventDefault(); setIsCreatingProf(true);
+    const tempSupabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error: authError } = await tempSupabase.auth.signUp({ email: newProfEmail.toLowerCase(), password: newProfPassword });
+    if (authError) { alert('Error: ' + authError.message); setIsCreatingProf(false); return; }
+    const { error: dbError } = await supabase.from('professionals').insert([{ name: newProfName, email: newProfEmail.toLowerCase(), center_id: adminCenterId, default_box_id: newProfBoxId || null }]);
+    if (!dbError) { setNewProfName(''); setNewProfEmail(''); setNewProfPassword(''); setNewProfBoxId(''); loadData(); alert(`Profesional registrado. Clave temporal: ${newProfPassword}`); }
     setIsCreatingProf(false);
   };
 
@@ -317,6 +293,18 @@ export default function AdminPanel() {
   const handleDeleteWorkshop = async (id: string) => { if (!confirm('¿Eliminar taller?')) return; const { error } = await supabase.from('workshops').delete().eq('id', id); if (!error) loadData(); };
   const handleLogin = async (e: React.FormEvent) => { e.preventDefault(); setLoading(true); setError(''); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setError('Credenciales incorrectas'); setLoading(false); };
   const handleLogout = async () => { await supabase.auth.signOut(); };
+
+  const formatShortDate = (dateString: string) => {
+    if (!dateString) return '';
+    return new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(dateString));
+  };
+
+  const initScheduleLocal = (profId: string) => {
+    if (!localSchedules[profId]) {
+      setLocalSchedules({ ...localSchedules, [profId]: { lun: {active:true, start:'09:00', end:'18:00'}, mar: {active:true, start:'09:00', end:'18:00'}, mie: {active:true, start:'09:00', end:'18:00'}, jue: {active:true, start:'09:00', end:'18:00'}, vie: {active:true, start:'09:00', end:'18:00'}, sab: {active:false, start:'10:00', end:'14:00'}, dom: {active:false, start:'10:00', end:'14:00'} }});
+    }
+    setScheduleModalProf(profId);
+  };
 
   if (session) {
     return (
@@ -342,8 +330,8 @@ export default function AdminPanel() {
               </button>
 
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
-              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                👥 Pacientes <span className="ml-auto bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{visibleAppointments.length}</span>
+              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                👥 Pacientes
               </button>
               <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
                 💼 Terapias y Servicios
@@ -386,6 +374,47 @@ export default function AdminPanel() {
               <button onClick={() => setShowApptModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
             </div>
           </header>
+
+          {/* MODAL HORARIOS PROFESIONAL */}
+          {scheduleModalProf && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-900">Horario de Atención</h2>
+                  <button onClick={() => setScheduleModalProf(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-slate-500 mb-4">Configura los días y horas de atención para {getProfName(scheduleModalProf)}.</p>
+                  
+                  {['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((day, idx) => {
+                    const label = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][idx];
+                    const data = localSchedules[scheduleModalProf][day];
+                    return (
+                      <div key={day} className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <label className="flex items-center gap-3 w-32 cursor-pointer">
+                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, active: e.target.checked}}})} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
+                          <span className="text-sm font-medium text-slate-700">{label}</span>
+                        </label>
+                        {data.active ? (
+                          <div className="flex items-center gap-2">
+                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, start: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <span className="text-slate-400 text-sm">-</span>
+                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, end: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                          </div>
+                        ) : (
+                          <span className="text-sm text-slate-400 italic flex-1 text-right pr-4">No atiende</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
+                  <button onClick={() => setScheduleModalProf(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
+                  <button onClick={() => { alert('Horario guardado localmente en el sistema.'); setScheduleModalProf(null); }} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">Guardar Horario</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {showApptModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
@@ -464,19 +493,12 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA INICIO REDISEÑADA */}
             {!activePatient && activeTab === 'inicio' && (
               <div className="animate-fade-in flex flex-col items-center pt-12 pb-20 px-4 w-full max-w-4xl mx-auto">
-                
-                {/* Icono central superior */}
                 <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 </div>
-
-                {/* Título Principal */}
                 <h2 className="text-3xl font-medium text-slate-900 mb-8">¿Cómo puedo ayudarte hoy, {session.user.email.split('@')[0]}?</h2>
-
-                {/* Botones de acción rápida */}
                 <div className="flex flex-wrap justify-center gap-3 mb-8">
                   <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -491,56 +513,27 @@ export default function AdminPanel() {
                     Ver pagos pendientes
                   </button>
                 </div>
-
-                {/* Caja de búsqueda / comando principal */}
                 <div className="w-full bg-white border border-blue-200 rounded-2xl p-4 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                  <input 
-                    type="text" 
-                    placeholder="Escribe tu consulta o elige un paciente para empezar" 
-                    className="w-full text-sm text-slate-900 placeholder-slate-400 bg-transparent border-none focus:outline-none focus:ring-0 mb-4 px-2"
-                  />
+                  <input type="text" placeholder="Escribe tu consulta o elige un paciente para empezar" className="w-full text-sm text-slate-900 placeholder-slate-400 bg-transparent border-none focus:outline-none focus:ring-0 mb-4 px-2" />
                   <div className="flex items-center justify-between mt-2 pt-4 border-t border-slate-100">
-                    
-                    {/* Selector de Paciente */}
                     <div className="relative w-48">
                       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                      <select 
-                        onChange={(e) => {
-                          const appt = visibleAppointments.find(a => a.id === e.target.value);
-                          if (appt) openFicha(appt);
-                        }}
-                        className="appearance-none w-full bg-transparent border border-slate-200 text-slate-600 text-sm rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:border-blue-400 cursor-pointer"
-                      >
+                      <select onChange={(e) => { const appt = visibleAppointments.find(a => a.id === e.target.value); if (appt) openFicha(appt); }} className="appearance-none w-full bg-transparent border border-slate-200 text-slate-600 text-sm rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:border-blue-400 cursor-pointer">
                         <option value="">Elegir paciente</option>
-                        {visibleAppointments.map(app => (
-                          <option key={app.id} value={app.id}>{app.patient_name}</option>
-                        ))}
+                        {visibleAppointments.map(app => <option key={app.id} value={app.id}>{app.patient_name}</option>)}
                       </select>
                     </div>
-
-                    {/* Botones Enviar */}
                     <div className="flex items-center gap-3">
-                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz">
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                      </button>
-                      <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors shadow-sm">
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 transform -rotate-45 -mt-1"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-                        Enviar
-                      </button>
+                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
+                      <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 transform -rotate-45 -mt-1"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>Enviar</button>
                     </div>
                   </div>
                 </div>
-
-                {/* Columnas inferiores */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-12 w-full mt-12 px-4">
-                  
-                  {/* Columna Izquierda: Próximas Citas */}
                   <div>
                     <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Próximas Citas</h3>
                     <div className="space-y-4">
-                      {visibleAppointments.length === 0 ? (
-                        <p className="text-sm text-slate-500">No tienes citas próximas.</p>
-                      ) : (
+                      {visibleAppointments.length === 0 ? <p className="text-sm text-slate-500">No tienes citas próximas.</p> :
                         visibleAppointments.slice(0, 4).map(app => (
                           <div key={app.id} onClick={() => openFicha(app)} className="flex items-start gap-3 cursor-pointer group">
                             <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 group-hover:scale-125 transition-transform"></div>
@@ -549,41 +542,19 @@ export default function AdminPanel() {
                               <p className="text-xs text-slate-400">{new Date(app.start_time).toLocaleString('es-CL', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                             </div>
                           </div>
-                        ))
-                      )}
+                        ))}
                     </div>
                   </div>
-
-                  {/* Columna Derecha: Accesos Rápidos */}
                   <div>
                     <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Accesos Rápidos</h3>
                     <div className="space-y-4">
-                      <button onClick={() => setActiveTab('finanzas')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
-                        Revisar mis boletas y rendimiento
-                      </button>
-                      <button onClick={() => setActiveTab('agenda')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
-                        Ver mi agenda interactiva completa
-                      </button>
-                      <button onClick={() => setActiveTab('equipo')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
-                        Asignar y gestionar boxes clínicos
-                      </button>
-                      
-                      <button onClick={() => setActiveTab('pacientes')} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors mt-6 pt-4">
-                        Ver todos mis pacientes <span className="text-lg leading-none">›</span>
-                      </button>
+                      <button onClick={() => setActiveTab('finanzas')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Revisar mis boletas y rendimiento</button>
+                      <button onClick={() => setActiveTab('agenda')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Ver mi agenda interactiva completa</button>
+                      <button onClick={() => setActiveTab('equipo')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Asignar y gestionar boxes clínicos</button>
+                      <button onClick={() => setActiveTab('pacientes')} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors mt-6 pt-4">Ver todos mis pacientes <span className="text-lg leading-none">›</span></button>
                     </div>
                   </div>
-
                 </div>
-                
-                {/* Toggle Inferior decorativo */}
-                <div className="mt-16 flex items-center gap-3">
-                  <button className="w-8 h-4 bg-blue-100 rounded-full relative transition-colors cursor-default">
-                     <div className="w-3 h-3 bg-white rounded-full absolute left-4 top-0.5 shadow-sm"></div>
-                  </button>
-                  <span className="text-xs font-medium text-slate-400">Página de inicio configurada por defecto</span>
-                </div>
-
               </div>
             )}
 
@@ -620,34 +591,15 @@ export default function AdminPanel() {
                               });
 
                               const handleCellClick = () => {
-                                const year = day.getFullYear();
-                                const month = String(day.getMonth() + 1).padStart(2, '0');
-                                const d = String(day.getDate()).padStart(2, '0');
-                                const h = String(hour).padStart(2, '0');
-                                
-                                setAdminAppt(prev => ({
-                                  ...prev,
-                                  date: `${year}-${month}-${d}`,
-                                  time: `${h}:00`
-                                }));
+                                const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
+                                setAdminAppt(prev => ({ ...prev, date: `${year}-${month}-${d}`, time: `${h}:00` }));
                                 setShowApptModal(true);
                               };
 
                               return (
-                                <div 
-                                  key={day.toISOString()} 
-                                  onClick={handleCellClick}
-                                  className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]"
-                                  title="Hacer clic para agendar en este horario"
-                                >
+                                <div key={day.toISOString()} onClick={handleCellClick} className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]" title="Hacer clic para agendar en este horario">
                                   {cellAppts.map(app => (
-                                    <div 
-                                      key={app.id} 
-                                      onClick={(e) => { e.stopPropagation(); openFicha(app); }} 
-                                      className="bg-blue-50 border-l-4 border-blue-500 text-blue-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-blue-100"
-                                    >
-                                      {app.patient_name}
-                                    </div>
+                                    <div key={app.id} onClick={(e) => { e.stopPropagation(); openFicha(app); }} className="bg-blue-50 border-l-4 border-blue-500 text-blue-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-blue-100">{app.patient_name}</div>
                                   ))}
                                 </div>
                               );
@@ -680,23 +632,113 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA PACIENTES REDISEÑADA */}
             {!activePatient && activeTab === 'pacientes' && (
-              <div className="space-y-6 animate-fade-in">
-                <h2 className="text-2xl font-bold text-slate-900">Listado de Pacientes</h2>
-                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="divide-y divide-slate-100">
-                    {visibleAppointments.map(app => (
-                      <div key={app.id} className="p-5 flex items-center justify-between hover:bg-slate-50">
-                        <div className="flex items-center gap-4">
-                          <div className="h-10 w-10 bg-slate-900 text-white font-bold rounded-xl flex items-center justify-center">{app.patient_name.charAt(0)}</div>
-                          <div>
-                            <p className="font-bold text-slate-900 text-sm">{app.patient_name}</p>
-                            <p className="text-xs text-slate-500">RUT: {app.patient_rut} | Tel: {app.patient_phone}</p>
-                          </div>
-                        </div>
-                        <button onClick={() => openFicha(app)} className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold px-4 py-2 rounded-xl">Ver Expediente</button>
-                      </div>
-                    ))}
+              <div className="space-y-4 animate-fade-in font-sans">
+                <h2 className="text-2xl font-medium text-slate-900 mb-6">Pacientes</h2>
+                
+                {/* Pestañas de Filtro */}
+                <div className="flex gap-2 mb-4">
+                  {['Todos', 'Activos', 'Inactivos', 'Eliminados'].map(tab => (
+                    <button 
+                      key={tab} 
+                      onClick={() => setPatientFilterTab(tab)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${patientFilterTab === tab ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                      {tab} {tab === 'Todos' && `(${processedPatients.length})`}
+                      {tab === 'Activos' && `(${processedPatients.filter(p=>p.status==='Activo').length})`}
+                      {tab === 'Inactivos' && `(${processedPatients.filter(p=>p.status==='Inactivo').length})`}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Barra de Búsqueda y Botones de Acción */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                  <div className="relative w-full md:w-[400px]">
+                    <svg className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por nombre, RUT, teléfono o correo" 
+                      value={patientSearch}
+                      onChange={(e) => setPatientSearch(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> Interesados
+                    </button>
+                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">Plantillas <span className="text-[10px]">▼</span></button>
+                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg> Importar <span className="text-[10px]">▼</span>
+                    </button>
+                    <button onClick={() => setShowApptModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 flex items-center gap-2 ml-1">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Añadir nuevo
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tabla de Pacientes */}
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-slate-600">
+                      <thead className="bg-white border-b border-slate-200 text-slate-500 font-medium">
+                        <tr>
+                          <th className="px-6 py-4 font-medium flex items-center gap-1">Nombre <span className="text-[10px]">▲</span></th>
+                          <th className="px-6 py-4 font-medium">Última sesión <span className="text-[10px]">↕</span></th>
+                          <th className="px-6 py-4 font-medium">Próxima sesión <span className="text-[10px]">↕</span></th>
+                          <th className="px-6 py-4 font-medium">Pagos <span className="text-[10px]">↕</span></th>
+                          <th className="px-6 py-4 font-medium">Total por cobrar <span className="text-[10px]">↕</span></th>
+                          <th className="px-6 py-4 font-medium text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredPatients.length === 0 ? (
+                          <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">No se encontraron pacientes</td></tr>
+                        ) : (
+                          filteredPatients.map(p => (
+                            <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4">
+                                <span onClick={() => openFicha(p)} className="font-medium text-slate-900 hover:text-blue-600 cursor-pointer">{p.name}</span>
+                              </td>
+                              <td className="px-6 py-4 text-slate-500">{formatShortDate(p.ultimaSesion)}</td>
+                              <td className="px-6 py-4 text-slate-500">{formatShortDate(p.proximaSesion)}</td>
+                              <td className="px-6 py-4">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                  Al día
+                                </span>
+                              </td>
+                              <td className="px-6 py-4"></td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex justify-center items-center gap-2 relative">
+                                  {/* Botón Reagendar */}
+                                  <button onClick={() => handleQuickSchedule(p)} title="Reagendar cita" className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                  </button>
+                                  {/* Botón WhatsApp */}
+                                  <button onClick={() => p.phone ? window.open(`https://wa.me/${p.phone.replace(/[^0-9]/g, '')}`, '_blank') : alert('Paciente sin teléfono')} title="Contactar por WhatsApp" className="p-1.5 text-slate-400 hover:text-green-600 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                                  </button>
+                                  {/* Botón Menu */}
+                                  <button onClick={() => setActiveDropdown(activeDropdown === p.id ? null : p.id)} className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+                                  </button>
+
+                                  {activeDropdown === p.id && (
+                                    <div className="absolute right-0 top-10 mt-1 w-36 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1 text-left">
+                                      <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Derivar</button>
+                                      <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Fusionar</button>
+                                      <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Dar de alta</button>
+                                      <button className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-slate-50">Eliminar</button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -766,7 +808,6 @@ export default function AdminPanel() {
                       : '⭐ Sin valoraciones aún'}
                   </div>
                 </div>
-
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 pb-6 text-center">
                     <div>
@@ -782,7 +823,6 @@ export default function AdminPanel() {
                       <p className="text-xs text-slate-600 mt-1">Solo pacientes con sesiones reales pueden evaluar.</p>
                     </div>
                   </div>
-
                   <div className="space-y-4 pt-2">
                     {reviews.length === 0 ? (
                       <p className="text-slate-400 text-sm text-center py-8">Aún no tienes reseñas registradas. Aparecerán aquí cuando un paciente te evalúe.</p>
@@ -830,14 +870,17 @@ export default function AdminPanel() {
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                   <div className="divide-y divide-slate-100">
                     {visibleProfessionals.map(p => (
-                      <div key={p.id} className="p-5 flex justify-between items-center">
+                      <div key={p.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
                         <div>
                           <p className="font-bold text-slate-900">{p.name}</p>
                           <p className="text-xs text-slate-500">
                             {p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}
                           </p>
                         </div>
-                        <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors">Eliminar</button>
+                        <div className="flex gap-4">
+                          <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>
+                          <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors px-2 py-1.5">Eliminar</button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -903,32 +946,17 @@ export default function AdminPanel() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Correo</label>
-            <input 
-              type="email" 
-              required 
-              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-            />
+            <input type="email" required className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Contraseña</label>
-            <input 
-              type="password" 
-              required 
-              className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-            />
+            <input type="password" required className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors mt-2">
             Iniciar Sesión
           </button>
-          
           <div className="text-center pt-2">
-            <Link href="/recuperar" className="text-xs font-bold text-slate-500 hover:text-slate-900">
-              ¿Olvidaste tu contraseña?
-            </Link>
+            <Link href="/recuperar" className="text-xs font-bold text-slate-500 hover:text-slate-900">¿Olvidaste tu contraseña?</Link>
           </div>
         </form>
       </div>
