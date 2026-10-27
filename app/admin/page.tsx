@@ -19,6 +19,10 @@ export default function AdminPanel() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('inicio'); 
   
+  // ROLES Y PERMISOS
+  const [userRole, setUserRole] = useState<'admin' | 'profesional'>('admin');
+  const [currentProfId, setCurrentProfId] = useState<string>('');
+
   const [appointments, setAppointments] = useState<any[]>([]);
   const [centers, setCenters] = useState<any[]>([]);
   const [boxes, setBoxes] = useState<any[]>([]);
@@ -33,7 +37,7 @@ export default function AdminPanel() {
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(new Date('2024-01-01T00:00:00'));
   
   const [showApptModal, setShowApptModal] = useState(false);
-  const [patientDropdownOpen, setPatientDropdownOpen] = useState(false); // Estado del buscador inteligente
+  const [patientDropdownOpen, setPatientDropdownOpen] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
   const [slotActionModal, setSlotActionModal] = useState<{date: string, time: string} | null>(null);
@@ -126,12 +130,12 @@ export default function AdminPanel() {
 
   useEffect(() => {
     setCurrentWeekStart(getStartOfWeek(new Date()));
-    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); if (session) loadData(); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); if (session) loadData(); });
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); if (session) loadData(session); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); if (session) loadData(session); });
     return () => subscription.unsubscribe();
   }, []);
 
-  async function loadData() {
+  async function loadData(currentSession = session) {
     const [profs, servs, cents, boxs, apps, ws, regs] = await Promise.all([
       supabase.from('professionals').select('*').order('name'),
       supabase.from('services').select('*').order('created_at', { ascending: false }),
@@ -143,7 +147,21 @@ export default function AdminPanel() {
     ]);
     const { data: revsData, error: revsError } = await supabase.from('reviews').select('*').order('created_at', { ascending: false });
 
-    if (profs.data) setProfessionals(profs.data);
+    const profList = profs.data || [];
+    setProfessionals(profList);
+    
+    // DEFINIR ROL SEGÚN CORREO
+    if (currentSession?.user?.email) {
+      const me = profList.find(p => p.email.toLowerCase() === currentSession.user.email.toLowerCase());
+      if (me) {
+        setUserRole('profesional');
+        setCurrentProfId(me.id);
+      } else {
+        setUserRole('admin');
+        setCurrentProfId('');
+      }
+    }
+
     if (servs.data) setServices(servs.data);
     if (cents.data) { setCenters(cents.data); if (!ENV_CENTER_ID && cents.data.length > 0) { setAdminCenterId(cents.data[0].id); } }
     if (boxs.data) setBoxes(boxs.data);
@@ -153,8 +171,12 @@ export default function AdminPanel() {
     if (!revsError && revsData) setReviews(revsData);
   }
 
-  const visibleProfessionals = professionals.filter(p => p.center_id === adminCenterId);
-  const visibleAppointments = appointments.filter(a => a.center_id === adminCenterId);
+  const visibleProfessionals = professionals.filter(p => p.center_id === adminCenterId && (userRole === 'admin' || p.id === currentProfId));
+  
+  // FILTRO MAESTRO DE CITAS SEGÚN ROL
+  const visibleAppointmentsRaw = appointments.filter(a => a.center_id === adminCenterId);
+  const visibleAppointments = userRole === 'admin' ? visibleAppointmentsRaw : visibleAppointmentsRaw.filter(a => a.professional_id === currentProfId);
+
   const visibleServices = services.filter(s => visibleProfessionals.some(vp => vp.id === s.professional_id));
   const visibleBoxes = boxes.filter(b => b.center_id === adminCenterId);
   
@@ -200,6 +222,17 @@ export default function AdminPanel() {
     return matchesSearch && matchesFilter;
   });
 
+  // FUNCIÓN MAESTRA DE APERTURA DE MODAL CON ROL
+  const openNewApptModal = () => {
+    if (userRole === 'profesional') {
+      const me = professionals.find(p => p.id === currentProfId);
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: currentProfId, service_id: '', box_id: me?.default_box_id || '', date: '', time: '' });
+    } else {
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+    }
+    setShowApptModal(true);
+  }
+
   const handleDragStart = (e: any, appId: string) => { e.dataTransfer.setData('appId', appId); };
   const handleDrop = async (e: any, day: Date, hour: number) => {
     e.preventDefault();
@@ -221,7 +254,8 @@ export default function AdminPanel() {
     const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
     const startDateTime = startObj.toISOString();
     const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
-    const { error } = await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
+    const profToBlock = userRole === 'profesional' ? currentProfId : null; // Si es admin, no bloquea un doc especifico por defecto en la BD basica, si es prof bloquea su agenda
+    const { error } = await supabase.from('appointments').insert([{ center_id: adminCenterId, professional_id: profToBlock, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
     if (error) alert("Error al bloquear: " + error.message);
     setSlotActionModal(null); setIsBlocking(false); setBlockReason(''); loadData(); setLoading(false);
   };
@@ -241,7 +275,8 @@ export default function AdminPanel() {
     }
     setAdminAppt({ 
        ...adminAppt, id: targetId || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, 
-       patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email, date: targetDate, time: targetTime 
+       patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email, date: targetDate, time: targetTime,
+       professional_id: userRole === 'profesional' ? currentProfId : adminAppt.professional_id
     });
     setShowApptModal(true);
   };
@@ -254,18 +289,20 @@ export default function AdminPanel() {
     const startDateTime = startObj.toISOString();
     const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
     
+    const finalProfId = userRole === 'profesional' ? currentProfId : adminAppt.professional_id;
     let error = null;
+    
     if (adminAppt.id) { 
       const { error: updateErr } = await supabase.from('appointments').update({
-        professional_id: adminAppt.professional_id, service_id: adminAppt.service_id, box_id: adminAppt.box_id,
+        professional_id: finalProfId, service_id: adminAppt.service_id, box_id: adminAppt.box_id,
         patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
         start_time: startDateTime, end_time: endDateTime
       }).eq('id', adminAppt.id);
       error = updateErr;
-      if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, start_time: startDateTime, end_time: endDateTime } : a));
+      if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, professional_id: finalProfId, start_time: startDateTime, end_time: endDateTime } : a));
     } else { 
       const { error: insertErr } = await supabase.from('appointments').insert([{
-        center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
+        center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: finalProfId, service_id: adminAppt.service_id,
         patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
         start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
       }]);
@@ -274,7 +311,7 @@ export default function AdminPanel() {
 
     if (!error) {
       if (adminAppt.patient_email) {
-        const profName = professionals.find(p => p.id === adminAppt.professional_id)?.name || 'Profesional';
+        const profName = professionals.find(p => p.id === finalProfId)?.name || 'Profesional';
         try {
           await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: startDateTime }) });
         } catch (mailError) { console.error('Error enviando correo:', mailError); }
@@ -375,10 +412,17 @@ export default function AdminPanel() {
               <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>📅 Calendario</button>
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
               <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>👥 Pacientes</button>
-              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
+              
+              {/* VISTAS EXCLUSIVAS DE ADMINISTRADOR */}
+              {userRole === 'admin' && (
+                <>
+                  <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
+                  <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏥 Equipo y Boxes</button>
+                </>
+              )}
+
               <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💰 Boletas y Pagos</button>
               <button onClick={() => { setActiveTab('resenas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'resenas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>⭐ Reseñas</button>
-              <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏥 Equipo y Boxes</button>
               <button onClick={() => { setActiveTab('talleres'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'talleres' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏷️ Talleres</button>
             </div>
           </div>
@@ -386,7 +430,7 @@ export default function AdminPanel() {
             <div className="bg-slate-50 p-3 rounded-2xl flex items-center justify-between">
               <div className="truncate">
                 <p className="text-xs font-bold text-slate-800 truncate">{session.user.email.split('@')[0]}</p>
-                <p className="text-[10px] text-slate-500 font-semibold">Administrador</p>
+                <p className="text-[10px] text-slate-500 font-semibold">{userRole === 'admin' ? 'Administrador' : 'Profesional'}</p>
               </div>
               <button onClick={handleLogout} className="text-xs font-medium text-slate-400 hover:text-red-600 transition-colors">Salir</button>
             </div>
@@ -401,7 +445,7 @@ export default function AdminPanel() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
+              <button onClick={openNewApptModal} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
             </div>
           </header>
 
@@ -412,7 +456,7 @@ export default function AdminPanel() {
                  <p className="text-slate-500 text-sm mb-6">{slotActionModal.date} a las {slotActionModal.time}</p>
                  <div className="flex flex-col gap-3">
                     {!isBlocking && (
-                      <button onClick={() => { setAdminAppt({...adminAppt, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time}); setSlotActionModal(null); setShowApptModal(true); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">📅 Agendar Paciente</button>
+                      <button onClick={() => { setAdminAppt(prev => ({...prev, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time, professional_id: userRole === 'profesional' ? currentProfId : prev.professional_id })); setSlotActionModal(null); setShowApptModal(true); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">📅 Agendar Paciente</button>
                     )}
                     {!isBlocking ? (
                       <button onClick={() => setIsBlocking(true)} className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors">🚫 Bloquear Horario</button>
@@ -468,7 +512,7 @@ export default function AdminPanel() {
           )}
 
           {/* ========================================================
-              MODAL CON BUSCADOR DE PACIENTES INTEGRADO
+              MODAL DE AGENDAMIENTO CON RESTRICCIÓN DE ROL
              ======================================================== */}
           {showApptModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
@@ -480,8 +524,31 @@ export default function AdminPanel() {
                 <form onSubmit={handleAdminSchedule} className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase">Detalles Médicos</h3></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{services.filter(s => s.professional_id === adminAppt.professional_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label>
+                      <select 
+                        required 
+                        disabled={userRole === 'profesional'}
+                        className={`w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all ${userRole === 'profesional' ? 'opacity-75 cursor-not-allowed' : ''}`}
+                        value={userRole === 'profesional' ? currentProfId : adminAppt.professional_id} 
+                        onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}
+                      >
+                        {userRole === 'profesional' 
+                          ? <option value={currentProfId}>{getProfName(currentProfId)}</option>
+                          : <>
+                              <option value="" disabled>Seleccionar...</option>
+                              {visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </>
+                        }
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label>
+                      <select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}>
+                        <option value="" disabled>Seleccionar...</option>
+                        {services.filter(s => s.professional_id === (userRole === 'profesional' ? currentProfId : adminAppt.professional_id)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
                     <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
                   </div>
@@ -556,45 +623,6 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {scheduleModalProf && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-                <div className="flex justify-between items-center p-6 border-b border-slate-100">
-                  <h2 className="text-lg font-bold text-slate-900">Horario de Atención</h2>
-                  <button onClick={() => setScheduleModalProf(null)} className="text-slate-400 hover:text-slate-700">✕</button>
-                </div>
-                <div className="p-6 space-y-4">
-                  <p className="text-sm text-slate-500 mb-4">Configura los días y horas de atención para {getProfName(scheduleModalProf)}.</p>
-                  {['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((day, idx) => {
-                    const label = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][idx];
-                    const data = localSchedules[scheduleModalProf][day];
-                    return (
-                      <div key={day} className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <label className="flex items-center gap-3 w-32 cursor-pointer">
-                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, active: e.target.checked}}})} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
-                          <span className="text-sm font-medium text-slate-700">{label}</span>
-                        </label>
-                        {data.active ? (
-                          <div className="flex items-center gap-2">
-                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, start: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                            <span className="text-slate-400 text-sm">-</span>
-                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, end: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                          </div>
-                        ) : (
-                          <span className="text-sm text-slate-400 italic flex-1 text-right pr-4">No atiende</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-                <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
-                  <button onClick={() => setScheduleModalProf(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
-                  <button onClick={() => { alert('Horario guardado localmente en el sistema.'); setScheduleModalProf(null); }} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">Guardar Horario</button>
-                </div>
-              </div>
-            </div>
-          )}
-
           <main className="p-8 max-w-7xl w-full mx-auto space-y-8">
             
             {activePatient && (
@@ -642,7 +670,7 @@ export default function AdminPanel() {
                 <h2 className="text-3xl font-medium text-slate-900 mb-8">¿Cómo puedo ayudarte hoy, {session.user.email.split('@')[0]}?</h2>
                 <div className="flex flex-wrap justify-center gap-3 mb-8">
                   <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>¿Cuál es mi agenda de hoy?</button>
-                  <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>Crear un paciente</button>
+                  <button onClick={openNewApptModal} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>Crear un paciente</button>
                   <button onClick={() => setActiveTab('finanzas')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>Ver pagos pendientes</button>
                 </div>
                 <div className="w-full bg-white border border-blue-200 rounded-2xl p-4 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
@@ -685,7 +713,9 @@ export default function AdminPanel() {
                     <div className="space-y-4">
                       <button onClick={() => setActiveTab('finanzas')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Revisar mis boletas y rendimiento</button>
                       <button onClick={() => setActiveTab('agenda')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Ver mi agenda interactiva completa</button>
-                      <button onClick={() => setActiveTab('equipo')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Asignar y gestionar boxes clínicos</button>
+                      {userRole === 'admin' && (
+                        <button onClick={() => setActiveTab('equipo')} className="block w-full text-left text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Asignar y gestionar boxes clínicos</button>
+                      )}
                       <button onClick={() => setActiveTab('pacientes')} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors mt-6 pt-4">Ver todos mis pacientes <span className="text-lg leading-none">›</span></button>
                     </div>
                   </div>
@@ -700,7 +730,7 @@ export default function AdminPanel() {
                     <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Cuadrícula</button>
                     <button onClick={() => setViewMode('list')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Lista</button>
                   </div>
-                  <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
+                  <button onClick={openNewApptModal} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
                 </div>
                 {viewMode === 'calendar' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
@@ -803,7 +833,7 @@ export default function AdminPanel() {
                     <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> Interesados</button>
                     <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">Plantillas <span className="text-[10px]">▼</span></button>
                     <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg> Importar <span className="text-[10px]">▼</span></button>
-                    <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 flex items-center gap-2 ml-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Añadir nuevo</button>
+                    <button onClick={openNewApptModal} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 flex items-center gap-2 ml-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Añadir nuevo</button>
                   </div>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -899,7 +929,7 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {!activePatient && activeTab === 'equipo' && (
+            {!activePatient && activeTab === 'equipo' && userRole === 'admin' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Gestión de Equipo y Boxes</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
@@ -928,7 +958,7 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {!activePatient && activeTab === 'terapias' && (
+            {!activePatient && activeTab === 'terapias' && userRole === 'admin' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Servicios y Terapias</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
