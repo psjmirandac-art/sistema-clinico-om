@@ -28,11 +28,21 @@ export default function AdminPanel() {
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [adminCenterId, setAdminCenterId] = useState<string>(ENV_CENTER_ID);
+  
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(new Date('2024-01-01T00:00:00'));
+  
+  // Modal de Agendamiento
   const [showApptModal, setShowApptModal] = useState(false);
-  const [adminAppt, setAdminAppt] = useState({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+  const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
+  // Nuevos Modales Interactivos del Calendario
+  const [slotActionModal, setSlotActionModal] = useState<{date: string, time: string} | null>(null);
+  const [apptActionModal, setApptActionModal] = useState<any>(null);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
+
+  // Ficha Clínica y Notas
   const [activePatient, setActivePatient] = useState<any | null>(null);
   const [patientNotes, setPatientNotes] = useState<any[]>([]);
   const [noteMotivo, setNoteMotivo] = useState('');
@@ -169,15 +179,11 @@ export default function AdminPanel() {
   const getWeekDays = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + i); return d; });
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
-  // ==========================================
-  // LÓGICA DE PACIENTES PARA LA NUEVA TABLA
-  // ==========================================
   const patientsMap = new Map();
   visibleAppointments.forEach(app => {
+    if (app.patient_name?.startsWith('[BLOQUEO]')) return; // No contar bloqueos como pacientes
     const key = app.patient_rut || app.patient_name;
-    if (!patientsMap.has(key)) {
-      patientsMap.set(key, { id: key, name: app.patient_name, rut: app.patient_rut, phone: app.patient_phone, email: app.patient_email, appointments: [] });
-    }
+    if (!patientsMap.has(key)) { patientsMap.set(key, { id: key, name: app.patient_name, rut: app.patient_rut, phone: app.patient_phone, email: app.patient_email, appointments: [] }); }
     patientsMap.get(key).appointments.push(app);
   });
 
@@ -199,9 +205,43 @@ export default function AdminPanel() {
     return matchesSearch && matchesFilter;
   });
 
-  // FUNCIÓN PARA REAGENDAR (Llena el modal con los datos del paciente)
-  const handleQuickSchedule = (p: any) => {
-    setAdminAppt({ ...adminAppt, patient_name: p.name, patient_rut: p.rut, patient_phone: p.phone, patient_email: p.email });
+  // DRAG AND DROP (ARRASTRAR CITAS EN CALENDARIO)
+  const handleDragStart = (e: any, appId: string) => { e.dataTransfer.setData('appId', appId); };
+  const handleDrop = async (e: any, day: Date, hour: number) => {
+    e.preventDefault();
+    const appId = e.dataTransfer.getData('appId');
+    if (!appId) return;
+    
+    const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
+    const newStart = new Date(`${year}-${month}-${d}T${h}:00:00-03:00`).toISOString();
+    const newEnd = new Date(new Date(newStart).getTime() + 60 * 60 * 1000).toISOString();
+    
+    await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
+    loadData();
+  };
+
+  // BLOQUEAR HORARIOS
+  const handleBlockSlot = async () => {
+    if (!slotActionModal) return;
+    setLoading(true);
+    const startDateTime = new Date(`${slotActionModal.date}T${slotActionModal.time}:00-03:00`).toISOString();
+    const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
+    
+    const { error } = await supabase.from('appointments').update({
+      center_id: adminCenterId,
+      patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`,
+      start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
+    });
+    
+    // Al ser un mockup, hacemos insert para simular el bloqueo
+    await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
+    
+    setSlotActionModal(null); setIsBlocking(false); setBlockReason(''); loadData(); setLoading(false);
+  };
+
+  // AGENDAR O REAGENDAR
+  const handleQuickSchedule = (p: any, apptIdToEdit?: string) => {
+    setAdminAppt({ ...adminAppt, id: apptIdToEdit || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email });
     setShowApptModal(true);
   };
 
@@ -210,11 +250,23 @@ export default function AdminPanel() {
     const startDateTime = new Date(`${adminAppt.date}T${adminAppt.time}:00-03:00`).toISOString();
     const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
     
-    const { error } = await supabase.from('appointments').insert([{
-      center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
-      patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
-      start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
-    }]);
+    let error = null;
+
+    if (adminAppt.id) { // Es una actualización (Reagendar)
+      const { error: updateErr } = await supabase.from('appointments').update({
+        professional_id: adminAppt.professional_id, service_id: adminAppt.service_id, box_id: adminAppt.box_id,
+        patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
+        start_time: startDateTime, end_time: endDateTime
+      }).eq('id', adminAppt.id);
+      error = updateErr;
+    } else { // Es una creación nueva
+      const { error: insertErr } = await supabase.from('appointments').insert([{
+        center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
+        patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
+        start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
+      }]);
+      error = insertErr;
+    }
 
     if (!error) {
       if (adminAppt.patient_email) {
@@ -227,20 +279,21 @@ export default function AdminPanel() {
         } catch (mailError) { console.error('Error enviando correo:', mailError); }
       }
       setShowApptModal(false); 
-      setAdminAppt({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
       loadData(); 
-      alert('Cita agendada exitosamente.');
-    } else { alert('Error al agendar cita.'); }
+      alert(adminAppt.id ? 'Cita reagendada exitosamente.' : 'Cita agendada exitosamente.');
+    } else { alert('Error al guardar cita.'); }
     setLoading(false);
   };
 
-  const handleDeleteAppt = async (id: string) => {
-    if (!confirm('¿Cancelar cita?')) return;
+  const handleDeleteAppt = async (id: string, isBlock = false) => {
+    if (!confirm(isBlock ? '¿Desbloquear este horario?' : '¿Seguro que deseas eliminar esta cita?')) return;
     const { error } = await supabase.from('appointments').delete().eq('id', id);
-    if (!error) loadData();
+    if (!error) { loadData(); setApptActionModal(null); }
   };
 
-  const openFicha = async (appOrPatient: any) => {
+  const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
+    setApptActionModal(null);
     const pName = appOrPatient.patient_name || appOrPatient.name;
     const pRut = appOrPatient.patient_rut || appOrPatient.rut;
     const pPhone = appOrPatient.patient_phone || appOrPatient.phone;
@@ -248,6 +301,10 @@ export default function AdminPanel() {
     setActiveTab('agenda');
     const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', pName).eq('center_id', adminCenterId).order('created_at', { ascending: false });
     if (data) setPatientNotes(data);
+    
+    if (autoTranscribe) {
+      setTimeout(() => { toggleListening(); }, 500); // Dar un respiro a React para renderizar antes de activar voz
+    }
   };
 
   const handleSaveNote = async (e: React.FormEvent) => {
@@ -344,10 +401,140 @@ export default function AdminPanel() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowApptModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
+              <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
             </div>
           </header>
 
+          {/* =========================================
+              NUEVOS MODALES DEL CALENDARIO INTERACTIVO 
+             ========================================= */}
+
+          {/* 1. Modal para Opciones de Horario Vacío (Agendar vs Bloquear) */}
+          {slotActionModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
+                 <h3 className="font-bold text-lg text-slate-900 mb-1">Horario Seleccionado</h3>
+                 <p className="text-slate-500 text-sm mb-6">{slotActionModal.date} a las {slotActionModal.time}</p>
+                 
+                 <div className="flex flex-col gap-3">
+                    {!isBlocking && (
+                      <button onClick={() => { 
+                         setAdminAppt({...adminAppt, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time}); 
+                         setSlotActionModal(null); setShowApptModal(true); 
+                      }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">
+                        📅 Agendar Paciente
+                      </button>
+                    )}
+                    
+                    {!isBlocking ? (
+                      <button onClick={() => setIsBlocking(true)} className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors">
+                        🚫 Bloquear Horario
+                      </button>
+                    ) : (
+                      <div className="mt-2 text-left animate-fade-in">
+                         <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivo del Bloqueo</label>
+                         <input type="text" placeholder="Ej: Almuerzo, Reunión..." className="w-full border border-slate-200 p-3 rounded-xl mb-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={blockReason} onChange={e=>setBlockReason(e.target.value)} />
+                         <button onClick={handleBlockSlot} disabled={loading} className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800">
+                           {loading ? 'Guardando...' : 'Confirmar Bloqueo'}
+                         </button>
+                      </div>
+                    )}
+                    <button onClick={() => {setSlotActionModal(null); setIsBlocking(false);}} className="mt-2 text-slate-400 hover:text-slate-600 text-sm font-medium">Cancelar</button>
+                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Modal de Acciones del Paciente (Al hacer click en cita agendada) */}
+          {apptActionModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-fade-in">
+                
+                {apptActionModal.patient_name.startsWith('[BLOQUEO]') ? (
+                  // Menú especial para horario bloqueado
+                  <div className="text-center">
+                    <div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">🚫</div>
+                    <h3 className="font-bold text-lg text-slate-900 mb-1">Horario Bloqueado</h3>
+                    <p className="text-slate-500 text-sm mb-6">{apptActionModal.patient_name.replace('[BLOQUEO]', '')}</p>
+                    <button onClick={() => handleDeleteAppt(apptActionModal.id, true)} className="w-full py-3 bg-emerald-100 text-emerald-700 rounded-xl font-bold hover:bg-emerald-200 transition-colors mb-2">Desbloquear Horario</button>
+                    <button onClick={() => setApptActionModal(null)} className="w-full py-3 text-slate-400 hover:text-slate-600 font-medium">Cerrar</button>
+                  </div>
+                ) : (
+                  // Menú para Pacientes Reales
+                  <>
+                    <div className="flex justify-between items-center mb-6">
+                      <div>
+                        <h3 className="font-bold text-lg text-slate-900">{apptActionModal.patient_name}</h3>
+                        <p className="text-slate-500 text-xs">Agendado para las {new Date(apptActionModal.start_time).toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})}</p>
+                      </div>
+                      <button onClick={() => setApptActionModal(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+                    </div>
+                    
+                    <div className="flex flex-col gap-2">
+                      <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
+                        <span className="text-lg">📁</span> Entrar a la ficha clínica
+                      </button>
+                      
+                      <button onClick={() => { alert('Pago registrado exitosamente en el sistema.'); setApptActionModal(null); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
+                        <span className="text-lg">💰</span> Registrar el pago
+                      </button>
+                      
+                      <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors">
+                        <span className="text-lg">🎙️</span> Transcribir sesión con IA
+                      </button>
+                      
+                      <button onClick={() => {
+                        setApptActionModal(null);
+                        const appD = new Date(apptActionModal.start_time);
+                        handleQuickSchedule(apptActionModal, apptActionModal.id); 
+                        setAdminAppt(prev => ({...prev, date: appD.toISOString().split('T')[0], time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})}));
+                      }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
+                        <span className="text-lg">🔄</span> Reagendar cita
+                      </button>
+                      
+                      <button onClick={() => handleDeleteAppt(apptActionModal.id)} className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-medium text-red-600 flex items-center gap-3 transition-colors">
+                        <span className="text-lg">🗑️</span> Eliminar de la agenda
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Modal General de Agendamiento / Reagendamiento */}
+          {showApptModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white">
+                  <h2 className="text-xl font-bold text-slate-900">{adminAppt.id ? 'Reagendar Cita' : 'Agendar Nueva Cita'}</h2>
+                  <button onClick={() => setShowApptModal(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <form onSubmit={handleAdminSchedule} className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase">Detalles Médicos</h3></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{services.filter(s => s.professional_id === adminAppt.professional_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase mt-2">Datos del Paciente</h3></div>
+                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
+                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setShowApptModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">{loading ? 'Procesando...' : (adminAppt.id ? 'Guardar Cambios' : 'Confirmar Cita')}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Horarios Profesionales */}
           {scheduleModalProf && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
@@ -383,34 +570,6 @@ export default function AdminPanel() {
                   <button onClick={() => setScheduleModalProf(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
                   <button onClick={() => { alert('Horario guardado localmente en el sistema.'); setScheduleModalProf(null); }} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">Guardar Horario</button>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {showApptModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white">
-                  <h2 className="text-xl font-bold text-slate-900">Agendar Nueva Cita</h2>
-                  <button onClick={() => setShowApptModal(false)} className="text-slate-400 hover:text-slate-700">✕</button>
-                </div>
-                <form onSubmit={handleAdminSchedule} className="p-6 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase">Detalles Médicos</h3></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{services.filter(s => s.professional_id === adminAppt.professional_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase mt-2">Datos del Paciente</h3></div>
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
-                  </div>
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100"><button type="button" onClick={() => setShowApptModal(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl">Cancelar</button><button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl">{loading ? 'Agendando...' : 'Confirmar Cita'}</button></div>
-                </form>
               </div>
             </div>
           )}
@@ -465,7 +624,7 @@ export default function AdminPanel() {
                 <h2 className="text-3xl font-medium text-slate-900 mb-8">¿Cómo puedo ayudarte hoy, {session.user.email.split('@')[0]}?</h2>
                 <div className="flex flex-wrap justify-center gap-3 mb-8">
                   <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>¿Cuál es mi agenda de hoy?</button>
-                  <button onClick={() => setShowApptModal(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>Crear un paciente</button>
+                  <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>Crear un paciente</button>
                   <button onClick={() => setActiveTab('finanzas')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>Ver pagos pendientes</button>
                 </div>
                 <div className="w-full bg-white border border-blue-200 rounded-2xl p-4 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
@@ -475,7 +634,7 @@ export default function AdminPanel() {
                       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                       <select onChange={(e) => { const appt = visibleAppointments.find(a => a.id === e.target.value); if (appt) openFicha(appt); }} className="appearance-none w-full bg-transparent border border-slate-200 text-slate-600 text-sm rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:border-blue-400 cursor-pointer">
                         <option value="">Elegir paciente</option>
-                        {visibleAppointments.map(app => <option key={app.id} value={app.id}>{app.patient_name}</option>)}
+                        {visibleAppointments.filter(app => !app.patient_name.startsWith('[BLOQUEO]')).map(app => <option key={app.id} value={app.id}>{app.patient_name}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-3">
@@ -488,8 +647,8 @@ export default function AdminPanel() {
                   <div>
                     <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Próximas Citas</h3>
                     <div className="space-y-4">
-                      {visibleAppointments.length === 0 ? <p className="text-sm text-slate-500">No tienes citas próximas.</p> :
-                        visibleAppointments.slice(0, 4).map(app => (
+                      {visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).length === 0 ? <p className="text-sm text-slate-500">No tienes citas próximas.</p> :
+                        visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).slice(0, 4).map(app => (
                           <div key={app.id} onClick={() => openFicha(app)} className="flex items-start gap-3 cursor-pointer group">
                             <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 group-hover:scale-125 transition-transform"></div>
                             <div>
@@ -513,6 +672,7 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA CALENDARIO CON DRAG & DROP Y MODALES */}
             {!activePatient && activeTab === 'agenda' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -520,7 +680,7 @@ export default function AdminPanel() {
                     <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Cuadrícula</button>
                     <button onClick={() => setViewMode('list')} className={`px-4 py-2 text-xs font-bold rounded-lg ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Lista</button>
                   </div>
-                  <button onClick={() => setShowApptModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
+                  <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
                 </div>
                 {viewMode === 'calendar' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
@@ -543,16 +703,36 @@ export default function AdminPanel() {
                                 const appD = new Date(app.start_time);
                                 return appD.getDate() === day.getDate() && appD.getMonth() === day.getMonth() && appD.getHours() === hour;
                               });
-                              const handleCellClick = () => {
+
+                              // Click en espacio vacío
+                              const handleSlotClick = () => {
                                 const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
-                                setAdminAppt(prev => ({ ...prev, date: `${year}-${month}-${d}`, time: `${h}:00` }));
-                                setShowApptModal(true);
+                                setSlotActionModal({ date: `${year}-${month}-${d}`, time: `${h}:00` });
                               };
+
                               return (
-                                <div key={day.toISOString()} onClick={handleCellClick} className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]" title="Hacer clic para agendar en este horario">
-                                  {cellAppts.map(app => (
-                                    <div key={app.id} onClick={(e) => { e.stopPropagation(); openFicha(app); }} className="bg-blue-50 border-l-4 border-blue-500 text-blue-900 text-[10px] p-2 rounded-lg cursor-pointer shadow-sm font-bold mb-1 hover:bg-blue-100">{app.patient_name}</div>
-                                  ))}
+                                <div 
+                                  key={day.toISOString()} 
+                                  onClick={handleSlotClick} 
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDrop={(e) => handleDrop(e, day, hour)}
+                                  className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]" 
+                                  title="Clic para Agendar o Bloquear. Arrastra una cita para moverla."
+                                >
+                                  {cellAppts.map(app => {
+                                    const isBlocked = app.patient_name.startsWith('[BLOQUEO]');
+                                    return (
+                                      <div 
+                                        key={app.id} 
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, app.id)}
+                                        onClick={(e) => { e.stopPropagation(); setApptActionModal(app); }} 
+                                        className={`p-2 rounded-lg shadow-sm font-bold mb-1 text-[10px] cursor-move transition-transform hover:scale-[1.02] ${isBlocked ? 'bg-slate-100 border-l-4 border-slate-400 text-slate-500' : 'bg-blue-50 border-l-4 border-blue-500 text-blue-900 hover:bg-blue-100'}`}
+                                      >
+                                        {isBlocked ? app.patient_name.replace('[BLOQUEO]', '🚫') : app.patient_name}
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               );
                             })}
@@ -565,7 +745,7 @@ export default function AdminPanel() {
                 {viewMode === 'list' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                     <div className="divide-y divide-slate-100">
-                      {visibleAppointments.map(app => (
+                      {visibleAppointments.filter(app => !app.patient_name.startsWith('[BLOQUEO]')).map(app => (
                         <div key={app.id} className="p-5 flex justify-between items-center hover:bg-slate-50">
                           <div>
                             <p className="font-bold text-slate-900 text-sm">{app.patient_name}</p>
@@ -583,53 +763,30 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA PACIENTES REDISEÑADA ESTILO ENCUADRADO */}
             {!activePatient && activeTab === 'pacientes' && (
               <div className="space-y-4 animate-fade-in font-sans">
                 <h2 className="text-2xl font-medium text-slate-900 mb-6">Pacientes</h2>
-                
-                {/* Pestañas de Filtro */}
                 <div className="flex gap-2 mb-4">
                   {['Todos', 'Activos', 'Inactivos', 'Eliminados'].map(tab => (
-                    <button 
-                      key={tab} 
-                      onClick={() => setPatientFilterTab(tab)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${patientFilterTab === tab ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
-                    >
+                    <button key={tab} onClick={() => setPatientFilterTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${patientFilterTab === tab ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}>
                       {tab} {tab === 'Todos' && `(${processedPatients.length})`}
                       {tab === 'Activos' && `(${processedPatients.filter(p=>p.status==='Activo').length})`}
                       {tab === 'Inactivos' && `(${processedPatients.filter(p=>p.status==='Inactivo').length})`}
                     </button>
                   ))}
                 </div>
-
-                {/* Barra de Búsqueda y Botones de Acción */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                   <div className="relative w-full md:w-[400px]">
                     <svg className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    <input 
-                      type="text" 
-                      placeholder="Buscar por nombre, RUT, teléfono o correo" 
-                      value={patientSearch}
-                      onChange={(e) => setPatientSearch(e.target.value)}
-                      className="w-full border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all"
-                    />
+                    <input type="text" placeholder="Buscar por nombre, RUT, teléfono o correo" value={patientSearch} onChange={(e) => setPatientSearch(e.target.value)} className="w-full border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-900 focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all"/>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> Interesados
-                    </button>
+                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> Interesados</button>
                     <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">Plantillas <span className="text-[10px]">▼</span></button>
-                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg> Importar <span className="text-[10px]">▼</span>
-                    </button>
-                    <button onClick={() => setShowApptModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 flex items-center gap-2 ml-1">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Añadir nuevo
-                    </button>
+                    <button className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg> Importar <span className="text-[10px]">▼</span></button>
+                    <button onClick={() => {setAdminAppt({...adminAppt, id: '', patient_name: ''}); setShowApptModal(true);}} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 flex items-center gap-2 ml-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Añadir nuevo</button>
                   </div>
                 </div>
-
-                {/* Tabla de Pacientes */}
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm text-slate-600">
@@ -644,37 +801,19 @@ export default function AdminPanel() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredPatients.length === 0 ? (
-                          <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">No se encontraron pacientes</td></tr>
-                        ) : (
+                        {filteredPatients.length === 0 ? <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">No se encontraron pacientes</td></tr> :
                           filteredPatients.map(p => (
                             <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-6 py-4">
-                                <span onClick={() => openFicha(p)} className="font-medium text-slate-900 hover:text-blue-600 cursor-pointer">{p.name}</span>
-                              </td>
+                              <td className="px-6 py-4"><span onClick={() => openFicha(p)} className="font-medium text-slate-900 hover:text-blue-600 cursor-pointer">{p.name}</span></td>
                               <td className="px-6 py-4 text-slate-500">{formatShortDate(p.ultimaSesion)}</td>
                               <td className="px-6 py-4 text-slate-500">{formatShortDate(p.proximaSesion)}</td>
-                              <td className="px-6 py-4">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">
-                                  Al día
-                                </span>
-                              </td>
+                              <td className="px-6 py-4"><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">Al día</span></td>
                               <td className="px-6 py-4"></td>
                               <td className="px-6 py-4 text-right">
                                 <div className="flex justify-center items-center gap-2 relative">
-                                  {/* Botón Reagendar */}
-                                  <button onClick={() => handleQuickSchedule(p)} title="Reagendar cita" className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                  </button>
-                                  {/* Botón WhatsApp */}
-                                  <button onClick={() => p.phone ? window.open(`https://wa.me/${p.phone.replace(/[^0-9]/g, '')}`, '_blank') : alert('Paciente sin teléfono')} title="Contactar por WhatsApp" className="p-1.5 text-slate-400 hover:text-green-600 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                                  </button>
-                                  {/* Botón Menu */}
-                                  <button onClick={() => setActiveDropdown(activeDropdown === p.id ? null : p.id)} className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
-                                  </button>
-
+                                  <button onClick={() => handleQuickSchedule(p)} title="Reagendar nueva cita" className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></button>
+                                  <button onClick={() => p.phone ? window.open(`https://wa.me/${p.phone.replace(/[^0-9]/g, '')}`, '_blank') : alert('Paciente sin teléfono')} title="Contactar por WhatsApp" className="p-1.5 text-slate-400 hover:text-green-600 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
+                                  <button onClick={() => setActiveDropdown(activeDropdown === p.id ? null : p.id)} className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg></button>
                                   {activeDropdown === p.id && (
                                     <div className="absolute right-0 top-10 mt-1 w-36 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1 text-left">
                                       <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Derivar</button>
@@ -699,47 +838,13 @@ export default function AdminPanel() {
               <div className="space-y-8 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Boletas, Pagos y Rendimiento</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase">Ingresos Brutos</p>
-                    <p className="text-3xl font-black text-emerald-600 mt-2">${totalIncome.toLocaleString('es-CL')}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase">Citas Atendidas</p>
-                    <p className="text-3xl font-black text-indigo-600 mt-2">{currentMonthAppointments.length}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 uppercase">Ticket Promedio</p>
-                    <p className="text-3xl font-black text-slate-800 mt-2">${averageTicket.toLocaleString('es-CL')}</p>
-                  </div>
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Ingresos Brutos</p><p className="text-3xl font-black text-emerald-600 mt-2">${totalIncome.toLocaleString('es-CL')}</p></div>
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Citas Atendidas</p><p className="text-3xl font-black text-indigo-600 mt-2">{currentMonthAppointments.length}</p></div>
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Ticket Promedio</p><p className="text-3xl font-black text-slate-800 mt-2">${averageTicket.toLocaleString('es-CL')}</p></div>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Ingresos por Profesional</h3>
-                    <div className="h-[280px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], ingresos: currentMonthAppointments.filter(a => a.professional_id === p.id).reduce((s, a) => s + getServicePrice(a.service_id), 0)}))}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="name" tick={{fontSize: 12}} />
-                          <YAxis tick={{fontSize: 12}} />
-                          <Tooltip formatter={(v:any) => [`$${v.toLocaleString('es-CL')}`, 'Ingresos']} />
-                          <Bar dataKey="ingresos" fill="#3b82f6" radius={[8,8,0,0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Distribución de Citas</h3>
-                    <div className="h-[280px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], value: currentMonthAppointments.filter(a => a.professional_id === p.id).length}))} dataKey="value" innerRadius={70} outerRadius={100} paddingAngle={5}>
-                            {visibleProfessionals.map((_, i) => <Cell key={i} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i%4]} />)}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Ingresos por Profesional</h3><div className="h-[280px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], ingresos: currentMonthAppointments.filter(a => a.professional_id === p.id).reduce((s, a) => s + getServicePrice(a.service_id), 0)}))}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 12}} /><YAxis tick={{fontSize: 12}} /><Tooltip formatter={(v:any) => [`$${v.toLocaleString('es-CL')}`, 'Ingresos']} /><Bar dataKey="ingresos" fill="#3b82f6" radius={[8,8,0,0]} /></BarChart></ResponsiveContainer></div></div>
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Distribución de Citas</h3><div className="h-[280px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], value: currentMonthAppointments.filter(a => a.professional_id === p.id).length}))} dataKey="value" innerRadius={70} outerRadius={100} paddingAngle={5}>{visibleProfessionals.map((_, i) => <Cell key={i} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i%4]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></div>
                 </div>
               </div>
             )}
@@ -747,13 +852,8 @@ export default function AdminPanel() {
             {!activePatient && activeTab === 'resenas' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">Reseñas y Evaluaciones</h2>
-                    <p className="text-slate-500 text-sm mt-1">Valoraciones verificadas dejadas por tus pacientes tras las sesiones.</p>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-2xl font-bold text-sm">
-                    {reviews.length > 0 ? `⭐ ${(reviews.reduce((acc, rev) => acc + (rev.rating || 5), 0) / reviews.length).toFixed(1)} Promedio público (${reviews.length} visibles)` : '⭐ Sin valoraciones aún'}
-                  </div>
+                  <div><h2 className="text-2xl font-bold text-slate-900">Reseñas y Evaluaciones</h2><p className="text-slate-500 text-sm mt-1">Valoraciones verificadas dejadas por tus pacientes tras las sesiones.</p></div>
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-2xl font-bold text-sm">{reviews.length > 0 ? `⭐ ${(reviews.reduce((acc, rev) => acc + (rev.rating || 5), 0) / reviews.length).toFixed(1)} Promedio público (${reviews.length} visibles)` : '⭐ Sin valoraciones aún'}</div>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 pb-6 text-center">
@@ -766,10 +866,7 @@ export default function AdminPanel() {
                       reviews.map((rev) => (
                         <div key={rev.id} className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl space-y-2">
                           <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 text-sm">{rev.patient_name || 'Paciente verificado'}</span>
-                              <span className="text-amber-500 text-xs">{'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}</span>
-                            </div>
+                            <div className="flex items-center gap-2"><span className="font-bold text-slate-900 text-sm">{rev.patient_name || 'Paciente verificado'}</span><span className="text-amber-500 text-xs">{'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}</span></div>
                             <span className="text-xs text-slate-400">{new Date(rev.created_at).toLocaleDateString('es-CL')}</span>
                           </div>
                           <p className="text-sm text-slate-700">{rev.comment}</p>
