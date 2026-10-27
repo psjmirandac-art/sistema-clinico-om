@@ -32,17 +32,14 @@ export default function AdminPanel() {
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(new Date('2024-01-01T00:00:00'));
   
-  // Modal de Agendamiento
   const [showApptModal, setShowApptModal] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
-  // Nuevos Modales Interactivos del Calendario
   const [slotActionModal, setSlotActionModal] = useState<{date: string, time: string} | null>(null);
   const [apptActionModal, setApptActionModal] = useState<any>(null);
   const [isBlocking, setIsBlocking] = useState(false);
   const [blockReason, setBlockReason] = useState('');
 
-  // Ficha Clínica y Notas
   const [activePatient, setActivePatient] = useState<any | null>(null);
   const [patientNotes, setPatientNotes] = useState<any[]>([]);
   const [noteMotivo, setNoteMotivo] = useState('');
@@ -50,16 +47,13 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // Estados Pestaña Pacientes
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilterTab, setPatientFilterTab] = useState('Todos');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
-  // Estados Horarios Profesionales
   const [scheduleModalProf, setScheduleModalProf] = useState<any | null>(null);
   const [localSchedules, setLocalSchedules] = useState<any>({});
 
-  // Motor IA
   const [isListening, setIsListening] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -181,7 +175,7 @@ export default function AdminPanel() {
 
   const patientsMap = new Map();
   visibleAppointments.forEach(app => {
-    if (app.patient_name?.startsWith('[BLOQUEO]')) return; // No contar bloqueos como pacientes
+    if (app.patient_name?.startsWith('[BLOQUEO]')) return; 
     const key = app.patient_rut || app.patient_name;
     if (!patientsMap.has(key)) { patientsMap.set(key, { id: key, name: app.patient_name, rut: app.patient_rut, phone: app.patient_phone, email: app.patient_email, appointments: [] }); }
     patientsMap.get(key).appointments.push(app);
@@ -205,41 +199,27 @@ export default function AdminPanel() {
     return matchesSearch && matchesFilter;
   });
 
-  // DRAG AND DROP (ARRASTRAR CITAS EN CALENDARIO)
   const handleDragStart = (e: any, appId: string) => { e.dataTransfer.setData('appId', appId); };
   const handleDrop = async (e: any, day: Date, hour: number) => {
     e.preventDefault();
     const appId = e.dataTransfer.getData('appId');
     if (!appId) return;
-    
     const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
     const newStart = new Date(`${year}-${month}-${d}T${h}:00:00-03:00`).toISOString();
     const newEnd = new Date(new Date(newStart).getTime() + 60 * 60 * 1000).toISOString();
-    
     await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
     loadData();
   };
 
-  // BLOQUEAR HORARIOS
   const handleBlockSlot = async () => {
     if (!slotActionModal) return;
     setLoading(true);
     const startDateTime = new Date(`${slotActionModal.date}T${slotActionModal.time}:00-03:00`).toISOString();
     const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
-    
-    const { error } = await supabase.from('appointments').update({
-      center_id: adminCenterId,
-      patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`,
-      start_time: startDateTime, end_time: endDateTime, consent_accepted: true 
-    });
-    
-    // Al ser un mockup, hacemos insert para simular el bloqueo
-    await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
-    
+    const { error } = await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
     setSlotActionModal(null); setIsBlocking(false); setBlockReason(''); loadData(); setLoading(false);
   };
 
-  // AGENDAR O REAGENDAR
   const handleQuickSchedule = (p: any, apptIdToEdit?: string) => {
     setAdminAppt({ ...adminAppt, id: apptIdToEdit || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email });
     setShowApptModal(true);
@@ -251,15 +231,14 @@ export default function AdminPanel() {
     const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
     
     let error = null;
-
-    if (adminAppt.id) { // Es una actualización (Reagendar)
+    if (adminAppt.id) { 
       const { error: updateErr } = await supabase.from('appointments').update({
         professional_id: adminAppt.professional_id, service_id: adminAppt.service_id, box_id: adminAppt.box_id,
         patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
         start_time: startDateTime, end_time: endDateTime
       }).eq('id', adminAppt.id);
       error = updateErr;
-    } else { // Es una creación nueva
+    } else { 
       const { error: insertErr } = await supabase.from('appointments').insert([{
         center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
         patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
@@ -272,10 +251,7 @@ export default function AdminPanel() {
       if (adminAppt.patient_email) {
         const profName = professionals.find(p => p.id === adminAppt.professional_id)?.name || 'Profesional';
         try {
-          await fetch('/api/send-email', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: startDateTime }),
-          });
+          await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: startDateTime }) });
         } catch (mailError) { console.error('Error enviando correo:', mailError); }
       }
       setShowApptModal(false); 
@@ -301,10 +277,7 @@ export default function AdminPanel() {
     setActiveTab('agenda');
     const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', pName).eq('center_id', adminCenterId).order('created_at', { ascending: false });
     if (data) setPatientNotes(data);
-    
-    if (autoTranscribe) {
-      setTimeout(() => { toggleListening(); }, 500); // Dar un respiro a React para renderizar antes de activar voz
-    }
+    if (autoTranscribe) { setTimeout(() => { toggleListening(); }, 500); }
   };
 
   const handleSaveNote = async (e: React.FormEvent) => {
@@ -367,12 +340,10 @@ export default function AdminPanel() {
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gestión Profesional</span>
               </div>
             </div>
-
             <div className="p-4 space-y-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mb-2 tracking-wider">Hoy</p>
               <button onClick={() => { setActiveTab('inicio'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inicio' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏠 Inicio</button>
               <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>📅 Calendario</button>
-
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
               <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>👥 Pacientes</button>
               <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
@@ -405,38 +376,22 @@ export default function AdminPanel() {
             </div>
           </header>
 
-          {/* =========================================
-              NUEVOS MODALES DEL CALENDARIO INTERACTIVO 
-             ========================================= */}
-
-          {/* 1. Modal para Opciones de Horario Vacío (Agendar vs Bloquear) */}
           {slotActionModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
                  <h3 className="font-bold text-lg text-slate-900 mb-1">Horario Seleccionado</h3>
                  <p className="text-slate-500 text-sm mb-6">{slotActionModal.date} a las {slotActionModal.time}</p>
-                 
                  <div className="flex flex-col gap-3">
                     {!isBlocking && (
-                      <button onClick={() => { 
-                         setAdminAppt({...adminAppt, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time}); 
-                         setSlotActionModal(null); setShowApptModal(true); 
-                      }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">
-                        📅 Agendar Paciente
-                      </button>
+                      <button onClick={() => { setAdminAppt({...adminAppt, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time}); setSlotActionModal(null); setShowApptModal(true); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">📅 Agendar Paciente</button>
                     )}
-                    
                     {!isBlocking ? (
-                      <button onClick={() => setIsBlocking(true)} className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors">
-                        🚫 Bloquear Horario
-                      </button>
+                      <button onClick={() => setIsBlocking(true)} className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors">🚫 Bloquear Horario</button>
                     ) : (
                       <div className="mt-2 text-left animate-fade-in">
                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivo del Bloqueo</label>
                          <input type="text" placeholder="Ej: Almuerzo, Reunión..." className="w-full border border-slate-200 p-3 rounded-xl mb-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={blockReason} onChange={e=>setBlockReason(e.target.value)} />
-                         <button onClick={handleBlockSlot} disabled={loading} className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800">
-                           {loading ? 'Guardando...' : 'Confirmar Bloqueo'}
-                         </button>
+                         <button onClick={handleBlockSlot} disabled={loading} className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800">{loading ? 'Guardando...' : 'Confirmar Bloqueo'}</button>
                       </div>
                     )}
                     <button onClick={() => {setSlotActionModal(null); setIsBlocking(false);}} className="mt-2 text-slate-400 hover:text-slate-600 text-sm font-medium">Cancelar</button>
@@ -445,13 +400,10 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* 2. Modal de Acciones del Paciente (Al hacer click en cita agendada) */}
           {apptActionModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-fade-in">
-                
                 {apptActionModal.patient_name.startsWith('[BLOQUEO]') ? (
-                  // Menú especial para horario bloqueado
                   <div className="text-center">
                     <div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">🚫</div>
                     <h3 className="font-bold text-lg text-slate-900 mb-1">Horario Bloqueado</h3>
@@ -460,7 +412,6 @@ export default function AdminPanel() {
                     <button onClick={() => setApptActionModal(null)} className="w-full py-3 text-slate-400 hover:text-slate-600 font-medium">Cerrar</button>
                   </div>
                 ) : (
-                  // Menú para Pacientes Reales
                   <>
                     <div className="flex justify-between items-center mb-6">
                       <div>
@@ -469,32 +420,12 @@ export default function AdminPanel() {
                       </div>
                       <button onClick={() => setApptActionModal(null)} className="text-slate-400 hover:text-slate-700">✕</button>
                     </div>
-                    
                     <div className="flex flex-col gap-2">
-                      <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
-                        <span className="text-lg">📁</span> Entrar a la ficha clínica
-                      </button>
-                      
-                      <button onClick={() => { alert('Pago registrado exitosamente en el sistema.'); setApptActionModal(null); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
-                        <span className="text-lg">💰</span> Registrar el pago
-                      </button>
-                      
-                      <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors">
-                        <span className="text-lg">🎙️</span> Transcribir sesión con IA
-                      </button>
-                      
-                      <button onClick={() => {
-                        setApptActionModal(null);
-                        const appD = new Date(apptActionModal.start_time);
-                        handleQuickSchedule(apptActionModal, apptActionModal.id); 
-                        setAdminAppt(prev => ({...prev, date: appD.toISOString().split('T')[0], time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})}));
-                      }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors">
-                        <span className="text-lg">🔄</span> Reagendar cita
-                      </button>
-                      
-                      <button onClick={() => handleDeleteAppt(apptActionModal.id)} className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-medium text-red-600 flex items-center gap-3 transition-colors">
-                        <span className="text-lg">🗑️</span> Eliminar de la agenda
-                      </button>
+                      <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">📁</span> Entrar a la ficha clínica</button>
+                      <button onClick={() => { alert('Pago registrado exitosamente en el sistema.'); setApptActionModal(null); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">💰</span> Registrar el pago</button>
+                      <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors"><span className="text-lg">🎙️</span> Transcribir sesión con IA</button>
+                      <button onClick={() => { setApptActionModal(null); const appD = new Date(apptActionModal.start_time); handleQuickSchedule(apptActionModal, apptActionModal.id); setAdminAppt(prev => ({...prev, date: appD.toISOString().split('T')[0], time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})})); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">🔄</span> Reagendar cita</button>
+                      <button onClick={() => handleDeleteAppt(apptActionModal.id)} className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-medium text-red-600 flex items-center gap-3 transition-colors"><span className="text-lg">🗑️</span> Eliminar de la agenda</button>
                     </div>
                   </>
                 )}
@@ -502,7 +433,6 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* Modal General de Agendamiento / Reagendamiento */}
           {showApptModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -534,7 +464,6 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* Modal Horarios Profesionales */}
           {scheduleModalProf && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
@@ -583,14 +512,11 @@ export default function AdminPanel() {
                   <div className="h-16 w-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold shadow-inner">{activePatient.patient_name.charAt(0).toUpperCase()}</div>
                   <div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">{activePatient.patient_name} <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">ACTIVO</span></h3><p className="text-sm text-slate-500 mt-1">RUT: {activePatient.patient_rut} | Tel: {activePatient.patient_phone}</p></div>
                 </div>
-                
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col">
                     <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center rounded-t-2xl">
                       <h3 className="font-bold text-slate-800 text-sm">Nueva Evolución con IA</h3>
-                      <button type="button" onClick={toggleListening} disabled={isAnalyzing} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${isListening ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-600 text-white border border-blue-600'}`}>
-                        {isListening ? '⏹ Detener' : isAnalyzing ? '⏳ Procesando...' : '✨ Asistente IA (Dictar)'}
-                      </button>
+                      <button type="button" onClick={toggleListening} disabled={isAnalyzing} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${isListening ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-600 text-white border border-blue-600'}`}>{isListening ? '⏹ Detener' : isAnalyzing ? '⏳ Procesando...' : '✨ Asistente IA (Dictar)'}</button>
                     </div>
                     {isListening && <div className="px-6 pt-4"><div className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-xs font-mono h-24 overflow-y-auto">{transcript || 'Escuchando...'}</div></div>}
                     <form onSubmit={handleSaveNote} className="p-6 flex flex-col gap-4">
@@ -647,7 +573,10 @@ export default function AdminPanel() {
                   <div>
                     <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-5">Próximas Citas</h3>
                     <div className="space-y-4">
-                      {visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).length === 0 ? <p className="text-sm text-slate-500">No tienes citas próximas.</p> :
+                      {visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).length === 0 && (
+                        <p className="text-sm text-slate-500">No tienes citas próximas.</p>
+                      )}
+                      {visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).length > 0 && 
                         visibleAppointments.filter(a => !a.patient_name.startsWith('[BLOQUEO]')).slice(0, 4).map(app => (
                           <div key={app.id} onClick={() => openFicha(app)} className="flex items-start gap-3 cursor-pointer group">
                             <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 group-hover:scale-125 transition-transform"></div>
@@ -656,7 +585,7 @@ export default function AdminPanel() {
                               <p className="text-xs text-slate-400">{new Date(app.start_time).toLocaleString('es-CL', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                             </div>
                           </div>
-                        ))}
+                      ))}
                     </div>
                   </div>
                   <div>
@@ -672,7 +601,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA CALENDARIO CON DRAG & DROP Y MODALES */}
             {!activePatient && activeTab === 'agenda' && (
               <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -704,7 +632,6 @@ export default function AdminPanel() {
                                 return appD.getDate() === day.getDate() && appD.getMonth() === day.getMonth() && appD.getHours() === hour;
                               });
 
-                              // Click en espacio vacío
                               const handleSlotClick = () => {
                                 const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
                                 setSlotActionModal({ date: `${year}-${month}-${d}`, time: `${h}:00` });
@@ -801,8 +728,10 @@ export default function AdminPanel() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredPatients.length === 0 ? <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">No se encontraron pacientes</td></tr> :
-                          filteredPatients.map(p => (
+                        {filteredPatients.length === 0 && (
+                          <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">No se encontraron pacientes</td></tr>
+                        )}
+                        {filteredPatients.length > 0 && filteredPatients.map(p => (
                             <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-6 py-4"><span onClick={() => openFicha(p)} className="font-medium text-slate-900 hover:text-blue-600 cursor-pointer">{p.name}</span></td>
                               <td className="px-6 py-4 text-slate-500">{formatShortDate(p.ultimaSesion)}</td>
@@ -825,8 +754,7 @@ export default function AdminPanel() {
                                 </div>
                               </td>
                             </tr>
-                          ))
-                        )}
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -862,8 +790,10 @@ export default function AdminPanel() {
                     <div><p className="text-xs font-bold text-slate-400 uppercase">Siempre verificadas</p><p className="text-xs text-slate-600 mt-1">Solo pacientes con sesiones reales pueden evaluar.</p></div>
                   </div>
                   <div className="space-y-4 pt-2">
-                    {reviews.length === 0 ? <p className="text-slate-400 text-sm text-center py-8">Aún no tienes reseñas registradas. Aparecerán aquí cuando un paciente te evalúe.</p> :
-                      reviews.map((rev) => (
+                    {reviews.length === 0 && (
+                      <p className="text-slate-400 text-sm text-center py-8">Aún no tienes reseñas registradas. Aparecerán aquí cuando un paciente te evalúe.</p>
+                    )}
+                    {reviews.length > 0 && reviews.map((rev) => (
                         <div key={rev.id} className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl space-y-2">
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2"><span className="font-bold text-slate-900 text-sm">{rev.patient_name || 'Paciente verificado'}</span><span className="text-amber-500 text-xs">{'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}</span></div>
@@ -871,7 +801,7 @@ export default function AdminPanel() {
                           </div>
                           <p className="text-sm text-slate-700">{rev.comment}</p>
                         </div>
-                      ))}
+                    ))}
                   </div>
                 </div>
               </div>
