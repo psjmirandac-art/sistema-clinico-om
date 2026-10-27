@@ -5,11 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
-// Inicialización segura para Vercel
+// Inicialización segura
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
-
 const ENV_CENTER_ID = process.env.NEXT_PUBLIC_CENTER_ID || '';
 
 export default function AdminPanel() {
@@ -18,7 +17,6 @@ export default function AdminPanel() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
   const [activeTab, setActiveTab] = useState('inicio'); 
   
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -29,12 +27,9 @@ export default function AdminPanel() {
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
-  
   const [adminCenterId, setAdminCenterId] = useState<string>(ENV_CENTER_ID);
-
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(new Date('2024-01-01T00:00:00'));
-  
   const [showApptModal, setShowApptModal] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
@@ -45,7 +40,7 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // Estados nueva pestaña Pacientes
+  // Estados Pestaña Pacientes
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilterTab, setPatientFilterTab] = useState('Todos');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -88,9 +83,7 @@ export default function AdminPanel() {
     if (!text.trim()) return;
     setIsAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript: text })
-      });
+      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript: text }) });
       const data = await res.json();
       if (data.error) { alert("Error IA: " + data.error); } else {
         if (data.motivo) setNoteMotivo(data.motivo);
@@ -106,13 +99,11 @@ export default function AdminPanel() {
   const [newPrice, setNewPrice] = useState('');
   const [newProfId, setNewProfId] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  
   const [newProfName, setNewProfName] = useState('');
   const [newProfEmail, setNewProfEmail] = useState('');
   const [newProfPassword, setNewProfPassword] = useState('');
   const [newProfBoxId, setNewProfBoxId] = useState('');
   const [isCreatingProf, setIsCreatingProf] = useState(false);
-
   const [wsTitle, setWsTitle] = useState('');
   const [wsDesc, setWsDesc] = useState('');
   const [wsPrice, setWsPrice] = useState('');
@@ -161,10 +152,8 @@ export default function AdminPanel() {
   const visibleAppointments = appointments.filter(a => a.center_id === adminCenterId);
   const visibleServices = services.filter(s => visibleProfessionals.some(vp => vp.id === s.professional_id));
   const visibleBoxes = boxes.filter(b => b.center_id === adminCenterId);
-  const visibleWorkshops = workshops.filter(w => w.center_id === adminCenterId);
   
   const getProfName = (id: string) => professionals.find(p => p.id === id)?.name || 'Desconocido';
-  const getServiceName = (id: string) => services.find(s => s.id === id)?.name || 'Terapia';
   const getServicePrice = (id: string) => services.find(s => s.id === id)?.price || 0;
   const getBoxName = (id: string) => boxes.find(b => b.id === id)?.name || 'Box No Asignado';
 
@@ -180,7 +169,9 @@ export default function AdminPanel() {
   const getWeekDays = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + i); return d; });
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
-  // LOGICA: Procesar lista única de pacientes
+  // ==========================================
+  // LÓGICA DE PACIENTES PARA LA NUEVA TABLA
+  // ==========================================
   const patientsMap = new Map();
   visibleAppointments.forEach(app => {
     const key = app.patient_rut || app.patient_name;
@@ -203,11 +194,12 @@ export default function AdminPanel() {
   });
 
   const filteredPatients = processedPatients.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.rut.includes(patientSearch) || (p.phone && p.phone.includes(patientSearch));
+    const matchesSearch = p.name.toLowerCase().includes(patientSearch.toLowerCase()) || (p.rut && p.rut.includes(patientSearch)) || (p.phone && p.phone.includes(patientSearch));
     const matchesFilter = patientFilterTab === 'Todos' || p.status === (patientFilterTab === 'Activos' ? 'Activo' : 'Inactivo');
     return matchesSearch && matchesFilter;
   });
 
+  // FUNCIÓN PARA REAGENDAR (Llena el modal con los datos del paciente)
   const handleQuickSchedule = (p: any) => {
     setAdminAppt({ ...adminAppt, patient_name: p.name, patient_rut: p.rut, patient_phone: p.phone, patient_email: p.email });
     setShowApptModal(true);
@@ -232,7 +224,7 @@ export default function AdminPanel() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: startDateTime }),
           });
-        } catch (mailError) { console.error('Error enviando el correo:', mailError); }
+        } catch (mailError) { console.error('Error enviando correo:', mailError); }
       }
       setShowApptModal(false); 
       setAdminAppt({ patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
@@ -281,7 +273,6 @@ export default function AdminPanel() {
   const handleDeleteProfessional = async (id: string) => { if (!confirm('¿Eliminar profesional?')) return; const { error } = await supabase.from('professionals').delete().eq('id', id); if (!error) loadData(); };
   const handleCreateService = async (e: React.FormEvent) => { e.preventDefault(); setIsCreating(true); const { error } = await supabase.from('services').insert([{ name: newName, price: Number(newPrice), professional_id: newProfId }]); if (!error) { setNewName(''); setNewPrice(''); setNewProfId(''); loadData(); } setIsCreating(false); };
   const handleDeleteService = async (id: string) => { if (!confirm('¿Eliminar servicio?')) return; const { error } = await supabase.from('services').delete().eq('id', id); if (!error) loadData(); };
-
   const handleCreateWorkshop = async (e: React.FormEvent) => {
     e.preventDefault(); setIsCreatingWs(true);
     const startDateTime = new Date(`${wsDate}T${wsTime}:00-03:00`).toISOString();
@@ -322,35 +313,18 @@ export default function AdminPanel() {
 
             <div className="p-4 space-y-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mb-2 tracking-wider">Hoy</p>
-              <button onClick={() => { setActiveTab('inicio'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inicio' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                🏠 Inicio
-              </button>
-              <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                📅 Calendario
-              </button>
+              <button onClick={() => { setActiveTab('inicio'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inicio' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏠 Inicio</button>
+              <button onClick={() => { setActiveTab('agenda'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'agenda' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>📅 Calendario</button>
 
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
-              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                👥 Pacientes
-              </button>
-              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                💼 Terapias y Servicios
-              </button>
-              <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                💰 Boletas y Pagos
-              </button>
-              <button onClick={() => { setActiveTab('resenas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'resenas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                ⭐ Reseñas
-              </button>
-              <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                🏥 Equipo y Boxes
-              </button>
-              <button onClick={() => { setActiveTab('talleres'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'talleres' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
-                🏷️ Talleres
-              </button>
+              <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>👥 Pacientes</button>
+              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
+              <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💰 Boletas y Pagos</button>
+              <button onClick={() => { setActiveTab('resenas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'resenas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>⭐ Reseñas</button>
+              <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏥 Equipo y Boxes</button>
+              <button onClick={() => { setActiveTab('talleres'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'talleres' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏷️ Talleres</button>
             </div>
           </div>
-
           <div className="p-4 border-t border-slate-100">
             <div className="bg-slate-50 p-3 rounded-2xl flex items-center justify-between">
               <div className="truncate">
@@ -363,7 +337,6 @@ export default function AdminPanel() {
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0">
-          
           <header className="bg-white border-b border-slate-200 h-16 px-8 flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center gap-4">
               <span className="bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-3 text-sm font-bold text-slate-700">
@@ -375,7 +348,6 @@ export default function AdminPanel() {
             </div>
           </header>
 
-          {/* MODAL HORARIOS PROFESIONAL */}
           {scheduleModalProf && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
@@ -385,7 +357,6 @@ export default function AdminPanel() {
                 </div>
                 <div className="p-6 space-y-4">
                   <p className="text-sm text-slate-500 mb-4">Configura los días y horas de atención para {getProfName(scheduleModalProf)}.</p>
-                  
                   {['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((day, idx) => {
                     const label = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][idx];
                     const data = localSchedules[scheduleModalProf][day];
@@ -462,11 +433,7 @@ export default function AdminPanel() {
                         {isListening ? '⏹ Detener' : isAnalyzing ? '⏳ Procesando...' : '✨ Asistente IA (Dictar)'}
                       </button>
                     </div>
-
-                    {isListening && (
-                      <div className="px-6 pt-4"><div className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-xs font-mono h-24 overflow-y-auto">{transcript || 'Escuchando...'}</div></div>
-                    )}
-                    
+                    {isListening && <div className="px-6 pt-4"><div className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-xs font-mono h-24 overflow-y-auto">{transcript || 'Escuchando...'}</div></div>}
                     <form onSubmit={handleSaveNote} className="p-6 flex flex-col gap-4">
                       <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Motivo</label><input type="text" className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={noteMotivo} onChange={(e) => setNoteMotivo(e.target.value)} /></div>
                       <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Desarrollo</label><textarea required className="w-full h-36 border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all resize-none" value={noteDesarrollo} onChange={(e) => setNoteDesarrollo(e.target.value)} /></div>
@@ -474,7 +441,6 @@ export default function AdminPanel() {
                       <button type="submit" disabled={savingNote || isListening || isAnalyzing} className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800 shadow-md">🔒 Firmar y Guardar</button>
                     </form>
                   </div>
-                  
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-[700px] overflow-y-auto">
                     <h3 className="font-bold text-slate-800 mb-6 text-sm uppercase tracking-wider">Historial de Sesiones</h3>
                     <div className="space-y-6">
@@ -495,23 +461,12 @@ export default function AdminPanel() {
 
             {!activePatient && activeTab === 'inicio' && (
               <div className="animate-fade-in flex flex-col items-center pt-12 pb-20 px-4 w-full max-w-4xl mx-auto">
-                <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                </div>
+                <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-sm"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div>
                 <h2 className="text-3xl font-medium text-slate-900 mb-8">¿Cómo puedo ayudarte hoy, {session.user.email.split('@')[0]}?</h2>
                 <div className="flex flex-wrap justify-center gap-3 mb-8">
-                  <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    ¿Cuál es mi agenda de hoy?
-                  </button>
-                  <button onClick={() => setShowApptModal(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-                    Crear un paciente
-                  </button>
-                  <button onClick={() => setActiveTab('finanzas')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                    Ver pagos pendientes
-                  </button>
+                  <button onClick={() => setActiveTab('agenda')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>¿Cuál es mi agenda de hoy?</button>
+                  <button onClick={() => setShowApptModal(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>Crear un paciente</button>
+                  <button onClick={() => setActiveTab('finanzas')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>Ver pagos pendientes</button>
                 </div>
                 <div className="w-full bg-white border border-blue-200 rounded-2xl p-4 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                   <input type="text" placeholder="Escribe tu consulta o elige un paciente para empezar" className="w-full text-sm text-slate-900 placeholder-slate-400 bg-transparent border-none focus:outline-none focus:ring-0 mb-4 px-2" />
@@ -567,7 +522,6 @@ export default function AdminPanel() {
                   </div>
                   <button onClick={() => setShowApptModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Nueva Cita</button>
                 </div>
-
                 {viewMode === 'calendar' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
                     <div className="min-w-[900px]">
@@ -589,13 +543,11 @@ export default function AdminPanel() {
                                 const appD = new Date(app.start_time);
                                 return appD.getDate() === day.getDate() && appD.getMonth() === day.getMonth() && appD.getHours() === hour;
                               });
-
                               const handleCellClick = () => {
                                 const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
                                 setAdminAppt(prev => ({ ...prev, date: `${year}-${month}-${d}`, time: `${h}:00` }));
                                 setShowApptModal(true);
                               };
-
                               return (
                                 <div key={day.toISOString()} onClick={handleCellClick} className="p-1 border-r border-slate-100 cursor-pointer hover:bg-slate-50/80 transition-colors relative min-h-[80px]" title="Hacer clic para agendar en este horario">
                                   {cellAppts.map(app => (
@@ -610,7 +562,6 @@ export default function AdminPanel() {
                     </div>
                   </div>
                 )}
-
                 {viewMode === 'list' && (
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                     <div className="divide-y divide-slate-100">
@@ -632,7 +583,7 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA PACIENTES REDISEÑADA */}
+            {/* PESTAÑA PACIENTES REDISEÑADA ESTILO ENCUADRADO */}
             {!activePatient && activeTab === 'pacientes' && (
               <div className="space-y-4 animate-fade-in font-sans">
                 <h2 className="text-2xl font-medium text-slate-900 mb-6">Pacientes</h2>
@@ -761,7 +712,6 @@ export default function AdminPanel() {
                     <p className="text-3xl font-black text-slate-800 mt-2">${averageTicket.toLocaleString('es-CL')}</p>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Ingresos por Profesional</h3>
@@ -777,7 +727,6 @@ export default function AdminPanel() {
                       </ResponsiveContainer>
                     </div>
                   </div>
-
                   <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Distribución de Citas</h3>
                     <div className="h-[280px]">
@@ -803,45 +752,29 @@ export default function AdminPanel() {
                     <p className="text-slate-500 text-sm mt-1">Valoraciones verificadas dejadas por tus pacientes tras las sesiones.</p>
                   </div>
                   <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-2xl font-bold text-sm">
-                    {reviews.length > 0 
-                      ? `⭐ ${(reviews.reduce((acc, rev) => acc + (rev.rating || 5), 0) / reviews.length).toFixed(1)} Promedio público (${reviews.length} visibles)` 
-                      : '⭐ Sin valoraciones aún'}
+                    {reviews.length > 0 ? `⭐ ${(reviews.reduce((acc, rev) => acc + (rev.rating || 5), 0) / reviews.length).toFixed(1)} Promedio público (${reviews.length} visibles)` : '⭐ Sin valoraciones aún'}
                   </div>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 pb-6 text-center">
-                    <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Tras cada sesión</p>
-                      <p className="text-xs text-slate-600 mt-1">Enviamos automáticamente una invitación de reseña respetuosa.</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Un recordatorio</p>
-                      <p className="text-xs text-slate-600 mt-1">Si no responden, enviamos solo una alerta adicional.</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Siempre verificadas</p>
-                      <p className="text-xs text-slate-600 mt-1">Solo pacientes con sesiones reales pueden evaluar.</p>
-                    </div>
+                    <div><p className="text-xs font-bold text-slate-400 uppercase">Tras cada sesión</p><p className="text-xs text-slate-600 mt-1">Enviamos automáticamente una invitación de reseña respetuosa.</p></div>
+                    <div><p className="text-xs font-bold text-slate-400 uppercase">Un recordatorio</p><p className="text-xs text-slate-600 mt-1">Si no responden, enviamos solo una alerta adicional.</p></div>
+                    <div><p className="text-xs font-bold text-slate-400 uppercase">Siempre verificadas</p><p className="text-xs text-slate-600 mt-1">Solo pacientes con sesiones reales pueden evaluar.</p></div>
                   </div>
                   <div className="space-y-4 pt-2">
-                    {reviews.length === 0 ? (
-                      <p className="text-slate-400 text-sm text-center py-8">Aún no tienes reseñas registradas. Aparecerán aquí cuando un paciente te evalúe.</p>
-                    ) : (
+                    {reviews.length === 0 ? <p className="text-slate-400 text-sm text-center py-8">Aún no tienes reseñas registradas. Aparecerán aquí cuando un paciente te evalúe.</p> :
                       reviews.map((rev) => (
                         <div key={rev.id} className="border border-slate-100 bg-slate-50/50 p-5 rounded-2xl space-y-2">
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-slate-900 text-sm">{rev.patient_name || 'Paciente verificado'}</span>
-                              <span className="text-amber-500 text-xs">
-                                {'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}
-                              </span>
+                              <span className="text-amber-500 text-xs">{'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}</span>
                             </div>
                             <span className="text-xs text-slate-400">{new Date(rev.created_at).toLocaleDateString('es-CL')}</span>
                           </div>
                           <p className="text-sm text-slate-700">{rev.comment}</p>
                         </div>
-                      ))
-                    )}
+                      ))}
                   </div>
                 </div>
               </div>
@@ -856,14 +789,7 @@ export default function AdminPanel() {
                     <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
                     <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
                     <input required type="text" placeholder="Clave temporal (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
-                    
-                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}>
-                      <option value="">Sin Box (Opcional)</option>
-                      {visibleBoxes.map(b => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
-                    </select>
-
+                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}><option value="">Sin Box (Opcional)</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
                     <button type="submit" disabled={isCreatingProf} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Registrar</button>
                   </form>
                 </div>
@@ -871,12 +797,7 @@ export default function AdminPanel() {
                   <div className="divide-y divide-slate-100">
                     {visibleProfessionals.map(p => (
                       <div key={p.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
-                        <div>
-                          <p className="font-bold text-slate-900">{p.name}</p>
-                          <p className="text-xs text-slate-500">
-                            {p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}
-                          </p>
-                        </div>
+                        <div><p className="font-bold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p></div>
                         <div className="flex gap-4">
                           <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>
                           <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors px-2 py-1.5">Eliminar</button>
@@ -929,7 +850,6 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
-
           </main>
         </div>
       </div>
@@ -952,12 +872,8 @@ export default function AdminPanel() {
             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Contraseña</label>
             <input type="password" required className="w-full border border-slate-200 p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors mt-2">
-            Iniciar Sesión
-          </button>
-          <div className="text-center pt-2">
-            <Link href="/recuperar" className="text-xs font-bold text-slate-500 hover:text-slate-900">¿Olvidaste tu contraseña?</Link>
-          </div>
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors mt-2">Iniciar Sesión</button>
+          <div className="text-center pt-2"><Link href="/recuperar" className="text-xs font-bold text-slate-500 hover:text-slate-900">¿Olvidaste tu contraseña?</Link></div>
         </form>
       </div>
     </div>
