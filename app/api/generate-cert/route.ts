@@ -5,7 +5,7 @@ export async function POST(request: Request) {
     const { prompt, patient_name, patient_rut } = await request.json();
     
     if (!process.env.GROQ_API_KEY) {
-        return NextResponse.json({ error: 'Falta GROQ_API_KEY' }, { status: 500 });
+        return NextResponse.json({ error: 'Falta configurar GROQ_API_KEY en Vercel' }, { status: 500 });
     }
 
     const groqPrompt = `Eres un profesional clínico experto redactando certificados.
@@ -28,6 +28,17 @@ export async function POST(request: Request) {
     });
 
     const data = await response.json();
+    
+    // SISTEMA DE DEFENSA: Verifica si Groq devolvió un error (ej. servidores caídos, límite de uso)
+    if (data.error) {
+        return NextResponse.json({ error: `Groq API: ${data.error.message}` }, { status: 500 });
+    }
+    
+    // SISTEMA DE DEFENSA: Verifica si la respuesta viene vacía
+    if (!data.choices || !data.choices[0]) {
+        return NextResponse.json({ error: 'La IA devolvió una respuesta en blanco. Intenta nuevamente.' }, { status: 500 });
+    }
+
     return NextResponse.json({ certificate: data.choices[0].message.content });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
