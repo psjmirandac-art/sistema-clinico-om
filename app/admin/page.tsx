@@ -199,36 +199,77 @@ export default function AdminPanel() {
     return matchesSearch && matchesFilter;
   });
 
+  // DRAG AND DROP OPTIMIZADO
   const handleDragStart = (e: any, appId: string) => { e.dataTransfer.setData('appId', appId); };
   const handleDrop = async (e: any, day: Date, hour: number) => {
     e.preventDefault();
     const appId = e.dataTransfer.getData('appId');
     if (!appId) return;
-    const year = day.getFullYear(); const month = String(day.getMonth() + 1).padStart(2, '0'); const d = String(day.getDate()).padStart(2, '0'); const h = String(hour).padStart(2, '0');
-    const newStart = new Date(`${year}-${month}-${d}T${h}:00:00-03:00`).toISOString();
-    const newEnd = new Date(new Date(newStart).getTime() + 60 * 60 * 1000).toISOString();
-    await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
-    loadData();
+    
+    // Cálculo robusto de hora local
+    const targetObj = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
+    const newStart = targetObj.toISOString();
+    const newEnd = new Date(targetObj.getTime() + 60 * 60 * 1000).toISOString();
+    
+    // 1. Actualización optimista inmediata en pantalla (corta la ilusión, hace el cambio real)
+    setAppointments(prev => prev.map(a => a.id === appId ? { ...a, start_time: newStart, end_time: newEnd } : a));
+
+    // 2. Guardado en base de datos
+    const { error } = await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
+    if (error) {
+       alert('Error al mover la cita: ' + error.message);
+       loadData(); // Revertimos si falla
+    }
   };
 
+  // BLOQUEO OPTIMIZADO
   const handleBlockSlot = async () => {
     if (!slotActionModal) return;
     setLoading(true);
-    const startDateTime = new Date(`${slotActionModal.date}T${slotActionModal.time}:00-03:00`).toISOString();
-    const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
+    const [yyyy, mm, dd] = slotActionModal.date.split('-');
+    const [hh, min] = slotActionModal.time.split(':');
+    const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
+    const startDateTime = startObj.toISOString();
+    const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
+    
     const { error } = await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
+    
+    if (error) alert("Error al bloquear: " + error.message);
     setSlotActionModal(null); setIsBlocking(false); setBlockReason(''); loadData(); setLoading(false);
   };
 
+  // REAGENDAR OPTIMIZADO (Identifica cita futura)
   const handleQuickSchedule = (p: any, apptIdToEdit?: string) => {
-    setAdminAppt({ ...adminAppt, id: apptIdToEdit || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email });
+    let targetId = apptIdToEdit;
+    let targetDate = '';
+    let targetTime = '';
+
+    if (!targetId && p.appointments) {
+      const futureAppts = p.appointments.filter((a:any) => new Date(a.start_time) >= new Date()).sort((a:any, b:any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+      if (futureAppts.length > 0) {
+        targetId = futureAppts[0].id;
+        const d = new Date(futureAppts[0].start_time);
+        targetDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        targetTime = d.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'});
+      }
+    }
+
+    setAdminAppt({ 
+       ...adminAppt, id: targetId || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, 
+       patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email, date: targetDate, time: targetTime 
+    });
     setShowApptModal(true);
   };
 
+  // GUARDAR / ACTUALIZAR CITA OPTIMIZADO
   const handleAdminSchedule = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
-    const startDateTime = new Date(`${adminAppt.date}T${adminAppt.time}:00-03:00`).toISOString();
-    const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
+    
+    const [yyyy, mm, dd] = adminAppt.date.split('-');
+    const [hh, min] = adminAppt.time.split(':');
+    const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
+    const startDateTime = startObj.toISOString();
+    const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
     
     let error = null;
     if (adminAppt.id) { 
@@ -238,6 +279,10 @@ export default function AdminPanel() {
         start_time: startDateTime, end_time: endDateTime
       }).eq('id', adminAppt.id);
       error = updateErr;
+      
+      // Actualización optimista inmediata
+      if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, start_time: startDateTime, end_time: endDateTime } : a));
+
     } else { 
       const { error: insertErr } = await supabase.from('appointments').insert([{
         center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
@@ -258,14 +303,17 @@ export default function AdminPanel() {
       setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
       loadData(); 
       alert(adminAppt.id ? 'Cita reagendada exitosamente.' : 'Cita agendada exitosamente.');
-    } else { alert('Error al guardar cita.'); }
+    } else { alert('Error al guardar cita: ' + error.message); }
     setLoading(false);
   };
 
   const handleDeleteAppt = async (id: string, isBlock = false) => {
     if (!confirm(isBlock ? '¿Desbloquear este horario?' : '¿Seguro que deseas eliminar esta cita?')) return;
     const { error } = await supabase.from('appointments').delete().eq('id', id);
-    if (!error) { loadData(); setApptActionModal(null); }
+    if (!error) { 
+      setAppointments(prev => prev.filter(a => a.id !== id)); // optimista
+      loadData(); setApptActionModal(null); 
+    }
   };
 
   const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
@@ -303,10 +351,15 @@ export default function AdminPanel() {
   const handleDeleteProfessional = async (id: string) => { if (!confirm('¿Eliminar profesional?')) return; const { error } = await supabase.from('professionals').delete().eq('id', id); if (!error) loadData(); };
   const handleCreateService = async (e: React.FormEvent) => { e.preventDefault(); setIsCreating(true); const { error } = await supabase.from('services').insert([{ name: newName, price: Number(newPrice), professional_id: newProfId }]); if (!error) { setNewName(''); setNewPrice(''); setNewProfId(''); loadData(); } setIsCreating(false); };
   const handleDeleteService = async (id: string) => { if (!confirm('¿Eliminar servicio?')) return; const { error } = await supabase.from('services').delete().eq('id', id); if (!error) loadData(); };
+  
   const handleCreateWorkshop = async (e: React.FormEvent) => {
     e.preventDefault(); setIsCreatingWs(true);
-    const startDateTime = new Date(`${wsDate}T${wsTime}:00-03:00`).toISOString();
-    const endDateTime = new Date(new Date(startDateTime).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    const [wYear, wMonth, wDay] = wsDate.split('-');
+    const [wHour, wMin] = wsTime.split(':');
+    const wStartObj = new Date(Number(wYear), Number(wMonth)-1, Number(wDay), Number(wHour), Number(wMin), 0);
+    const startDateTime = wStartObj.toISOString();
+    const endDateTime = new Date(wStartObj.getTime() + 2 * 60 * 60 * 1000).toISOString();
+    
     const { error } = await supabase.from('workshops').insert([{ center_id: adminCenterId, box_id: wsBoxId, professional_id: wsProfId, title: wsTitle, description: wsDesc, price: Number(wsPrice), max_capacity: Number(wsCapacity), start_time: startDateTime, end_time: endDateTime }]);
     if (!error) { setWsTitle(''); setWsDesc(''); setWsPrice(''); setWsCapacity('10'); setWsProfId(''); setWsBoxId(''); setWsDate(''); setWsTime(''); loadData(); } 
     setIsCreatingWs(false);
@@ -424,7 +477,12 @@ export default function AdminPanel() {
                       <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">📁</span> Entrar a la ficha clínica</button>
                       <button onClick={() => { alert('Pago registrado exitosamente en el sistema.'); setApptActionModal(null); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">💰</span> Registrar el pago</button>
                       <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors"><span className="text-lg">🎙️</span> Transcribir sesión con IA</button>
-                      <button onClick={() => { setApptActionModal(null); const appD = new Date(apptActionModal.start_time); handleQuickSchedule(apptActionModal, apptActionModal.id); setAdminAppt(prev => ({...prev, date: appD.toISOString().split('T')[0], time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})})); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">🔄</span> Reagendar cita</button>
+                      <button onClick={() => { 
+                        setApptActionModal(null); 
+                        const appD = new Date(apptActionModal.start_time); 
+                        handleQuickSchedule(apptActionModal, apptActionModal.id); 
+                        setAdminAppt(prev => ({...prev, date: `${appD.getFullYear()}-${String(appD.getMonth()+1).padStart(2,'0')}-${String(appD.getDate()).padStart(2,'0')}`, time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})})); 
+                      }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">🔄</span> Reagendar cita</button>
                       <button onClick={() => handleDeleteAppt(apptActionModal.id)} className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-medium text-red-600 flex items-center gap-3 transition-colors"><span className="text-lg">🗑️</span> Eliminar de la agenda</button>
                     </div>
                   </>
