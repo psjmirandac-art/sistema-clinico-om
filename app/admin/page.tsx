@@ -260,7 +260,7 @@ export default function AdminPanel() {
     const targetObj = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
     const newStart = targetObj.toISOString();
     const newEnd = new Date(targetObj.getTime() + 60 * 60 * 1000).toISOString();
-    setAppointments(prev => prev.map(a => a.id === appId ? { ...a, start_time: newStart, end_time: newEnd } : a));
+    setAppointments((prev: any[]) => prev.map(a => a.id === appId ? { ...a, start_time: newStart, end_time: newEnd } : a));
     const { error } = await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
     if (error) { alert('Error al mover la cita: ' + error.message); loadData(); }
   };
@@ -319,7 +319,7 @@ export default function AdminPanel() {
         start_time: startDateTime, end_time: endDateTime
       }).eq('id', adminAppt.id);
       error = updateErr;
-      if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, professional_id: finalProfId, start_time: startDateTime, end_time: endDateTime } : a));
+      if (!error) setAppointments((prev: any[]) => prev.map((a: any) => a.id === adminAppt.id ? { ...a, professional_id: finalProfId, start_time: startDateTime, end_time: endDateTime } : a));
     } else { 
       const inserts = [];
       const totalSessions = recurrence === 'none' ? 1 : recurrenceCount;
@@ -361,11 +361,11 @@ export default function AdminPanel() {
     if (!confirm(isBlock ? '¿Desbloquear este horario?' : '¿Seguro que deseas eliminar esta cita? (El paciente seguirá registrado históricamente)')) return;
     if (isBlock) {
       const { error } = await supabase.from('appointments').delete().eq('id', id);
-      if (!error) { setAppointments(prev => prev.filter(a => a.id !== id)); loadData(); setApptActionModal(null); }
+      if (!error) { setAppointments((prev: any[]) => prev.filter((a: any) => a.id !== id)); loadData(); setApptActionModal(null); }
     } else {
       const { error } = await supabase.from('appointments').update({ consent_accepted: false }).eq('id', id);
       if (!error) { 
-        setAppointments(prev => prev.map(a => a.id === id ? { ...a, consent_accepted: false } : a));
+        setAppointments((prev: any[]) => prev.map((a: any) => a.id === id ? { ...a, consent_accepted: false } : a));
         loadData(); setApptActionModal(null); 
       }
     }
@@ -444,7 +444,7 @@ export default function AdminPanel() {
 
   const initScheduleLocal = (profId: string) => {
     if (!localSchedules[profId]) {
-      setLocalSchedules(prev => ({ ...prev, [profId]: { 
+      setLocalSchedules((prev: any) => ({ ...prev, [profId]: { 
         lun: {active:true, start:'09:00', end:'18:00'}, 
         mar: {active:true, start:'09:00', end:'18:00'}, 
         mie: {active:true, start:'09:00', end:'18:00'}, 
@@ -459,7 +459,7 @@ export default function AdminPanel() {
 
   const initFinanceLocal = (profId: string) => {
     if (!profFinances[profId]) {
-      setProfFinances(prev => ({ ...prev, [profId]: { type: 'percentage', value: 70 }}));
+      setProfFinances((prev: any) => ({ ...prev, [profId]: { type: 'percentage', value: 70 }}));
     }
     setFinanceModalProf(profId);
   };
@@ -526,7 +526,7 @@ export default function AdminPanel() {
                  <p className="text-slate-500 text-sm mb-6">{slotActionModal.date} a las {slotActionModal.time}</p>
                  <div className="flex flex-col gap-3">
                     {!isBlocking && (
-                      <button onClick={() => { setAdminAppt(prev => ({...prev, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time, professional_id: userRole === 'profesional' ? currentProfId : prev.professional_id })); setSlotActionModal(null); setShowApptModal(true); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">📅 Agendar Paciente</button>
+                      <button onClick={() => { setAdminAppt((prev: any) => ({...prev, id: '', patient_name: '', date: slotActionModal.date, time: slotActionModal.time, professional_id: userRole === 'profesional' ? currentProfId : prev.professional_id })); setSlotActionModal(null); setShowApptModal(true); }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">📅 Agendar Paciente</button>
                     )}
                     {!isBlocking ? (
                       <button onClick={() => setIsBlocking(true)} className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors">🚫 Bloquear Horario</button>
@@ -573,7 +573,7 @@ export default function AdminPanel() {
                         setApptActionModal(null); 
                         const appD = new Date(apptActionModal.start_time); 
                         handleQuickSchedule(apptActionModal, apptActionModal.id); 
-                        setAdminAppt(prev => ({...prev, date: `${appD.getFullYear()}-${String(appD.getMonth()+1).padStart(2,'0')}-${String(appD.getDate()).padStart(2,'0')}`, time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})})); 
+                        setAdminAppt((prev: any) => ({...prev, date: `${appD.getFullYear()}-${String(appD.getMonth()+1).padStart(2,'0')}-${String(appD.getDate()).padStart(2,'0')}`, time: appD.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'})})); 
                       }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">🔄</span> Reagendar cita</button>
                       <button onClick={() => handleDeleteAppt(apptActionModal.id)} className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-medium text-red-600 flex items-center gap-3 transition-colors"><span className="text-lg">🗑️</span> Eliminar de la agenda</button>
                     </div>
@@ -595,20 +595,20 @@ export default function AdminPanel() {
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase">Detalles Médicos</h3></div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Profesional</label>
-                      <select required disabled={userRole === 'profesional'} className={`w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all ${userRole === 'profesional' ? 'opacity-75 cursor-not-allowed' : ''}`} value={userRole === 'profesional' ? currentProfId : adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt({...adminAppt, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''}); }}>
+                      <select required disabled={userRole === 'profesional'} className={`w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all ${userRole === 'profesional' ? 'opacity-75 cursor-not-allowed' : ''}`} value={userRole === 'profesional' ? currentProfId : adminAppt.professional_id} onChange={e => { const prof = professionals.find(p=>p.id===e.target.value); setAdminAppt((prev: any) => ({...prev, professional_id: e.target.value, service_id: '', box_id: prof?.default_box_id || ''})); }}>
                         {userRole === 'profesional' ? <option value={currentProfId}>{getProfName(currentProfId)}</option> : <><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Servicio</label>
-                      <select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt({...adminAppt, service_id: e.target.value})}>
+                      <select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.service_id} onChange={e => setAdminAppt((prev: any) => ({...prev, service_id: e.target.value}))}>
                         <option value="" disabled>Seleccionar...</option>
                         {services.filter(s => s.professional_id === (userRole === 'profesional' ? currentProfId : adminAppt.professional_id)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     </div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt({...adminAppt, box_id: e.target.value})}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt((prev: any) => ({...prev, box_id: e.target.value}))}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
                     
-                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha {(!adminAppt.id && recurrence !== 'none') ? 'de inicio' : ''}</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
+                    <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha {(!adminAppt.id && recurrence !== 'none') ? 'de inicio' : ''}</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt((prev: any) => ({...prev, date: e.target.value}))} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt((prev: any) => ({...prev, time: e.target.value}))} /></div></div>
                     
                     {!adminAppt.id && (
                       <div className="md:col-span-2 grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
@@ -642,7 +642,7 @@ export default function AdminPanel() {
                           type="text" required placeholder="Escribe para buscar o registra uno nuevo..."
                           className="w-full border border-blue-200 rounded-lg pl-9 pr-4 py-2.5 text-sm font-bold text-slate-900 bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all shadow-sm" 
                           value={adminAppt.patient_name} 
-                          onChange={e => { setAdminAppt({...adminAppt, patient_name: e.target.value}); setPatientDropdownOpen(true); }}
+                          onChange={e => { setAdminAppt((prev: any) => ({...prev, patient_name: e.target.value})); setPatientDropdownOpen(true); }}
                           onFocus={() => setPatientDropdownOpen(true)}
                           onBlur={() => setTimeout(() => setPatientDropdownOpen(false), 200)}
                         />
@@ -655,7 +655,7 @@ export default function AdminPanel() {
                               <div className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0">Pacientes Registrados</div>
                               {processedPatients.filter(p => p.name.toLowerCase().includes(adminAppt.patient_name.toLowerCase()) || (p.rut && p.rut.includes(adminAppt.patient_name))).map(p => (
                                 <div key={p.id} className="px-4 py-2.5 text-sm hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center transition-colors"
-                                  onClick={() => { setAdminAppt({ ...adminAppt, patient_name: p.name || '', patient_rut: p.rut || '', patient_phone: p.phone || '', patient_email: p.email || '' }); setPatientDropdownOpen(false); }} >
+                                  onClick={() => { setAdminAppt((prev: any) => ({ ...prev, patient_name: p.name || '', patient_rut: p.rut || '', patient_phone: p.phone || '', patient_email: p.email || '' })); setPatientDropdownOpen(false); }} >
                                   <span className="font-bold text-slate-900">{p.name}</span> {p.rut && <span className="text-slate-400 text-xs font-medium">{p.rut}</span>}
                                 </div>
                               ))}
@@ -666,9 +666,9 @@ export default function AdminPanel() {
                         </div>
                       )}
                     </div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt((prev: any) => ({...prev, patient_rut: e.target.value}))} /></div>
+                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt((prev: any) => ({...prev, patient_phone: e.target.value}))} /></div>
+                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt((prev: any) => ({...prev, patient_email: e.target.value}))} /></div>
                     
                     <div className="md:col-span-2 flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
                       <input type="checkbox" required id="consent" className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" defaultChecked />
@@ -702,7 +702,7 @@ export default function AdminPanel() {
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Tipo de Contrato</label>
                     <select 
                       value={profFinances[financeModalProf]?.type || 'percentage'} 
-                      onChange={(e) => setProfFinances({...profFinances, [financeModalProf]: {...profFinances[financeModalProf], type: e.target.value}})}
+                      onChange={(e) => setProfFinances((prev: any) => ({...prev, [financeModalProf]: {...prev[financeModalProf], type: e.target.value}}))}
                       className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="percentage">Porcentaje por sesión (Split)</option>
@@ -717,7 +717,7 @@ export default function AdminPanel() {
                     <input 
                       type="number" 
                       value={profFinances[financeModalProf]?.value || 70}
-                      onChange={(e) => setProfFinances({...profFinances, [financeModalProf]: {...profFinances[financeModalProf], value: Number(e.target.value)}})}
+                      onChange={(e) => setProfFinances((prev: any) => ({...prev, [financeModalProf]: {...prev[financeModalProf], value: Number(e.target.value)}}))}
                       className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -744,14 +744,14 @@ export default function AdminPanel() {
                     return (
                       <div key={day} className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
                         <label className="flex items-center gap-3 w-32 cursor-pointer">
-                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, active: e.target.checked}}})} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
+                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules((prev: any) => ({...prev, [scheduleModalProf]: {...prev[scheduleModalProf], [day]: {...data, active: e.target.checked}}}))} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
                           <span className="text-sm font-medium text-slate-700">{label}</span>
                         </label>
                         {data.active ? (
                           <div className="flex items-center gap-2">
-                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, start: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules((prev: any) => ({...prev, [scheduleModalProf]: {...prev[scheduleModalProf], [day]: {...data, start: e.target.value}}}))} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
                             <span className="text-slate-400 text-sm">-</span>
-                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, end: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules((prev: any) => ({...prev, [scheduleModalProf]: {...prev[scheduleModalProf], [day]: {...data, end: e.target.value}}}))} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
                           </div>
                         ) : (
                           <span className="text-sm text-slate-400 italic flex-1 text-right pr-4">No atiende</span>
@@ -1030,6 +1030,7 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA FINANZAS REDISEÑADA (LIQUIDACIONES DINÁMICAS Y PAGOS SIMPLES) */}
             {!activePatient && activeTab === 'finanzas' && (
               <div className="space-y-8 animate-fade-in font-sans">
                 <div className="flex justify-between items-center mb-2">
