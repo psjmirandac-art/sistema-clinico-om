@@ -199,30 +199,19 @@ export default function AdminPanel() {
     return matchesSearch && matchesFilter;
   });
 
-  // DRAG AND DROP OPTIMIZADO
   const handleDragStart = (e: any, appId: string) => { e.dataTransfer.setData('appId', appId); };
   const handleDrop = async (e: any, day: Date, hour: number) => {
     e.preventDefault();
     const appId = e.dataTransfer.getData('appId');
     if (!appId) return;
-    
-    // Cálculo robusto de hora local
     const targetObj = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
     const newStart = targetObj.toISOString();
     const newEnd = new Date(targetObj.getTime() + 60 * 60 * 1000).toISOString();
-    
-    // 1. Actualización optimista inmediata en pantalla (corta la ilusión, hace el cambio real)
     setAppointments(prev => prev.map(a => a.id === appId ? { ...a, start_time: newStart, end_time: newEnd } : a));
-
-    // 2. Guardado en base de datos
     const { error } = await supabase.from('appointments').update({ start_time: newStart, end_time: newEnd }).eq('id', appId);
-    if (error) {
-       alert('Error al mover la cita: ' + error.message);
-       loadData(); // Revertimos si falla
-    }
+    if (error) { alert('Error al mover la cita: ' + error.message); loadData(); }
   };
 
-  // BLOQUEO OPTIMIZADO
   const handleBlockSlot = async () => {
     if (!slotActionModal) return;
     setLoading(true);
@@ -231,19 +220,15 @@ export default function AdminPanel() {
     const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
     const startDateTime = startObj.toISOString();
     const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
-    
     const { error } = await supabase.from('appointments').insert([{ center_id: adminCenterId, patient_name: `[BLOQUEO] ${blockReason || 'Horario bloqueado'}`, start_time: startDateTime, end_time: endDateTime, consent_accepted: true }]);
-    
     if (error) alert("Error al bloquear: " + error.message);
     setSlotActionModal(null); setIsBlocking(false); setBlockReason(''); loadData(); setLoading(false);
   };
 
-  // REAGENDAR OPTIMIZADO (Identifica cita futura)
   const handleQuickSchedule = (p: any, apptIdToEdit?: string) => {
     let targetId = apptIdToEdit;
     let targetDate = '';
     let targetTime = '';
-
     if (!targetId && p.appointments) {
       const futureAppts = p.appointments.filter((a:any) => new Date(a.start_time) >= new Date()).sort((a:any, b:any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
       if (futureAppts.length > 0) {
@@ -253,7 +238,6 @@ export default function AdminPanel() {
         targetTime = d.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'});
       }
     }
-
     setAdminAppt({ 
        ...adminAppt, id: targetId || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, 
        patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email, date: targetDate, time: targetTime 
@@ -261,10 +245,8 @@ export default function AdminPanel() {
     setShowApptModal(true);
   };
 
-  // GUARDAR / ACTUALIZAR CITA OPTIMIZADO
   const handleAdminSchedule = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
-    
     const [yyyy, mm, dd] = adminAppt.date.split('-');
     const [hh, min] = adminAppt.time.split(':');
     const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
@@ -279,10 +261,7 @@ export default function AdminPanel() {
         start_time: startDateTime, end_time: endDateTime
       }).eq('id', adminAppt.id);
       error = updateErr;
-      
-      // Actualización optimista inmediata
       if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, start_time: startDateTime, end_time: endDateTime } : a));
-
     } else { 
       const { error: insertErr } = await supabase.from('appointments').insert([{
         center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: adminAppt.professional_id, service_id: adminAppt.service_id,
@@ -310,10 +289,7 @@ export default function AdminPanel() {
   const handleDeleteAppt = async (id: string, isBlock = false) => {
     if (!confirm(isBlock ? '¿Desbloquear este horario?' : '¿Seguro que deseas eliminar esta cita?')) return;
     const { error } = await supabase.from('appointments').delete().eq('id', id);
-    if (!error) { 
-      setAppointments(prev => prev.filter(a => a.id !== id)); // optimista
-      loadData(); setApptActionModal(null); 
-    }
+    if (!error) { setAppointments(prev => prev.filter(a => a.id !== id)); loadData(); setApptActionModal(null); }
   };
 
   const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
@@ -359,7 +335,6 @@ export default function AdminPanel() {
     const wStartObj = new Date(Number(wYear), Number(wMonth)-1, Number(wDay), Number(wHour), Number(wMin), 0);
     const startDateTime = wStartObj.toISOString();
     const endDateTime = new Date(wStartObj.getTime() + 2 * 60 * 60 * 1000).toISOString();
-    
     const { error } = await supabase.from('workshops').insert([{ center_id: adminCenterId, box_id: wsBoxId, professional_id: wsProfId, title: wsTitle, description: wsDesc, price: Number(wsPrice), max_capacity: Number(wsCapacity), start_time: startDateTime, end_time: endDateTime }]);
     if (!error) { setWsTitle(''); setWsDesc(''); setWsPrice(''); setWsCapacity('10'); setWsProfId(''); setWsBoxId(''); setWsDate(''); setWsTime(''); loadData(); } 
     setIsCreatingWs(false);
@@ -508,6 +483,37 @@ export default function AdminPanel() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase mt-2">Datos del Paciente</h3></div>
+                    
+                    {/* MENU DESPLEGABLE PACIENTES */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Seleccionar paciente registrado (Opcional)</label>
+                      <select 
+                        className="w-full border border-blue-200 rounded-lg p-2.5 text-sm font-bold text-blue-900 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer shadow-sm"
+                        value={adminAppt.patient_name ? (processedPatients.find(p => p.name === adminAppt.patient_name)?.id || 'new') : 'new'}
+                        onChange={(e) => {
+                          if (e.target.value === 'new') {
+                            setAdminAppt({...adminAppt, patient_name: '', patient_rut: '', patient_phone: '', patient_email: ''});
+                          } else {
+                            const selected = processedPatients.find(p => p.id === e.target.value);
+                            if (selected) {
+                              setAdminAppt({
+                                ...adminAppt,
+                                patient_name: selected.name || '',
+                                patient_rut: selected.rut || '',
+                                patient_phone: selected.phone || '',
+                                patient_email: selected.email || ''
+                              });
+                            }
+                          }
+                        }}
+                      >
+                        <option value="new">+ Crear nuevo paciente (Ingresar datos manualmente abajo)</option>
+                        {processedPatients.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} {p.rut ? `- ${p.rut}` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
