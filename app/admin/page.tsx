@@ -5,7 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
-// Inicialización segura
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -54,7 +53,12 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // SISTEMA FINANCIERO Y HORARIOS
+  // GENERADOR DE CERTIFICADOS CON IA
+  const [showCertModal, setShowCertModal] = useState(false);
+  const [certPrompt, setCertPrompt] = useState('');
+  const [certContent, setCertContent] = useState('');
+  const [isGeneratingCert, setIsGeneratingCert] = useState(false);
+
   const [pagosRegistrados, setPagosRegistrados] = useState<string[]>([]);
   const [profFinances, setProfFinances] = useState<any>({});
   const [financeModalProf, setFinanceModalProf] = useState<string | null>(null);
@@ -108,6 +112,79 @@ export default function AdminPanel() {
     } catch (error) { alert("Error conectando con la IA."); }
     setIsAnalyzing(false);
     setTranscript('');
+  };
+
+  // FUNCIÓN PARA GENERAR CERTIFICADO CON IA
+  const handleGenerateCertAI = async () => {
+    if (!certPrompt.trim()) return;
+    setIsGeneratingCert(true);
+    try {
+      const res = await fetch('/api/generate-cert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: certPrompt, patient_name: activePatient.patient_name, patient_rut: activePatient.patient_rut })
+      });
+      const data = await res.json();
+      if (data.certificate) {
+        setCertContent(data.certificate);
+      } else {
+        alert("Error de IA: " + (data.error || 'Desconocido'));
+      }
+    } catch (e) {
+      alert("Error de red conectando con la IA.");
+    }
+    setIsGeneratingCert(false);
+  };
+
+  // FUNCIÓN PARA IMPRIMIR EL CERTIFICADO COMO PDF
+  const handlePrintCertificate = () => {
+    const printWindow = window.open('', '', 'width=800,height=900');
+    if (!printWindow) return;
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Certificado Clínico - ${activePatient?.patient_name}</title>
+          <style>
+            @page { size: letter; margin: 2cm; }
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.6; max-width: 800px; margin: 0 auto; }
+            .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 50px; margin-top: 20px; }
+            .logo { font-size: 28px; font-weight: 900; color: #2563eb; letter-spacing: -1px; }
+            .center-info { text-align: right; font-size: 11px; color: #64748b; line-height: 1.4; }
+            .title { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 40px; letter-spacing: 2px; text-transform: uppercase; color: #0f172a; }
+            .content { font-size: 14px; text-align: justify; margin-bottom: 60px; white-space: pre-wrap; line-height: 1.8; color: #334155; }
+            .date { text-align: right; margin-bottom: 80px; font-size: 14px; font-style: italic; }
+            .signature-box { text-align: center; margin-top: 100px; }
+            .signature-line { width: 250px; border-top: 1px solid #1e293b; margin: 0 auto 10px auto; }
+            .signature-name { font-weight: bold; font-size: 14px; text-transform: uppercase; }
+            .signature-title { font-size: 12px; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo">Centro OM</div>
+            <div class="center-info">Emisión Oficial Sistema Clínico<br/>${new Date().toLocaleDateString('es-CL')}</div>
+          </div>
+          <div class="title">Certificado Clínico</div>
+          <div class="content">${certContent}</div>
+          <div class="date">Emitido en La Serena, a ${new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' })}.</div>
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-name">${session?.user?.email?.split('@')[0]}</div>
+            <div class="signature-title">Profesional Clínico Tratante</div>
+          </div>
+          <script>
+            window.onload = function() { 
+              window.print(); 
+              setTimeout(function(){ window.close(); }, 500); 
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   const [newName, setNewName] = useState('');
@@ -767,6 +844,64 @@ export default function AdminPanel() {
               </div>
             </div>
           )}
+          
+          {/* MODAL GENERADOR DE CERTIFICADOS CON IA */}
+          {showCertModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">📄 Generador de Certificados</h2>
+                    <p className="text-xs text-slate-500 mt-1">Redactado por IA e impreso en PDF oficial del centro.</p>
+                  </div>
+                  <button onClick={() => { setShowCertModal(false); setCertContent(''); setCertPrompt(''); }} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <label className="block text-xs font-bold text-slate-700 mb-2 uppercase">Instrucción para la Inteligencia Artificial</label>
+                    <div className="flex gap-3">
+                      <input 
+                        type="text" 
+                        placeholder="Ej: Justificar inasistencia escolar de ayer por crisis de ansiedad severa."
+                        className="flex-1 border border-slate-200 p-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        value={certPrompt}
+                        onChange={(e) => setCertPrompt(e.target.value)}
+                      />
+                      <button 
+                        onClick={handleGenerateCertAI} 
+                        disabled={isGeneratingCert || !certPrompt.trim()}
+                        className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                      >
+                        {isGeneratingCert ? 'Generando...' : '✨ Redactar'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Cuerpo del Certificado (Editable)</label>
+                    <textarea 
+                      className="w-full h-64 border border-slate-200 p-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      placeholder="El texto redactado por la IA aparecerá aquí. Puedes modificarlo a mano antes de imprimir..."
+                      value={certContent}
+                      onChange={(e) => setCertContent(e.target.value)}
+                    ></textarea>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
+                  <button onClick={() => { setShowCertModal(false); setCertContent(''); setCertPrompt(''); }} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
+                  <button 
+                    onClick={handlePrintCertificate}
+                    disabled={!certContent.trim()} 
+                    className="px-5 py-2.5 text-sm font-bold text-white bg-slate-900 rounded-xl hover:bg-slate-800 disabled:opacity-50 shadow-sm flex items-center gap-2"
+                  >
+                    Imprimir Documento / PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <main className="p-8 max-w-7xl w-full mx-auto space-y-8">
             
@@ -777,6 +912,14 @@ export default function AdminPanel() {
                   <div className="h-16 w-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold shadow-inner">{activePatient.patient_name.charAt(0).toUpperCase()}</div>
                   <div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">{activePatient.patient_name} <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200">ACTIVO</span></h3><p className="text-sm text-slate-500 mt-1">RUT: {activePatient.patient_rut} | Tel: {activePatient.patient_phone}</p></div>
                 </div>
+                
+                {/* BOTONERA RÁPIDA DE LA FICHA CLÍNICA */}
+                <div className="flex gap-3 mb-6">
+                  <button onClick={() => setShowCertModal(true)} className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors flex items-center gap-2">
+                    📄 Generar Certificado Clínico
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col">
                     <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center rounded-t-2xl">
@@ -1030,7 +1173,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA FINANZAS REDISEÑADA (LIQUIDACIONES DINÁMICAS Y PAGOS SIMPLES) */}
             {!activePatient && activeTab === 'finanzas' && (
               <div className="space-y-8 animate-fade-in font-sans">
                 <div className="flex justify-between items-center mb-2">
