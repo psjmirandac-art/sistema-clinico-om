@@ -54,17 +54,16 @@ export default function AdminPanel() {
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
-  // SISTEMA FINANCIERO
+  // SISTEMA FINANCIERO Y HORARIOS
   const [pagosRegistrados, setPagosRegistrados] = useState<string[]>([]);
-  const [profFinances, setProfFinances] = useState<any>({}); // Almacena el trato financiero por profesional
+  const [profFinances, setProfFinances] = useState<any>({});
   const [financeModalProf, setFinanceModalProf] = useState<string | null>(null);
+  const [scheduleModalProf, setScheduleModalProf] = useState<string | null>(null);
+  const [localSchedules, setLocalSchedules] = useState<any>({});
 
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilterTab, setPatientFilterTab] = useState('Todos');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-
-  const [scheduleModalProf, setScheduleModalProf] = useState<any | null>(null);
-  const [localSchedules, setLocalSchedules] = useState<any>({});
 
   const [isListening, setIsListening] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -190,7 +189,6 @@ export default function AdminPanel() {
   
   const totalIncome = currentMonthAppointments.reduce((sum, app) => sum + getServicePrice(app.service_id), 0);
   
-  // CÁLCULO FINANCIERO DINÁMICO POR CONTRATO
   let gananciaCentro = 0;
   let gananciaProfesionales = 0;
 
@@ -446,14 +444,22 @@ export default function AdminPanel() {
 
   const initScheduleLocal = (profId: string) => {
     if (!localSchedules[profId]) {
-      setLocalSchedules({ ...localSchedules, [profId]: { lun: {active:true, start:'09:00', end:'18:00'}, mar: {active:true, start:'09:00', end:'18:00'}, mie: {active:true, start:'09:00', end:'18:00'}, jue: {active:true, start:'09:00', end:'18:00'}, vie: {active:true, start:'09:00', end:'18:00'}, sab: {active:false, start:'10:00', end:'14:00'}, dom: {active:false, start:'10:00', end:'14:00'} }});
+      setLocalSchedules(prev => ({ ...prev, [profId]: { 
+        lun: {active:true, start:'09:00', end:'18:00'}, 
+        mar: {active:true, start:'09:00', end:'18:00'}, 
+        mie: {active:true, start:'09:00', end:'18:00'}, 
+        jue: {active:true, start:'09:00', end:'18:00'}, 
+        vie: {active:true, start:'09:00', end:'18:00'}, 
+        sab: {active:false, start:'10:00', end:'14:00'}, 
+        dom: {active:false, start:'10:00', end:'14:00'} 
+      }}));
     }
     setScheduleModalProf(profId);
   };
 
   const initFinanceLocal = (profId: string) => {
     if (!profFinances[profId]) {
-      setProfFinances({ ...profFinances, [profId]: { type: 'percentage', value: 70 }});
+      setProfFinances(prev => ({ ...prev, [profId]: { type: 'percentage', value: 70 }}));
     }
     setFinanceModalProf(profId);
   };
@@ -511,6 +517,8 @@ export default function AdminPanel() {
             </div>
           </header>
 
+          {/* ======================= MODALES ======================= */}
+          
           {slotActionModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
@@ -557,11 +565,9 @@ export default function AdminPanel() {
                     </div>
                     <div className="flex flex-col gap-2">
                       <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">📁</span> Entrar a la ficha clínica</button>
-                      
                       <button onClick={() => handleRegistrarPago(apptActionModal.id)} className={`w-full text-left px-4 py-3 rounded-xl font-medium flex items-center gap-3 transition-colors ${pagosRegistrados.includes(apptActionModal.id) ? 'bg-emerald-50 text-emerald-700 cursor-default' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
                         <span className="text-lg">💰</span> {pagosRegistrados.includes(apptActionModal.id) ? 'Sesión Pagada' : 'Marcar como Pagado'}
                       </button>
-                      
                       <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors"><span className="text-lg">🎙️</span> Transcribir sesión con IA</button>
                       <button onClick={() => { 
                         setApptActionModal(null); 
@@ -718,6 +724,45 @@ export default function AdminPanel() {
                 </div>
                 <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50 rounded-b-2xl">
                   <button onClick={() => setFinanceModalProf(null)} className="px-5 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm">Guardar Configuración</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {scheduleModalProf && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-900">Horarios de Atención</h2>
+                  <button onClick={() => setScheduleModalProf(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-slate-500 mb-4">Configura los días y horas de atención para {getProfName(scheduleModalProf)}.</p>
+                  {['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((day, idx) => {
+                    const label = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][idx];
+                    const data = localSchedules[scheduleModalProf]?.[day] || { active: false, start: '09:00', end: '18:00' };
+                    return (
+                      <div key={day} className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <label className="flex items-center gap-3 w-32 cursor-pointer">
+                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, active: e.target.checked}}})} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
+                          <span className="text-sm font-medium text-slate-700">{label}</span>
+                        </label>
+                        {data.active ? (
+                          <div className="flex items-center gap-2">
+                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, start: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <span className="text-slate-400 text-sm">-</span>
+                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, end: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
+                          </div>
+                        ) : (
+                          <span className="text-sm text-slate-400 italic flex-1 text-right pr-4">No atiende</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
+                  <button onClick={() => setScheduleModalProf(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
+                  <button onClick={() => { alert('Horario guardado localmente en el sistema.'); setScheduleModalProf(null); }} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">Guardar Horario</button>
                 </div>
               </div>
             </div>
@@ -985,7 +1030,6 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* PESTAÑA FINANZAS REDISEÑADA (LIQUIDACIONES DINÁMICAS Y PAGOS SIMPLES) */}
             {!activePatient && activeTab === 'finanzas' && (
               <div className="space-y-8 animate-fade-in font-sans">
                 <div className="flex justify-between items-center mb-2">
