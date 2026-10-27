@@ -5,7 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
-// Inicialización segura
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -39,7 +38,6 @@ export default function AdminPanel() {
   const [patientDropdownOpen, setPatientDropdownOpen] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
   
-  // ESTADOS PARA RECURRENCIA (NUEVO)
   const [recurrence, setRecurrence] = useState('none'); 
   const [recurrenceCount, setRecurrenceCount] = useState(4);
 
@@ -168,13 +166,9 @@ export default function AdminPanel() {
   }
 
   const visibleProfessionals = professionals.filter(p => p.center_id === adminCenterId && (userRole === 'admin' || p.id === currentProfId));
-  
   const visibleAppointmentsRaw = appointments.filter(a => a.center_id === adminCenterId);
   const visibleAppointments = userRole === 'admin' ? visibleAppointmentsRaw : visibleAppointmentsRaw.filter(a => a.professional_id === currentProfId);
-  
-  // FILTRO CLAVE: Solo muestra en calendario/finanzas citas que NO estén marcadas como canceladas
   const activeAppointments = visibleAppointments.filter(a => a.consent_accepted !== false);
-
   const visibleServices = services.filter(s => visibleProfessionals.some(vp => vp.id === s.professional_id));
   const visibleBoxes = boxes.filter(b => b.center_id === adminCenterId);
   
@@ -194,7 +188,6 @@ export default function AdminPanel() {
   const getWeekDays = () => Array.from({ length: 7 }).map((_, i) => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + i); return d; });
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
-  // GESTIÓN DE PACIENTES (Incluye eliminados lógicamente para no perder su registro)
   const patientsMap = new Map();
   visibleAppointments.forEach(app => {
     if (app.patient_name?.startsWith('[BLOQUEO]')) return; 
@@ -282,7 +275,6 @@ export default function AdminPanel() {
     setShowApptModal(true);
   };
 
-  // AGENDAR NUEVO / RECURRENCIA / REAGENDAR
   const handleAdminSchedule = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
     const [yyyy, mm, dd] = adminAppt.date.split('-');
@@ -291,7 +283,6 @@ export default function AdminPanel() {
     let error = null;
     
     if (adminAppt.id) { 
-      // ES UN REAGENDAMIENTO (Solo modifica esta cita puntual)
       const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
       const startDateTime = startObj.toISOString();
       const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
@@ -304,7 +295,6 @@ export default function AdminPanel() {
       error = updateErr;
       if (!error) setAppointments(prev => prev.map(a => a.id === adminAppt.id ? { ...a, professional_id: finalProfId, start_time: startDateTime, end_time: endDateTime } : a));
     } else { 
-      // CREAR CITAS (Con soporte de recurrencia múltiple)
       const inserts = [];
       const totalSessions = recurrence === 'none' ? 1 : recurrenceCount;
       
@@ -320,7 +310,6 @@ export default function AdminPanel() {
           start_time: d.toISOString(), end_time: new Date(d.getTime() + 60 * 60 * 1000).toISOString(), consent_accepted: true 
          });
       }
-
       const { error: insertErr } = await supabase.from('appointments').insert(inserts);
       error = insertErr;
     }
@@ -342,16 +331,12 @@ export default function AdminPanel() {
     setLoading(false);
   };
 
-  // ELIMINADO LÓGICO DE PACIENTES
   const handleDeleteAppt = async (id: string, isBlock = false) => {
     if (!confirm(isBlock ? '¿Desbloquear este horario?' : '¿Seguro que deseas eliminar esta cita? (El paciente seguirá registrado históricamente)')) return;
-    
     if (isBlock) {
-      // Los bloqueos sí se borran por completo para limpiar la BD
       const { error } = await supabase.from('appointments').delete().eq('id', id);
       if (!error) { setAppointments(prev => prev.filter(a => a.id !== id)); loadData(); setApptActionModal(null); }
     } else {
-      // Los pacientes se "ocultan" marcando consent_accepted en false, así no pierdes sus datos
       const { error } = await supabase.from('appointments').update({ consent_accepted: false }).eq('id', id);
       if (!error) { 
         setAppointments(prev => prev.map(a => a.id === id ? { ...a, consent_accepted: false } : a));
@@ -393,7 +378,15 @@ export default function AdminPanel() {
   };
 
   const handleDeleteProfessional = async (id: string) => { if (!confirm('¿Eliminar profesional?')) return; const { error } = await supabase.from('professionals').delete().eq('id', id); if (!error) loadData(); };
-  const handleCreateService = async (e: React.FormEvent) => { e.preventDefault(); setIsCreating(true); const { error } = await supabase.from('services').insert([{ name: newName, price: Number(newPrice), professional_id: newProfId }]); if (!error) { setNewName(''); setNewPrice(''); setNewProfId(''); loadData(); } setIsCreating(false); };
+  
+  const handleCreateService = async (e: React.FormEvent) => { 
+    e.preventDefault(); setIsCreating(true); 
+    const finalProfIdForService = userRole === 'profesional' ? currentProfId : newProfId;
+    const { error } = await supabase.from('services').insert([{ name: newName, price: Number(newPrice), professional_id: finalProfIdForService }]); 
+    if (!error) { setNewName(''); setNewPrice(''); setNewProfId(''); loadData(); } 
+    setIsCreating(false); 
+  };
+  
   const handleDeleteService = async (id: string) => { if (!confirm('¿Eliminar servicio?')) return; const { error } = await supabase.from('services').delete().eq('id', id); if (!error) loadData(); };
   
   const handleCreateWorkshop = async (e: React.FormEvent) => {
@@ -443,11 +436,9 @@ export default function AdminPanel() {
               <p className="text-[10px] font-bold text-slate-400 uppercase px-3 mt-6 mb-2 tracking-wider">Práctica</p>
               <button onClick={() => { setActiveTab('pacientes'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'pacientes' && !activePatient ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>👥 Pacientes</button>
               
+              <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
               {userRole === 'admin' && (
-                <>
-                  <button onClick={() => { setActiveTab('terapias'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'terapias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💼 Terapias y Servicios</button>
-                  <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏥 Equipo y Boxes</button>
-                </>
+                <button onClick={() => { setActiveTab('equipo'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'equipo' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>🏥 Equipo y Boxes</button>
               )}
 
               <button onClick={() => { setActiveTab('finanzas'); setActivePatient(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'finanzas' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>💰 Boletas y Pagos</button>
@@ -567,7 +558,6 @@ export default function AdminPanel() {
                     
                     <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha {(!adminAppt.id && recurrence !== 'none') ? 'de inicio' : ''}</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt({...adminAppt, date: e.target.value})} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt({...adminAppt, time: e.target.value})} /></div></div>
                     
-                    {/* PANEL DE RECURRENCIA SOLO SI ES UNA CITA NUEVA */}
                     {!adminAppt.id && (
                       <div className="md:col-span-2 grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
                         <div>
@@ -627,51 +617,22 @@ export default function AdminPanel() {
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
                     <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
+                    
+                    {/* CASILLA DE CONSENTIMIENTO INFORMADO (NUEVA) */}
+                    <div className="md:col-span-2 flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
+                      <input type="checkbox" required id="consent" className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" defaultChecked />
+                      <label htmlFor="consent" className="text-xs font-medium text-slate-700 cursor-pointer leading-tight">
+                        Confirmo que el paciente acepta el <span className="font-bold text-blue-600 underline">Consentimiento Informado</span>.<br/>
+                        <span className="text-slate-400 font-normal">Los términos se incluirán automáticamente en el correo de confirmación de la cita.</span>
+                      </label>
+                    </div>
+
                   </div>
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                     <button type="button" onClick={() => {setShowApptModal(false); setRecurrence('none'); setRecurrenceCount(4);}} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200">Cancelar</button>
                     <button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">{loading ? 'Procesando...' : (adminAppt.id ? 'Guardar Cambios' : (recurrence === 'none' ? 'Confirmar Cita' : `Agendar ${recurrenceCount} Citas`))}</button>
                   </div>
                 </form>
-              </div>
-            </div>
-          )}
-
-          {scheduleModalProf && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-                <div className="flex justify-between items-center p-6 border-b border-slate-100">
-                  <h2 className="text-lg font-bold text-slate-900">Horario de Atención</h2>
-                  <button onClick={() => setScheduleModalProf(null)} className="text-slate-400 hover:text-slate-700">✕</button>
-                </div>
-                <div className="p-6 space-y-4">
-                  <p className="text-sm text-slate-500 mb-4">Configura los días y horas de atención para {getProfName(scheduleModalProf)}.</p>
-                  {['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((day, idx) => {
-                    const label = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][idx];
-                    const data = localSchedules[scheduleModalProf][day];
-                    return (
-                      <div key={day} className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <label className="flex items-center gap-3 w-32 cursor-pointer">
-                          <input type="checkbox" checked={data.active} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, active: e.target.checked}}})} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" />
-                          <span className="text-sm font-medium text-slate-700">{label}</span>
-                        </label>
-                        {data.active ? (
-                          <div className="flex items-center gap-2">
-                            <input type="time" value={data.start} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, start: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                            <span className="text-slate-400 text-sm">-</span>
-                            <input type="time" value={data.end} onChange={(e) => setLocalSchedules({...localSchedules, [scheduleModalProf]: {...localSchedules[scheduleModalProf], [day]: {...data, end: e.target.value}}})} className="border border-slate-200 p-1.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                          </div>
-                        ) : (
-                          <span className="text-sm text-slate-400 italic flex-1 text-right pr-4">No atiende</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-                <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
-                  <button onClick={() => setScheduleModalProf(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100">Cancelar</button>
-                  <button onClick={() => { alert('Horario guardado localmente en el sistema.'); setScheduleModalProf(null); }} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">Guardar Horario</button>
-                </div>
               </div>
             </div>
           )}
@@ -1011,12 +972,17 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {!activePatient && activeTab === 'terapias' && userRole === 'admin' && (
+            {!activePatient && activeTab === 'terapias' && (
               <div className="space-y-6 animate-fade-in">
                 <h2 className="text-2xl font-bold text-slate-900">Servicios y Terapias</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <form onSubmit={handleCreateService} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Profesional</label><select required className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfId} onChange={e => setNewProfId(e.target.value)}><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Profesional</label>
+                      <select required disabled={userRole === 'profesional'} className={`w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all ${userRole === 'profesional' ? 'opacity-75 cursor-not-allowed' : ''}`} value={userRole === 'profesional' ? currentProfId : newProfId} onChange={e => setNewProfId(e.target.value)}>
+                        {userRole === 'profesional' ? <option value={currentProfId}>{getProfName(currentProfId)}</option> : <><option value="" disabled>Seleccionar...</option>{visibleProfessionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>}
+                      </select>
+                    </div>
                     <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nombre Servicio</label><input required type="text" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newName} onChange={e => setNewName(e.target.value)} /></div>
                     <div><label className="block text-xs font-bold text-slate-400 uppercase mb-1">Precio ($)</label><input required type="number" className="w-full border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newPrice} onChange={e => setNewPrice(e.target.value)} /></div>
                     <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Crear Servicio</button>
@@ -1024,9 +990,12 @@ export default function AdminPanel() {
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                   <div className="divide-y divide-slate-100">
-                    {services.map(s => (
+                    {visibleServices.map(s => (
                       <div key={s.id} className="p-5 flex justify-between items-center">
-                        <div><p className="font-bold text-slate-900">{s.name}</p><p className="text-xs text-slate-500">Precio: ${s.price?.toLocaleString('es-CL')}</p></div>
+                        <div>
+                           <p className="font-bold text-slate-900">{s.name}</p>
+                           <p className="text-xs text-slate-500">Precio: ${s.price?.toLocaleString('es-CL')} {userRole === 'admin' ? `| Prof: ${getProfName(s.professional_id)}` : ''}</p>
+                        </div>
                         <button onClick={() => handleDeleteService(s.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors">Eliminar</button>
                       </div>
                     ))}
