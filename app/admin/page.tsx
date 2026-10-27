@@ -33,6 +33,7 @@ export default function AdminPanel() {
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(new Date('2024-01-01T00:00:00'));
   
   const [showApptModal, setShowApptModal] = useState(false);
+  const [patientDropdownOpen, setPatientDropdownOpen] = useState(false); // Estado del buscador inteligente
   const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
 
   const [slotActionModal, setSlotActionModal] = useState<{date: string, time: string} | null>(null);
@@ -466,10 +467,13 @@ export default function AdminPanel() {
             </div>
           )}
 
+          {/* ========================================================
+              MODAL CON BUSCADOR DE PACIENTES INTEGRADO
+             ======================================================== */}
           {showApptModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white z-20">
                   <h2 className="text-xl font-bold text-slate-900">{adminAppt.id ? 'Reagendar Cita' : 'Agendar Nueva Cita'}</h2>
                   <button onClick={() => setShowApptModal(false)} className="text-slate-400 hover:text-slate-700">✕</button>
                 </div>
@@ -484,37 +488,61 @@ export default function AdminPanel() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2"><h3 className="text-xs font-bold text-slate-400 uppercase mt-2">Datos del Paciente</h3></div>
                     
-                    {/* MENU DESPLEGABLE PACIENTES */}
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Seleccionar paciente registrado (Opcional)</label>
-                      <select 
-                        className="w-full border border-blue-200 rounded-lg p-2.5 text-sm font-bold text-blue-900 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer shadow-sm"
-                        value={adminAppt.patient_name ? (processedPatients.find(p => p.name === adminAppt.patient_name)?.id || 'new') : 'new'}
-                        onChange={(e) => {
-                          if (e.target.value === 'new') {
-                            setAdminAppt({...adminAppt, patient_name: '', patient_rut: '', patient_phone: '', patient_email: ''});
-                          } else {
-                            const selected = processedPatients.find(p => p.id === e.target.value);
-                            if (selected) {
-                              setAdminAppt({
-                                ...adminAppt,
-                                patient_name: selected.name || '',
-                                patient_rut: selected.rut || '',
-                                patient_phone: selected.phone || '',
-                                patient_email: selected.email || ''
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        <option value="new">+ Crear nuevo paciente (Ingresar datos manualmente abajo)</option>
-                        {processedPatients.map(p => (
-                          <option key={p.id} value={p.id}>{p.name} {p.rut ? `- ${p.rut}` : ''}</option>
-                        ))}
-                      </select>
+                    {/* CAMPO UNIFICADO: NOMBRE CON BUSCADOR AUTOCOMPLETADO */}
+                    <div className="md:col-span-2 relative">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre del Paciente (Buscar o Crear Nuevo)</label>
+                      <div className="relative">
+                        <svg className="w-4 h-4 absolute left-3 top-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <input 
+                          type="text" 
+                          required 
+                          placeholder="Escribe para buscar o registra uno nuevo..."
+                          className="w-full border border-blue-200 rounded-lg pl-9 pr-4 py-2.5 text-sm font-bold text-slate-900 bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all shadow-sm" 
+                          value={adminAppt.patient_name} 
+                          onChange={e => {
+                            setAdminAppt({...adminAppt, patient_name: e.target.value});
+                            setPatientDropdownOpen(true);
+                          }}
+                          onFocus={() => setPatientDropdownOpen(true)}
+                          onBlur={() => setTimeout(() => setPatientDropdownOpen(false), 200)}
+                        />
+                      </div>
+                      
+                      {/* Lista de sugerencias */}
+                      {patientDropdownOpen && adminAppt.patient_name.length > 0 && processedPatients.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                          {processedPatients.filter(p => p.name.toLowerCase().includes(adminAppt.patient_name.toLowerCase()) || (p.rut && p.rut.includes(adminAppt.patient_name))).length > 0 ? (
+                            <>
+                              <div className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0">Pacientes Registrados</div>
+                              {processedPatients.filter(p => p.name.toLowerCase().includes(adminAppt.patient_name.toLowerCase()) || (p.rut && p.rut.includes(adminAppt.patient_name))).map(p => (
+                                <div 
+                                  key={p.id}
+                                  className="px-4 py-2.5 text-sm hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center transition-colors"
+                                  onClick={() => {
+                                    setAdminAppt({
+                                      ...adminAppt,
+                                      patient_name: p.name || '',
+                                      patient_rut: p.rut || '',
+                                      patient_phone: p.phone || '',
+                                      patient_email: p.email || ''
+                                    });
+                                    setPatientDropdownOpen(false);
+                                  }}
+                                >
+                                  <span className="font-bold text-slate-900">{p.name}</span> 
+                                  {p.rut && <span className="text-slate-400 text-xs font-medium">{p.rut}</span>}
+                                </div>
+                              ))}
+                            </>
+                          ) : (
+                             <div className="px-4 py-3 text-sm text-slate-500 text-center font-medium">
+                               No hay coincidencias. Se creará como <span className="font-bold text-slate-900">nuevo paciente</span>.
+                             </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_name} onChange={e => setAdminAppt({...adminAppt, patient_name: e.target.value})} /></div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">RUT</label><input type="text" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_rut} onChange={e => setAdminAppt({...adminAppt, patient_rut: e.target.value})} /></div>
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
                     <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
