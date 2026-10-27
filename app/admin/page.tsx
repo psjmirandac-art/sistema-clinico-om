@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Link from 'next/link';
 
+// Inicialización segura
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -52,6 +53,11 @@ export default function AdminPanel() {
   const [noteDesarrollo, setNoteDesarrollo] = useState('');
   const [notePlan, setNotePlan] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+
+  // SISTEMA FINANCIERO
+  const [pagosRegistrados, setPagosRegistrados] = useState<string[]>([]);
+  const [profFinances, setProfFinances] = useState<any>({}); // Almacena el trato financiero por profesional
+  const [financeModalProf, setFinanceModalProf] = useState<string | null>(null);
 
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilterTab, setPatientFilterTab] = useState('Todos');
@@ -174,13 +180,35 @@ export default function AdminPanel() {
   
   const getProfName = (id: string) => professionals.find(p => p.id === id)?.name || 'Desconocido';
   const getServicePrice = (id: string) => services.find(s => s.id === id)?.price || 0;
+  const getServiceName = (id: string) => services.find(s => s.id === id)?.name || 'Servicio General';
   const getBoxName = (id: string) => boxes.find(b => b.id === id)?.name || 'Box No Asignado';
 
   const currentMonthAppointments = activeAppointments.filter(app => {
     const appDate = new Date(app.start_time); const now = new Date();
-    return appDate.getMonth() === now.getMonth() && appDate.getFullYear() === now.getFullYear();
+    return appDate.getMonth() === now.getMonth() && appDate.getFullYear() === now.getFullYear() && !app.patient_name.startsWith('[BLOQUEO]');
   });
+  
   const totalIncome = currentMonthAppointments.reduce((sum, app) => sum + getServicePrice(app.service_id), 0);
+  
+  // CÁLCULO FINANCIERO DINÁMICO POR CONTRATO
+  let gananciaCentro = 0;
+  let gananciaProfesionales = 0;
+
+  visibleProfessionals.forEach(p => {
+    const profAppts = currentMonthAppointments.filter(a => a.professional_id === p.id);
+    const profTotal = profAppts.reduce((sum, a) => sum + getServicePrice(a.service_id), 0);
+    const fin = profFinances[p.id] || { type: 'percentage', value: 70 };
+    
+    if (fin.type === 'percentage') {
+       const neto = profTotal * (fin.value / 100);
+       gananciaProfesionales += neto;
+       gananciaCentro += (profTotal - neto);
+    } else {
+       gananciaCentro += Number(fin.value);
+       gananciaProfesionales += (profTotal - Number(fin.value));
+    }
+  });
+
   const averageTicket = currentMonthAppointments.length > 0 ? Math.round(totalIncome / currentMonthAppointments.length) : 0;
 
   const prevWeek = () => { const d = new Date(currentWeekStart); d.setDate(d.getDate() - 7); setCurrentWeekStart(d); };
@@ -345,6 +373,13 @@ export default function AdminPanel() {
     }
   };
 
+  const handleRegistrarPago = (id: string) => {
+    if (!pagosRegistrados.includes(id)) {
+      setPagosRegistrados([...pagosRegistrados, id]);
+    }
+    setApptActionModal(null);
+  };
+
   const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
     setApptActionModal(null);
     const pName = appOrPatient.patient_name || appOrPatient.name;
@@ -414,6 +449,13 @@ export default function AdminPanel() {
       setLocalSchedules({ ...localSchedules, [profId]: { lun: {active:true, start:'09:00', end:'18:00'}, mar: {active:true, start:'09:00', end:'18:00'}, mie: {active:true, start:'09:00', end:'18:00'}, jue: {active:true, start:'09:00', end:'18:00'}, vie: {active:true, start:'09:00', end:'18:00'}, sab: {active:false, start:'10:00', end:'14:00'}, dom: {active:false, start:'10:00', end:'14:00'} }});
     }
     setScheduleModalProf(profId);
+  };
+
+  const initFinanceLocal = (profId: string) => {
+    if (!profFinances[profId]) {
+      setProfFinances({ ...profFinances, [profId]: { type: 'percentage', value: 70 }});
+    }
+    setFinanceModalProf(profId);
   };
 
   if (session) {
@@ -515,7 +557,11 @@ export default function AdminPanel() {
                     </div>
                     <div className="flex flex-col gap-2">
                       <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">📁</span> Entrar a la ficha clínica</button>
-                      <button onClick={() => { alert('Pago registrado exitosamente en el sistema.'); setApptActionModal(null); }} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">💰</span> Registrar el pago</button>
+                      
+                      <button onClick={() => handleRegistrarPago(apptActionModal.id)} className={`w-full text-left px-4 py-3 rounded-xl font-medium flex items-center gap-3 transition-colors ${pagosRegistrados.includes(apptActionModal.id) ? 'bg-emerald-50 text-emerald-700 cursor-default' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
+                        <span className="text-lg">💰</span> {pagosRegistrados.includes(apptActionModal.id) ? 'Sesión Pagada' : 'Marcar como Pagado'}
+                      </button>
+                      
                       <button onClick={() => openFicha(apptActionModal, true)} className="w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-xl font-medium text-blue-700 flex items-center gap-3 transition-colors"><span className="text-lg">🎙️</span> Transcribir sesión con IA</button>
                       <button onClick={() => { 
                         setApptActionModal(null); 
@@ -618,7 +664,6 @@ export default function AdminPanel() {
                     <div><label className="block text-xs font-semibold text-slate-700 mb-1">Teléfono</label><input type="tel" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_phone} onChange={e => setAdminAppt({...adminAppt, patient_phone: e.target.value})} /></div>
                     <div className="md:col-span-2"><label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label><input type="email" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.patient_email} onChange={e => setAdminAppt({...adminAppt, patient_email: e.target.value})} /></div>
                     
-                    {/* CASILLA DE CONSENTIMIENTO INFORMADO (NUEVA) */}
                     <div className="md:col-span-2 flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
                       <input type="checkbox" required id="consent" className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" defaultChecked />
                       <label htmlFor="consent" className="text-xs font-medium text-slate-700 cursor-pointer leading-tight">
@@ -633,6 +678,47 @@ export default function AdminPanel() {
                     <button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">{loading ? 'Procesando...' : (adminAppt.id ? 'Guardar Cambios' : (recurrence === 'none' ? 'Confirmar Cita' : `Agendar ${recurrenceCount} Citas`))}</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {financeModalProf && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-900">Acuerdo Financiero</h2>
+                  <button onClick={() => setFinanceModalProf(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-slate-500 mb-2">Define el modelo de retribución para <strong>{getProfName(financeModalProf)}</strong>.</p>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Tipo de Contrato</label>
+                    <select 
+                      value={profFinances[financeModalProf]?.type || 'percentage'} 
+                      onChange={(e) => setProfFinances({...profFinances, [financeModalProf]: {...profFinances[financeModalProf], type: e.target.value}})}
+                      className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="percentage">Porcentaje por sesión (Split)</option>
+                      <option value="fixed">Arriendo Fijo Mensual</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                      {profFinances[financeModalProf]?.type === 'fixed' ? 'Monto a pagar al Centro ($)' : 'Porcentaje para el Profesional (%)'}
+                    </label>
+                    <input 
+                      type="number" 
+                      value={profFinances[financeModalProf]?.value || 70}
+                      onChange={(e) => setProfFinances({...profFinances, [financeModalProf]: {...profFinances[financeModalProf], value: Number(e.target.value)}})}
+                      className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50 rounded-b-2xl">
+                  <button onClick={() => setFinanceModalProf(null)} className="px-5 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-sm">Guardar Configuración</button>
+                </div>
               </div>
             </div>
           )}
@@ -784,15 +870,16 @@ export default function AdminPanel() {
                                 >
                                   {cellAppts.map(app => {
                                     const isBlocked = app.patient_name.startsWith('[BLOQUEO]');
+                                    const isPaid = pagosRegistrados.includes(app.id);
                                     return (
                                       <div 
                                         key={app.id} 
                                         draggable
                                         onDragStart={(e) => handleDragStart(e, app.id)}
                                         onClick={(e) => { e.stopPropagation(); setApptActionModal(app); }} 
-                                        className={`p-2 rounded-lg shadow-sm font-bold mb-1 text-[10px] cursor-move transition-transform hover:scale-[1.02] ${isBlocked ? 'bg-slate-100 border-l-4 border-slate-400 text-slate-500' : 'bg-blue-50 border-l-4 border-blue-500 text-blue-900 hover:bg-blue-100'}`}
+                                        className={`p-2 rounded-lg shadow-sm font-bold mb-1 text-[10px] cursor-move transition-transform hover:scale-[1.02] ${isBlocked ? 'bg-slate-100 border-l-4 border-slate-400 text-slate-500' : (isPaid ? 'bg-emerald-50 border-l-4 border-emerald-500 text-emerald-900' : 'bg-blue-50 border-l-4 border-blue-500 text-blue-900 hover:bg-blue-100')}`}
                                       >
-                                        {isBlocked ? app.patient_name.replace('[BLOQUEO]', '🚫') : app.patient_name}
+                                        {isBlocked ? app.patient_name.replace('[BLOQUEO]', '🚫') : `${isPaid ? '✓ ' : ''}${app.patient_name}`}
                                       </div>
                                     )
                                   })}
@@ -811,7 +898,7 @@ export default function AdminPanel() {
                       {activeAppointments.filter(app => !app.patient_name.startsWith('[BLOQUEO]')).map(app => (
                         <div key={app.id} className="p-5 flex justify-between items-center hover:bg-slate-50">
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{app.patient_name}</p>
+                            <p className="font-bold text-slate-900 text-sm">{app.patient_name} {pagosRegistrados.includes(app.id) && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full ml-2">PAGADO</span>}</p>
                             <p className="text-xs text-slate-500">{new Date(app.start_time).toLocaleString('es-CL')} | Box: {getBoxName(app.box_id)}</p>
                           </div>
                           <div className="flex gap-3">
@@ -898,17 +985,132 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA FINANZAS REDISEÑADA (LIQUIDACIONES DINÁMICAS Y PAGOS SIMPLES) */}
             {!activePatient && activeTab === 'finanzas' && (
-              <div className="space-y-8 animate-fade-in">
-                <h2 className="text-2xl font-bold text-slate-900">Boletas, Pagos y Rendimiento</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Ingresos Brutos</p><p className="text-3xl font-black text-emerald-600 mt-2">${totalIncome.toLocaleString('es-CL')}</p></div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Citas Atendidas</p><p className="text-3xl font-black text-indigo-600 mt-2">{currentMonthAppointments.length}</p></div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><p className="text-xs font-bold text-slate-400 uppercase">Ticket Promedio</p><p className="text-3xl font-black text-slate-800 mt-2">${averageTicket.toLocaleString('es-CL')}</p></div>
+              <div className="space-y-8 animate-fade-in font-sans">
+                <div className="flex justify-between items-center mb-2">
+                  <h2 className="text-2xl font-bold text-slate-900">Control Financiero y Liquidaciones</h2>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 uppercase">Ingresos Brutos Mensuales</p>
+                    <p className="text-3xl font-black text-slate-900 mt-2">${totalIncome.toLocaleString('es-CL')}</p>
+                    <p className="text-xs text-slate-500 mt-2">Basado en {currentMonthAppointments.length} citas agendadas.</p>
+                  </div>
+                  {userRole === 'admin' ? (
+                    <>
+                      <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl shadow-sm">
+                        <p className="text-xs font-bold text-emerald-600 uppercase">Retención Centro</p>
+                        <p className="text-3xl font-black text-emerald-700 mt-2">${gananciaCentro.toLocaleString('es-CL')}</p>
+                        <p className="text-xs text-emerald-600 mt-2">Ganancia neta para la clínica.</p>
+                      </div>
+                      <div className="bg-blue-50 border border-blue-100 p-6 rounded-2xl shadow-sm">
+                        <p className="text-xs font-bold text-blue-600 uppercase">A Pagar al Equipo</p>
+                        <p className="text-3xl font-black text-blue-700 mt-2">${gananciaProfesionales.toLocaleString('es-CL')}</p>
+                        <p className="text-xs text-blue-600 mt-2">Monto total a transferir a profesionales.</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-blue-50 border border-blue-100 p-6 rounded-2xl shadow-sm">
+                        <p className="text-xs font-bold text-blue-600 uppercase">Tu Pago Neto Mensual</p>
+                        <p className="text-3xl font-black text-blue-700 mt-2">${gananciaProfesionales.toLocaleString('es-CL')}</p>
+                        <p className="text-xs text-blue-600 mt-2">Según tu modelo de contrato.</p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+                        <p className="text-xs font-bold text-slate-400 uppercase">Ticket Promedio</p>
+                        <p className="text-3xl font-black text-slate-800 mt-2">${averageTicket.toLocaleString('es-CL')}</p>
+                        <p className="text-xs text-slate-500 mt-2">Por paciente atendido.</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Ingresos por Profesional</h3><div className="h-[280px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], ingresos: currentMonthAppointments.filter(a => a.professional_id === p.id).reduce((s, a) => s + getServicePrice(a.service_id), 0)}))}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 12}} /><YAxis tick={{fontSize: 12}} /><Tooltip formatter={(v:any) => [`$${v.toLocaleString('es-CL')}`, 'Ingresos']} /><Bar dataKey="ingresos" fill="#3b82f6" radius={[8,8,0,0]} /></BarChart></ResponsiveContainer></div></div>
-                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm"><h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Distribución de Citas</h3><div className="h-[280px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={visibleProfessionals.map(p => ({name: p.name.split(' ')[0], value: currentMonthAppointments.filter(a => a.professional_id === p.id).length}))} dataKey="value" innerRadius={70} outerRadius={100} paddingAngle={5}>{visibleProfessionals.map((_, i) => <Cell key={i} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i%4]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></div>
+                  {/* SECCIÓN LIQUIDACIONES (TABLA DE COMISIONES) */}
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Liquidaciones por Profesional</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="border-b border-slate-100 text-slate-500">
+                          <tr>
+                            <th className="pb-3 font-medium">Profesional</th>
+                            <th className="pb-3 font-medium">Generado</th>
+                            {userRole === 'admin' && <th className="pb-3 font-medium text-red-500">Descuento Centro</th>}
+                            <th className="pb-3 font-medium text-blue-600">A Pagar</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {visibleProfessionals.map(p => {
+                            const profAppts = currentMonthAppointments.filter(a => a.professional_id === p.id);
+                            const profTotal = profAppts.reduce((sum, a) => sum + getServicePrice(a.service_id), 0);
+                            const fin = profFinances[p.id] || { type: 'percentage', value: 70 };
+                            let profNeto = 0;
+                            let centroRetencion = 0;
+                            
+                            if (fin.type === 'percentage') {
+                                profNeto = profTotal * (fin.value / 100);
+                                centroRetencion = profTotal - profNeto;
+                            } else {
+                                centroRetencion = Number(fin.value);
+                                profNeto = profTotal - centroRetencion;
+                            }
+                            
+                            return (
+                              <tr key={p.id} className="hover:bg-slate-50">
+                                <td className="py-3 font-medium text-slate-900">
+                                  {p.name}
+                                  <span className="block text-[10px] text-slate-400">
+                                    {fin.type === 'percentage' ? `Trato: ${fin.value}% Prof` : `Arriendo Fijo: $${fin.value.toLocaleString('es-CL')}`}
+                                  </span>
+                                </td>
+                                <td className="py-3 text-slate-600">${profTotal.toLocaleString('es-CL')}</td>
+                                {userRole === 'admin' && <td className="py-3 text-red-500">-${centroRetencion.toLocaleString('es-CL')}</td>}
+                                <td className="py-3 font-bold text-blue-600">${profNeto.toLocaleString('es-CL')}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* SECCIÓN PAGOS (SIN SIMULADOR SII) */}
+                  <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm flex flex-col h-[400px]">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-4">Historial de Pagos de Citas</h3>
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                      {currentMonthAppointments.length === 0 ? (
+                         <p className="text-slate-400 text-sm text-center pt-10">No hay citas registradas este mes.</p>
+                      ) : (
+                         currentMonthAppointments.sort((a,b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime()).map(app => {
+                           const isPaid = pagosRegistrados.includes(app.id);
+                           const precio = getServicePrice(app.service_id);
+                           
+                           return (
+                             <div key={app.id} className="flex justify-between items-center p-3 border border-slate-100 bg-slate-50 rounded-xl">
+                               <div>
+                                 <p className="font-bold text-slate-900 text-sm">{app.patient_name}</p>
+                                 <p className="text-xs text-slate-500">{new Date(app.start_time).toLocaleDateString('es-CL')} • {getServiceName(app.service_id)}</p>
+                               </div>
+                               <div className="text-right">
+                                 <p className="font-bold text-slate-900 text-sm mb-1">${precio.toLocaleString('es-CL')}</p>
+                                 {isPaid ? (
+                                   <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                                     ✓ PAGADO
+                                   </span>
+                                 ) : (
+                                   <button onClick={() => handleRegistrarPago(app.id)} className="px-3 py-1 bg-white border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-200 rounded text-[10px] font-bold transition-colors">
+                                     MARCAR PAGADO
+                                   </button>
+                                 )}
+                               </div>
+                             </div>
+                           );
+                         })
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -962,6 +1164,7 @@ export default function AdminPanel() {
                       <div key={p.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
                         <div><p className="font-bold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p></div>
                         <div className="flex gap-4">
+                          <button onClick={() => initFinanceLocal(p.id)} className="text-indigo-600 text-xs font-bold hover:text-indigo-800 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Contrato</button>
                           <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>
                           <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors px-2 py-1.5">Eliminar</button>
                         </div>
