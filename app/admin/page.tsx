@@ -63,6 +63,7 @@ export default function AdminPanel() {
   const [profFinances, setProfFinances] = useState<any>({});
   const [financeModalProf, setFinanceModalProf] = useState<string | null>(null);
   const [scheduleModalProf, setScheduleModalProf] = useState<string | null>(null);
+  const [editProfModal, setEditProfModal] = useState<any | null>(null); // NUEVO ESTADO PARA EDITAR PROFESIONAL
   const [localSchedules, setLocalSchedules] = useState<any>({});
 
   const [patientSearch, setPatientSearch] = useState('');
@@ -140,7 +141,6 @@ export default function AdminPanel() {
     setIsGeneratingCert(false);
   };
 
-  // IMPRESIÓN DEL CERTIFICADO CON FIRMA Y SIS REAL
   const handlePrintCertificate = () => {
     const printWindow = window.open('', '', 'width=800,height=900');
     if (!printWindow) return;
@@ -203,7 +203,7 @@ export default function AdminPanel() {
   const [newProfEmail, setNewProfEmail] = useState('');
   const [newProfPassword, setNewProfPassword] = useState('');
   const [newProfBoxId, setNewProfBoxId] = useState('');
-  const [newProfSis, setNewProfSis] = useState(''); // NUEVO ESTADO PARA SIS
+  const [newProfSis, setNewProfSis] = useState('');
   const [isCreatingProf, setIsCreatingProf] = useState(false);
   const [wsTitle, setWsTitle] = useState('');
   const [wsDesc, setWsDesc] = useState('');
@@ -470,7 +470,6 @@ export default function AdminPanel() {
     const pRut = appOrPatient.patient_rut || appOrPatient.rut;
     const pPhone = appOrPatient.patient_phone || appOrPatient.phone;
     
-    // Capturamos al profesional de la cita para el PDF
     const profId = appOrPatient.professional_id || (appOrPatient.appointments?.[0]?.professional_id) || currentProfId; 
     
     const sDate = appOrPatient.start_time 
@@ -500,7 +499,6 @@ export default function AdminPanel() {
     const { error: authError } = await tempSupabase.auth.signUp({ email: newProfEmail.toLowerCase(), password: newProfPassword });
     if (authError) { alert('Error: ' + authError.message); setIsCreatingProf(false); return; }
     
-    // GUARDAMOS TAMBIÉN EL SIS
     const { error: dbError } = await supabase.from('professionals').insert([{ 
       name: newProfName, 
       email: newProfEmail.toLowerCase(), 
@@ -510,8 +508,27 @@ export default function AdminPanel() {
     }]);
     
     if (!dbError) { setNewProfName(''); setNewProfEmail(''); setNewProfPassword(''); setNewProfBoxId(''); setNewProfSis(''); loadData(); alert(`Profesional registrado. Clave temporal: ${newProfPassword}`); }
-    else { alert('Error de base de datos. Recuerda ejecutar el comando SQL para agregar sis_number.'); }
+    else { alert('Error de base de datos.'); }
     setIsCreatingProf(false);
+  };
+
+  // NUEVA FUNCIÓN PARA GUARDAR LA EDICIÓN DE UN PROFESIONAL
+  const handleUpdateProfessional = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.from('professionals').update({
+        name: editProfModal.name,
+        sis_number: editProfModal.sis_number,
+        default_box_id: editProfModal.default_box_id || null
+    }).eq('id', editProfModal.id);
+
+    if (!error) {
+        setEditProfModal(null);
+        loadData();
+    } else {
+        alert('Error al actualizar: ' + error.message);
+    }
+    setLoading(false);
   };
 
   const handleDeleteProfessional = async (id: string) => { if (!confirm('¿Eliminar profesional?')) return; const { error } = await supabase.from('professionals').delete().eq('id', id); if (!error) loadData(); };
@@ -872,6 +889,39 @@ export default function AdminPanel() {
             </div>
           )}
           
+          {/* NUEVO MODAL: EDITAR PROFESIONAL */}
+          {editProfModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-900">Editar Profesional</h2>
+                  <button onClick={() => setEditProfModal(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <form onSubmit={handleUpdateProfessional} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Nombre completo</label>
+                    <input required type="text" value={editProfModal.name} onChange={e => setEditProfModal({...editProfModal, name: e.target.value})} className="w-full border border-slate-200 p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Registro SIS</label>
+                    <input type="text" value={editProfModal.sis_number || ''} onChange={e => setEditProfModal({...editProfModal, sis_number: e.target.value})} className="w-full border border-slate-200 p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Box Asignado</label>
+                    <select value={editProfModal.default_box_id || ''} onChange={e => setEditProfModal({...editProfModal, default_box_id: e.target.value})} className="w-full border border-slate-200 p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Sin Box (Opcional)</option>
+                      {visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="pt-4 flex justify-end gap-3">
+                    <button type="button" onClick={() => setEditProfModal(null)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200">Cancelar</button>
+                    <button type="submit" disabled={loading} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* MODAL GENERADOR DE CERTIFICADOS CON IA */}
           {showCertModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
@@ -999,7 +1049,7 @@ export default function AdminPanel() {
                       </select>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
+                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
                       <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 transform -rotate-45 -mt-1"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>Enviar</button>
                     </div>
                   </div>
@@ -1368,7 +1418,7 @@ export default function AdminPanel() {
                   <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-6 gap-4">
                     <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
                     <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
-                    <input required type="text" placeholder="Registro SIS" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfSis} onChange={e => setNewProfSis(e.target.value)} />
+                    <input type="text" placeholder="Registro SIS" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfSis} onChange={e => setNewProfSis(e.target.value)} />
                     <input required type="text" placeholder="Clave (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
                     <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}><option value="">Sin Box (Opcional)</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
                     <button type="submit" disabled={isCreatingProf} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors md:col-span-2">Registrar</button>
@@ -1382,7 +1432,8 @@ export default function AdminPanel() {
                           <p className="font-bold text-slate-900">{p.name}</p>
                           <p className="text-xs text-slate-500">{p.email} {p.sis_number ? `• SIS: ${p.sis_number}` : ''} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p>
                         </div>
-                        <div className="flex gap-4">
+                        <div className="flex gap-2 sm:gap-4">
+                          <button onClick={() => setEditProfModal(p)} className="text-orange-600 text-xs font-bold hover:text-orange-800 transition-colors bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100">Editar</button>
                           <button onClick={() => initFinanceLocal(p.id)} className="text-indigo-600 text-xs font-bold hover:text-indigo-800 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Contrato</button>
                           <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>
                           <button onClick={() => handleDeleteProfessional(p.id)} className="text-red-600 text-xs font-bold hover:text-red-800 transition-colors px-2 py-1.5">Eliminar</button>
