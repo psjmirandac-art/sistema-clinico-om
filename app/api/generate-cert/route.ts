@@ -21,7 +21,7 @@ export async function POST(request: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant', // <--- MODELO ACTUALIZADO AQUÍ
+        model: 'openai/gpt-oss-20b',
         messages: [{ role: 'user', content: groqPrompt }],
         temperature: 0.3
       })
@@ -29,11 +29,12 @@ export async function POST(request: Request) {
 
     const data = await response.json();
     
-    // SISTEMA DE DEFENSA
+    // SISTEMA DE DEFENSA: Atrapa errores internos de Groq
     if (data.error) {
         return NextResponse.json({ error: `Groq API: ${data.error.message}` }, { status: 500 });
     }
     
+    // SISTEMA DE DEFENSA: Atrapa respuestas vacías
     if (!data.choices || !data.choices[0]) {
         return NextResponse.json({ error: 'La IA devolvió una respuesta en blanco. Intenta nuevamente.' }, { status: 500 });
     }
