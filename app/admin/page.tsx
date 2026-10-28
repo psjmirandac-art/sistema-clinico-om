@@ -36,7 +36,9 @@ export default function AdminPanel() {
   
   const [showApptModal, setShowApptModal] = useState(false);
   const [patientDropdownOpen, setPatientDropdownOpen] = useState(false);
-  const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+  
+  // SE AGREGÓ MODALIDAD Y MEET_LINK
+  const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '', modality: 'Presencial' });
   
   const [recurrence, setRecurrence] = useState('none'); 
   const [recurrenceCount, setRecurrenceCount] = useState(4);
@@ -63,7 +65,7 @@ export default function AdminPanel() {
   const [profFinances, setProfFinances] = useState<any>({});
   const [financeModalProf, setFinanceModalProf] = useState<string | null>(null);
   const [scheduleModalProf, setScheduleModalProf] = useState<string | null>(null);
-  const [editProfModal, setEditProfModal] = useState<any | null>(null); // NUEVO ESTADO PARA EDITAR PROFESIONAL
+  const [editProfModal, setEditProfModal] = useState<any | null>(null); 
   const [localSchedules, setLocalSchedules] = useState<any>({});
 
   const [patientSearch, setPatientSearch] = useState('');
@@ -329,9 +331,9 @@ export default function AdminPanel() {
   const openNewApptModal = () => {
     if (userRole === 'profesional') {
       const me = professionals.find(p => p.id === currentProfId);
-      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: currentProfId, service_id: '', box_id: me?.default_box_id || '', date: '', time: '' });
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: currentProfId, service_id: '', box_id: me?.default_box_id || '', date: '', time: '', modality: 'Presencial' });
     } else {
-      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '', modality: 'Presencial' });
     }
     setRecurrence('none');
     setRecurrenceCount(4);
@@ -369,6 +371,7 @@ export default function AdminPanel() {
     let targetId = apptIdToEdit;
     let targetDate = '';
     let targetTime = '';
+    let modality = 'Presencial';
     if (!targetId && p.appointments) {
       const futureAppts = p.appointments.filter((a:any) => a.consent_accepted !== false && new Date(a.start_time) >= new Date()).sort((a:any, b:any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
       if (futureAppts.length > 0) {
@@ -376,36 +379,39 @@ export default function AdminPanel() {
         const d = new Date(futureAppts[0].start_time);
         targetDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         targetTime = d.toLocaleTimeString('es-CL', {hour: '2-digit', minute: '2-digit'});
+        modality = futureAppts[0].modality || 'Presencial';
       }
     }
     setAdminAppt({ 
        ...adminAppt, id: targetId || '', patient_name: p.name || p.patient_name, patient_rut: p.rut || p.patient_rut, 
        patient_phone: p.phone || p.patient_phone, patient_email: p.email || p.patient_email, date: targetDate, time: targetTime,
-       professional_id: userRole === 'profesional' ? currentProfId : adminAppt.professional_id
+       professional_id: userRole === 'profesional' ? currentProfId : adminAppt.professional_id, modality: modality
     });
     setRecurrence('none'); setRecurrenceCount(4);
     setShowApptModal(true);
   };
 
+  // ESTA FUNCIÓN AHORA SE COMUNICA CON GOOGLE CALENDAR
   const handleAdminSchedule = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true);
     const [yyyy, mm, dd] = adminAppt.date.split('-');
     const [hh, min] = adminAppt.time.split(':');
     const finalProfId = userRole === 'profesional' ? currentProfId : adminAppt.professional_id;
     let error = null;
+    let finalInsertedData: any[] = [];
     
     if (adminAppt.id) { 
       const startObj = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0);
       const startDateTime = startObj.toISOString();
       const endDateTime = new Date(startObj.getTime() + 60 * 60 * 1000).toISOString();
       
-      const { error: updateErr } = await supabase.from('appointments').update({
-        professional_id: finalProfId, service_id: adminAppt.service_id, box_id: adminAppt.box_id,
+      const { data, error: updateErr } = await supabase.from('appointments').update({
+        professional_id: finalProfId, service_id: adminAppt.service_id, box_id: adminAppt.modality === 'Online' ? null : adminAppt.box_id,
         patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
-        start_time: startDateTime, end_time: endDateTime
-      }).eq('id', adminAppt.id);
+        start_time: startDateTime, end_time: endDateTime, modality: adminAppt.modality
+      }).eq('id', adminAppt.id).select();
       error = updateErr;
-      if (!error) setAppointments((prev: any[]) => prev.map((a: any) => a.id === adminAppt.id ? { ...a, professional_id: finalProfId, start_time: startDateTime, end_time: endDateTime } : a));
+      if (data) finalInsertedData = data;
     } else { 
       const inserts = [];
       const totalSessions = recurrence === 'none' ? 1 : recurrenceCount;
@@ -417,27 +423,37 @@ export default function AdminPanel() {
          if (recurrence === 'monthly') d.setMonth(d.getMonth() + i);
          
          inserts.push({
-          center_id: adminCenterId, box_id: adminAppt.box_id, professional_id: finalProfId, service_id: adminAppt.service_id,
+          center_id: adminCenterId, box_id: adminAppt.modality === 'Online' ? null : adminAppt.box_id, professional_id: finalProfId, service_id: adminAppt.service_id,
           patient_name: adminAppt.patient_name, patient_rut: adminAppt.patient_rut, patient_email: adminAppt.patient_email, patient_phone: adminAppt.patient_phone,
-          start_time: d.toISOString(), end_time: new Date(d.getTime() + 60 * 60 * 1000).toISOString(), consent_accepted: true 
+          start_time: d.toISOString(), end_time: new Date(d.getTime() + 60 * 60 * 1000).toISOString(), consent_accepted: true, modality: adminAppt.modality
          });
       }
-      const { error: insertErr } = await supabase.from('appointments').insert(inserts);
+      const { data, error: insertErr } = await supabase.from('appointments').insert(inserts).select();
       error = insertErr;
+      if (data) finalInsertedData = data;
     }
 
     if (!error) {
-      if (adminAppt.patient_email) {
-        const profName = professionals.find(p => p.id === finalProfId)?.name || 'Profesional';
-        try {
-          const firstStartDateTime = new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), 0).toISOString();
-          await fetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patient_email: adminAppt.patient_email, patient_name: adminAppt.patient_name, professional_name: profName, start_time: firstStartDateTime }) });
-        } catch (mailError) { console.error('Error enviando correo:', mailError); }
+      // MAGIA: Si es online, bloqueamos Google Calendar y generamos Meet Link
+      if (adminAppt.modality === 'Online' && finalInsertedData.length > 0) {
+          for (const appt of finalInsertedData) {
+              try {
+                  await fetch('/api/calendar/sync', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ 
+                          apptId: appt.id, profId: finalProfId, 
+                          patientName: appt.patient_name, startTime: appt.start_time, endTime: appt.end_time 
+                      })
+                  });
+              } catch (syncErr) { console.error('Error sincronizando calendario', syncErr); }
+          }
       }
+
       setShowApptModal(false); 
-      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '' });
+      setAdminAppt({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '', modality: 'Presencial' });
       setRecurrence('none'); setRecurrenceCount(4);
-      loadData(); 
+      setTimeout(loadData, 1500); // Dar un poco de tiempo para que se guarde el Meet
       alert(adminAppt.id ? 'Cita reagendada exitosamente.' : 'Citas agendadas exitosamente.');
     } else { alert('Error al guardar cita: ' + error.message); }
     setLoading(false);
@@ -512,7 +528,6 @@ export default function AdminPanel() {
     setIsCreatingProf(false);
   };
 
-  // NUEVA FUNCIÓN PARA GUARDAR LA EDICIÓN DE UN PROFESIONAL
   const handleUpdateProfessional = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -633,7 +648,19 @@ export default function AdminPanel() {
                 {centers.find(c => c.id === adminCenterId)?.name || 'Cargando Centro...'}
               </span>
             </div>
+            {/* AQUÍ ESTÁ EL BOTÓN INTELIGENTE DE GOOGLE CALENDAR */}
             <div className="flex items-center gap-3">
+              {userRole === 'profesional' && (() => {
+                  const me = professionals.find(p => p.id === currentProfId);
+                  if (!me) return null;
+                  return me.google_refresh_token ? (
+                      <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center gap-2">✓ Google Conectado</span>
+                  ) : (
+                      <button onClick={() => window.location.href = `/api/auth/google?profId=${me.id}`} className="bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all flex items-center gap-2">
+                          <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> Conectar Calendario
+                      </button>
+                  )
+              })()}
               <button onClick={openNewApptModal} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all">+ Nueva Cita</button>
             </div>
           </header>
@@ -685,6 +712,14 @@ export default function AdminPanel() {
                       <button onClick={() => setApptActionModal(null)} className="text-slate-400 hover:text-slate-700">✕</button>
                     </div>
                     <div className="flex flex-col gap-2">
+                      
+                      {/* BOTÓN MAGICO DE GOOGLE MEET */}
+                      {apptActionModal.modality === 'Online' && (
+                        <a href={apptActionModal.meet_link || '#'} target="_blank" rel="noreferrer" className={`w-full text-left px-4 py-3 rounded-xl font-medium flex items-center gap-3 transition-colors ${apptActionModal.meet_link ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                          <span className="text-lg">📹</span> {apptActionModal.meet_link ? 'Unirse a la Videollamada (Meet)' : 'Generando link de Meet...'}
+                        </a>
+                      )}
+
                       <button onClick={() => openFicha(apptActionModal)} className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl font-medium text-slate-700 flex items-center gap-3 transition-colors"><span className="text-lg">📁</span> Entrar a la ficha clínica</button>
                       <button onClick={() => handleRegistrarPago(apptActionModal.id)} className={`w-full text-left px-4 py-3 rounded-xl font-medium flex items-center gap-3 transition-colors ${pagosRegistrados.includes(apptActionModal.id) ? 'bg-emerald-50 text-emerald-700 cursor-default' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
                         <span className="text-lg">💰</span> {pagosRegistrados.includes(apptActionModal.id) ? 'Sesión Pagada' : 'Marcar como Pagado'}
@@ -727,7 +762,23 @@ export default function AdminPanel() {
                         {services.filter(s => s.professional_id === (userRole === 'profesional' ? currentProfId : adminAppt.professional_id)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     </div>
-                    <div><label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label><select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.box_id} onChange={e => setAdminAppt((prev: any) => ({...prev, box_id: e.target.value}))}><option value="" disabled>Seleccionar...</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+
+                    {/* SELECTOR DE MODALIDAD */}
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Modalidad</label>
+                        <select required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.modality} onChange={e => setAdminAppt((prev: any) => ({...prev, modality: e.target.value}))}>
+                            <option value="Presencial">Presencial (En Box Clínico)</option>
+                            <option value="Online">Online (Generar Google Meet)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Box / Sala</label>
+                        <select required={adminAppt.modality === 'Presencial'} disabled={adminAppt.modality === 'Online'} className={`w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all ${adminAppt.modality === 'Online' ? 'opacity-50' : ''}`} value={adminAppt.box_id} onChange={e => setAdminAppt((prev: any) => ({...prev, box_id: e.target.value}))}>
+                            <option value="" disabled>Seleccionar...</option>
+                            {visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                    </div>
                     
                     <div className="grid grid-cols-2 gap-2"><div><label className="block text-xs font-semibold text-slate-700 mb-1">Fecha {(!adminAppt.id && recurrence !== 'none') ? 'de inicio' : ''}</label><input type="date" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.date} onChange={e => setAdminAppt((prev: any) => ({...prev, date: e.target.value}))} /></div><div><label className="block text-xs font-semibold text-slate-700 mb-1">Hora</label><input type="time" required className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={adminAppt.time} onChange={e => setAdminAppt((prev: any) => ({...prev, time: e.target.value}))} /></div></div>
                     
@@ -889,7 +940,6 @@ export default function AdminPanel() {
             </div>
           )}
           
-          {/* NUEVO MODAL: EDITAR PROFESIONAL */}
           {editProfModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
@@ -1049,7 +1099,7 @@ export default function AdminPanel() {
                       </select>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
+                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Dictar por voz"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
                       <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors shadow-sm"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4 transform -rotate-45 -mt-1"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>Enviar</button>
                     </div>
                   </div>
@@ -1136,6 +1186,7 @@ export default function AdminPanel() {
                                   {cellAppts.map(app => {
                                     const isBlocked = app.patient_name.startsWith('[BLOQUEO]');
                                     const isPaid = pagosRegistrados.includes(app.id);
+                                    // AÑADIMOS EL ICONO 📹 SI ES ONLINE
                                     return (
                                       <div 
                                         key={app.id} 
@@ -1144,7 +1195,7 @@ export default function AdminPanel() {
                                         onClick={(e) => { e.stopPropagation(); setApptActionModal(app); }} 
                                         className={`p-2 rounded-lg shadow-sm font-bold mb-1 text-[10px] cursor-move transition-transform hover:scale-[1.02] ${isBlocked ? 'bg-slate-100 border-l-4 border-slate-400 text-slate-500' : (isPaid ? 'bg-emerald-50 border-l-4 border-emerald-500 text-emerald-900' : 'bg-blue-50 border-l-4 border-blue-500 text-blue-900 hover:bg-blue-100')}`}
                                       >
-                                        {isBlocked ? app.patient_name.replace('[BLOQUEO]', '🚫') : `${isPaid ? '✓ ' : ''}${app.patient_name}`}
+                                        {isBlocked ? app.patient_name.replace('[BLOQUEO]', '🚫') : `${isPaid ? '✓ ' : ''}${app.modality === 'Online' ? '📹 ' : ''}${app.patient_name}`}
                                       </div>
                                     )
                                   })}
@@ -1164,7 +1215,7 @@ export default function AdminPanel() {
                         <div key={app.id} className="p-5 flex justify-between items-center hover:bg-slate-50">
                           <div>
                             <p className="font-bold text-slate-900 text-sm">{app.patient_name} {pagosRegistrados.includes(app.id) && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full ml-2">PAGADO</span>}</p>
-                            <p className="text-xs text-slate-500">{new Date(app.start_time).toLocaleString('es-CL')} | Box: {getBoxName(app.box_id)}</p>
+                            <p className="text-xs text-slate-500">{new Date(app.start_time).toLocaleString('es-CL')} | {app.modality === 'Online' ? 'Online (Meet)' : `Box: ${getBoxName(app.box_id)}`}</p>
                           </div>
                           <div className="flex gap-3">
                             <button onClick={() => openFicha(app)} className="bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-xl">Ficha</button>
@@ -1429,10 +1480,16 @@ export default function AdminPanel() {
                     {visibleProfessionals.map(p => (
                       <div key={p.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
                         <div>
-                          <p className="font-bold text-slate-900">{p.name}</p>
+                          <p className="font-bold text-slate-900">{p.name} {p.google_refresh_token && <span className="ml-2 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-200">GOOGLE VINCULADO</span>}</p>
                           <p className="text-xs text-slate-500">{p.email} {p.sis_number ? `• SIS: ${p.sis_number}` : ''} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p>
                         </div>
                         <div className="flex gap-2 sm:gap-4">
+                          
+                          {/* BOTON CONECTAR GOOGLE DESDE EL PANEL ADMIN */}
+                          {!p.google_refresh_token && (
+                            <button onClick={() => window.location.href = `/api/auth/google?profId=${p.id}`} className="text-slate-600 text-xs font-bold hover:text-slate-800 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">Vincular Google</button>
+                          )}
+
                           <button onClick={() => setEditProfModal(p)} className="text-orange-600 text-xs font-bold hover:text-orange-800 transition-colors bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100">Editar</button>
                           <button onClick={() => initFinanceLocal(p.id)} className="text-indigo-600 text-xs font-bold hover:text-indigo-800 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Contrato</button>
                           <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>
