@@ -114,7 +114,6 @@ export default function AdminPanel() {
     setTranscript('');
   };
 
-  // FUNCIÓN PARA GENERAR CERTIFICADO CON IA (AHORA ENVÍA LA FECHA DE LA CITA)
   const handleGenerateCertAI = async () => {
     if (!certPrompt.trim()) return;
     setIsGeneratingCert(true);
@@ -126,7 +125,7 @@ export default function AdminPanel() {
           prompt: certPrompt, 
           patient_name: activePatient.patient_name, 
           patient_rut: activePatient.patient_rut,
-          date: activePatient.session_date // <--- AQUÍ ENVIAMOS LA FECHA A LA IA
+          date: activePatient.session_date
         })
       });
       const data = await res.json();
@@ -141,9 +140,14 @@ export default function AdminPanel() {
     setIsGeneratingCert(false);
   };
 
+  // IMPRESIÓN DEL CERTIFICADO CON FIRMA Y SIS REAL
   const handlePrintCertificate = () => {
     const printWindow = window.open('', '', 'width=800,height=900');
     if (!printWindow) return;
+    
+    const prof = professionals.find(p => p.id === activePatient?.professional_id);
+    const profName = prof?.name || session?.user?.email?.split('@')[0];
+    const profSis = prof?.sis_number ? `Registro SIS: ${prof.sis_number}` : 'Psicólogo Clínico';
     
     const html = `
       <!DOCTYPE html>
@@ -162,7 +166,7 @@ export default function AdminPanel() {
             .signature-box { text-align: center; margin-top: 100px; }
             .signature-line { width: 250px; border-top: 1px solid #1e293b; margin: 0 auto 10px auto; }
             .signature-name { font-weight: bold; font-size: 14px; text-transform: uppercase; }
-            .signature-title { font-size: 12px; color: #64748b; }
+            .signature-title { font-size: 12px; color: #64748b; margin-top: 4px; }
           </style>
         </head>
         <body>
@@ -175,8 +179,8 @@ export default function AdminPanel() {
           <div class="date">Emitido en La Serena, a ${new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' })}.</div>
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-name">${session?.user?.email?.split('@')[0]}</div>
-            <div class="signature-title">Profesional Clínico Tratante</div>
+            <div class="signature-name">${profName}</div>
+            <div class="signature-title">${profSis}</div>
           </div>
           <script>
             window.onload = function() { 
@@ -199,6 +203,7 @@ export default function AdminPanel() {
   const [newProfEmail, setNewProfEmail] = useState('');
   const [newProfPassword, setNewProfPassword] = useState('');
   const [newProfBoxId, setNewProfBoxId] = useState('');
+  const [newProfSis, setNewProfSis] = useState(''); // NUEVO ESTADO PARA SIS
   const [isCreatingProf, setIsCreatingProf] = useState(false);
   const [wsTitle, setWsTitle] = useState('');
   const [wsDesc, setWsDesc] = useState('');
@@ -459,17 +464,20 @@ export default function AdminPanel() {
     setApptActionModal(null);
   };
 
-  // CAPTURA LA FECHA EXACTA DE LA SESIÓN AL ABRIR LA FICHA
   const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
     setApptActionModal(null);
     const pName = appOrPatient.patient_name || appOrPatient.name;
     const pRut = appOrPatient.patient_rut || appOrPatient.rut;
     const pPhone = appOrPatient.patient_phone || appOrPatient.phone;
+    
+    // Capturamos al profesional de la cita para el PDF
+    const profId = appOrPatient.professional_id || (appOrPatient.appointments?.[0]?.professional_id) || currentProfId; 
+    
     const sDate = appOrPatient.start_time 
                   ? new Date(appOrPatient.start_time).toLocaleDateString('es-CL') 
                   : new Date().toLocaleDateString('es-CL');
 
-    setActivePatient({ patient_name: pName, patient_rut: pRut, patient_phone: pPhone, session_date: sDate });
+    setActivePatient({ patient_name: pName, patient_rut: pRut, patient_phone: pPhone, session_date: sDate, professional_id: profId });
     setActiveTab('agenda');
     const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', pName).eq('center_id', adminCenterId).order('created_at', { ascending: false });
     if (data) setPatientNotes(data);
@@ -491,8 +499,18 @@ export default function AdminPanel() {
     const tempSupabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const { error: authError } = await tempSupabase.auth.signUp({ email: newProfEmail.toLowerCase(), password: newProfPassword });
     if (authError) { alert('Error: ' + authError.message); setIsCreatingProf(false); return; }
-    const { error: dbError } = await supabase.from('professionals').insert([{ name: newProfName, email: newProfEmail.toLowerCase(), center_id: adminCenterId, default_box_id: newProfBoxId || null }]);
-    if (!dbError) { setNewProfName(''); setNewProfEmail(''); setNewProfPassword(''); setNewProfBoxId(''); loadData(); alert(`Profesional registrado. Clave temporal: ${newProfPassword}`); }
+    
+    // GUARDAMOS TAMBIÉN EL SIS
+    const { error: dbError } = await supabase.from('professionals').insert([{ 
+      name: newProfName, 
+      email: newProfEmail.toLowerCase(), 
+      center_id: adminCenterId, 
+      default_box_id: newProfBoxId || null,
+      sis_number: newProfSis
+    }]);
+    
+    if (!dbError) { setNewProfName(''); setNewProfEmail(''); setNewProfPassword(''); setNewProfBoxId(''); setNewProfSis(''); loadData(); alert(`Profesional registrado. Clave temporal: ${newProfPassword}`); }
+    else { alert('Error de base de datos. Recuerda ejecutar el comando SQL para agregar sis_number.'); }
     setIsCreatingProf(false);
   };
 
@@ -1347,19 +1365,23 @@ export default function AdminPanel() {
                 <h2 className="text-2xl font-bold text-slate-900">Gestión de Equipo y Boxes</h2>
                 <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
                   <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase">Registrar Nuevo Profesional</h3>
-                  <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
-                    <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
-                    <input required type="text" placeholder="Clave temporal (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
-                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}><option value="">Sin Box (Opcional)</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-                    <button type="submit" disabled={isCreatingProf} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Registrar</button>
+                  <form onSubmit={handleCreateProfessional} className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                    <input required type="text" placeholder="Nombre completo" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfName} onChange={e => setNewProfName(e.target.value)} />
+                    <input required type="email" placeholder="Correo electrónico" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfEmail} onChange={e => setNewProfEmail(e.target.value)} />
+                    <input required type="text" placeholder="Registro SIS" className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfSis} onChange={e => setNewProfSis(e.target.value)} />
+                    <input required type="text" placeholder="Clave (mín 6)" minLength={6} className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfPassword} onChange={e => setNewProfPassword(e.target.value)} />
+                    <select className="border p-3 rounded-xl text-sm font-medium text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all md:col-span-2" value={newProfBoxId} onChange={e => setNewProfBoxId(e.target.value)}><option value="">Sin Box (Opcional)</option>{visibleBoxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+                    <button type="submit" disabled={isCreatingProf} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors md:col-span-2">Registrar</button>
                   </form>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                   <div className="divide-y divide-slate-100">
                     {visibleProfessionals.map(p => (
                       <div key={p.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
-                        <div><p className="font-bold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p></div>
+                        <div>
+                          <p className="font-bold text-slate-900">{p.name}</p>
+                          <p className="text-xs text-slate-500">{p.email} {p.sis_number ? `• SIS: ${p.sis_number}` : ''} {p.default_box_id ? `• ${getBoxName(p.default_box_id)}` : ''}</p>
+                        </div>
                         <div className="flex gap-4">
                           <button onClick={() => initFinanceLocal(p.id)} className="text-indigo-600 text-xs font-bold hover:text-indigo-800 transition-colors bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">Contrato</button>
                           <button onClick={() => initScheduleLocal(p.id)} className="text-blue-600 text-xs font-bold hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Horarios</button>

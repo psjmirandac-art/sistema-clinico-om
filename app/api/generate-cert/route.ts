@@ -2,14 +2,13 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    // AHORA RECIBIMOS LA FECHA EXACTA DE LA SESIÓN
     const { prompt, patient_name, patient_rut, date } = await request.json();
     
     if (!process.env.GROQ_API_KEY) {
         return NextResponse.json({ error: 'Falta configurar GROQ_API_KEY en Vercel' }, { status: 500 });
     }
 
-    const groqPrompt = `Eres un profesional clínico experto redactando certificados.
+    const groqPrompt = `Eres un PSICÓLOGO CLÍNICO experto redactando certificados en Chile. NO ERES MÉDICO.
     Datos del paciente: Nombre: ${patient_name}, RUT: ${patient_rut}.
     Fecha de la sesión clínica: ${date}.
     
@@ -17,10 +16,10 @@ export async function POST(request: Request) {
     
     Redacta de manera formal, profesional y compasiva ÚNICAMENTE EL CUERPO del certificado (ej: "Por medio del presente documento se certifica que..."). 
     
-    REGLAS ESTRICTAS: 
-    1. NO uses placeholders, variables ni corchetes como [fecha] o [número]. 
-    2. Utiliza explícitamente la Fecha de la sesión clínica proporcionada (${date}) dentro de tu redacción. 
-    3. Si la instrucción del terapeuta implica reposo o ausencia y no especifica cuántos días, asume un estándar clínico prudente (ej. "2 días" o "48 horas").
+    REGLAS ESTRICTAS Y LEGALES: 
+    1. ERES PSICÓLOGO: NO puedes otorgar licencias médicas ni días de reposo. NUNCA uses términos como "reposo médico", "licencia", o "ausencia por X días".
+    2. Solo puedes "sugerir flexibilización académica/laboral", "recomendar contención familiar en el hogar", o "justificar inasistencia por haber asistido a sesión/evaluación psicológica".
+    3. NO uses placeholders como [fecha] o [número]. Utiliza la Fecha de la sesión (${date}) de forma natural en tu redacción.
     4. Solo entrega 1 o 2 párrafos de texto continuo. NO agregues membretes, fechas al inicio/final, ni firmas, ya que el sistema lo añadirá automáticamente.`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -32,7 +31,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: 'openai/gpt-oss-20b',
         messages: [{ role: 'user', content: groqPrompt }],
-        temperature: 0.3
+        temperature: 0.2
       })
     });
 
