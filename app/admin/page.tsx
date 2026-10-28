@@ -114,7 +114,7 @@ export default function AdminPanel() {
     setTranscript('');
   };
 
-  // FUNCIÓN PARA GENERAR CERTIFICADO CON IA
+  // FUNCIÓN PARA GENERAR CERTIFICADO CON IA (AHORA ENVÍA LA FECHA DE LA CITA)
   const handleGenerateCertAI = async () => {
     if (!certPrompt.trim()) return;
     setIsGeneratingCert(true);
@@ -122,7 +122,12 @@ export default function AdminPanel() {
       const res = await fetch('/api/generate-cert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: certPrompt, patient_name: activePatient.patient_name, patient_rut: activePatient.patient_rut })
+        body: JSON.stringify({ 
+          prompt: certPrompt, 
+          patient_name: activePatient.patient_name, 
+          patient_rut: activePatient.patient_rut,
+          date: activePatient.session_date // <--- AQUÍ ENVIAMOS LA FECHA A LA IA
+        })
       });
       const data = await res.json();
       if (data.certificate) {
@@ -136,7 +141,6 @@ export default function AdminPanel() {
     setIsGeneratingCert(false);
   };
 
-  // FUNCIÓN PARA IMPRIMIR EL CERTIFICADO COMO PDF
   const handlePrintCertificate = () => {
     const printWindow = window.open('', '', 'width=800,height=900');
     if (!printWindow) return;
@@ -455,12 +459,17 @@ export default function AdminPanel() {
     setApptActionModal(null);
   };
 
+  // CAPTURA LA FECHA EXACTA DE LA SESIÓN AL ABRIR LA FICHA
   const openFicha = async (appOrPatient: any, autoTranscribe = false) => {
     setApptActionModal(null);
     const pName = appOrPatient.patient_name || appOrPatient.name;
     const pRut = appOrPatient.patient_rut || appOrPatient.rut;
     const pPhone = appOrPatient.patient_phone || appOrPatient.phone;
-    setActivePatient({ patient_name: pName, patient_rut: pRut, patient_phone: pPhone });
+    const sDate = appOrPatient.start_time 
+                  ? new Date(appOrPatient.start_time).toLocaleDateString('es-CL') 
+                  : new Date().toLocaleDateString('es-CL');
+
+    setActivePatient({ patient_name: pName, patient_rut: pRut, patient_phone: pPhone, session_date: sDate });
     setActiveTab('agenda');
     const { data } = await supabase.from('clinical_notes').select('*').eq('patient_name', pName).eq('center_id', adminCenterId).order('created_at', { ascending: false });
     if (data) setPatientNotes(data);
@@ -1173,6 +1182,7 @@ export default function AdminPanel() {
               </div>
             )}
 
+            {/* PESTAÑA FINANZAS REDISEÑADA (LIQUIDACIONES DINÁMICAS Y PAGOS SIMPLES) */}
             {!activePatient && activeTab === 'finanzas' && (
               <div className="space-y-8 animate-fade-in font-sans">
                 <div className="flex justify-between items-center mb-2">
