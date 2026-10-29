@@ -51,32 +51,32 @@ export default function AgendarPage() {
     setSeleccionando(idProfesional);
     setTimeout(() => {
       router.push(`/agendar/${idProfesional}`);
-    }, 400);
+    }, 350);
   };
 
-  // FIX: Tipado estricto con 'Variants' de framer-motion para evitar el error TS2322 en Vercel
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
-      transition: { staggerChildren: 0.1 }
+      transition: { staggerChildren: 0.08 }
     }
   };
 
   const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 15 },
+    hidden: { opacity: 0, y: 12 },
     show: { 
       opacity: 1, 
       y: 0, 
-      transition: { type: "spring", stiffness: 300, damping: 24 } 
+      transition: { type: "spring", stiffness: 320, damping: 26 } 
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center py-16 px-4 font-sans text-stone-800 selection:bg-[#E4ECE7]">
+    <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center py-16 px-4 font-sans text-stone-800 selection:bg-[#E4ECE7]">
       <motion.div 
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
         className="w-full max-w-xl space-y-8"
       >
         {/* Header Premium */}
@@ -92,7 +92,7 @@ export default function AgendarPage() {
 
         {/* Contenedor Principal */}
         <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100">
-          <h2 className="text-sm font-medium text-stone-400 uppercase tracking-wider mb-6 ml-1">
+          <h2 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-6 ml-1">
             Especialistas Disponibles
           </h2>
 
@@ -135,7 +135,7 @@ export default function AgendarPage() {
                     disabled={seleccionando !== null}
                     whileHover={{ scale: 1.01, backgroundColor: "#F4F7F5" }}
                     whileTap={{ scale: 0.98 }}
-                    className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-colors text-left group
+                    className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-left group
                       ${seleccionando === prof.id 
                         ? 'border-[#5F8575] bg-[#F4F7F5] shadow-sm' 
                         : 'border-stone-100 bg-white hover:border-[#E4ECE7]'
@@ -156,14 +156,14 @@ export default function AgendarPage() {
                           {prof.name || prof.nombre}
                         </h3>
                         <p className="text-sm text-stone-500">
-                          {prof.specialty || prof.especialidad || 'Terapeuta'}
+                          {prof.specialty || prof.especialidad || ' Terapeuta Clínico'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="text-stone-300 group-hover:text-[#5F8575] transition-colors">
+                    <div className="text-stone-300 group-hover:text-[#5F8575] transition-colors pr-1">
                       {seleccionando === prof.id ? (
-                        <Loader2 className="animate-spin" size={20} />
+                        <Loader2 className="animate-spin text-[#5F8575]" size={20} />
                       ) : (
                         <ChevronRight size={20} />
                       )}
