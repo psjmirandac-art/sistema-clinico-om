@@ -1,213 +1,134 @@
-'use client';
+import Link from 'next/link';
+import { Calendar, Users, ShieldCheck, ArrowRight, UserCircle, LogIn } from 'lucide-react';
 
-import { useState, useEffect, Suspense } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { useParams } from 'next/navigation';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-function DirectBookingContent() {
-  const params = useParams();
-  const serviceId = params.serviceId;
-
-  const [service, setService] = useState<any>(null);
-  const [professional, setProfessional] = useState<any>(null);
-  const [centersList, setCentersList] = useState<any[]>([]);
-  const [boxesList, setBoxesList] = useState<any[]>([]);
-  const [busySlots, setBusySlots] = useState<any[]>([]);
-
-  const [selectedCenter, setSelectedCenter] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedTime, setSelectedTime] = useState('');
-  const [formData, setFormData] = useState({ name: '', phone: '', reason: '' });
-  const [consentAccepted, setConsentAccepted] = useState(false);
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const standardTimes = ['10:00', '11:00', '12:00', '15:00', '16:00', '17:00'];
-
-  useEffect(() => {
-    async function loadServiceData() {
-      if (!serviceId) return;
-      
-      const { data: servData } = await supabase.from('services').select('*').eq('id', serviceId).single();
-      if (servData) {
-        setService(servData);
-        const { data: profData } = await supabase.from('professionals').select('*').eq('id', servData.professional_id).single();
-        if (profData) setProfessional(profData);
-      }
-
-      const [{ data: cents }, { data: boxs }] = await Promise.all([
-        supabase.from('centers').select('*').order('name'),
-        supabase.from('boxes').select('*')
-      ]);
-      if (cents) setCentersList(cents);
-      if (boxs) setBoxesList(boxs);
-    }
-    loadServiceData();
-  }, [serviceId]);
-
-  useEffect(() => {
-    async function loadBusySlots() {
-      if (!selectedDate || !selectedCenter) return;
-      const startOfDay = new Date(`${selectedDate}T00:00:00-03:00`).toISOString();
-      const endOfDay = new Date(`${selectedDate}T23:59:59-03:00`).toISOString();
-      
-      const { data } = await supabase.rpc('get_busy_slots', {
-        target_center: selectedCenter,
-        start_day: startOfDay,
-        end_day: endOfDay
-      });
-      if (data) setBusySlots(data);
-    }
-    loadBusySlots();
-  }, [selectedDate, selectedCenter]);
-
-  const boxesInCenter = boxesList.filter(b => b.center_id === selectedCenter);
-  const totalBoxes = boxesInCenter.length;
-
-  const availableTimes = standardTimes.filter(time => {
-    if (!selectedDate || totalBoxes === 0 || !professional) return false;
-    const timeISO = new Date(`${selectedDate}T${time}:00-03:00`).toISOString();
-    const isProfTaken = busySlots.some(slot => new Date(slot.start_time).toISOString() === timeISO && slot.professional_id === professional.id);
-    if (isProfTaken) return false;
-    const takenBoxesCount = busySlots.filter(slot => new Date(slot.start_time).toISOString() === timeISO).length;
-    return takenBoxesCount < totalBoxes;
-  });
-
-  const handleSchedule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!consentAccepted) {
-      setStatus('Debes aceptar el consentimiento de privacidad.');
-      return;
-    }
-    setLoading(true); setStatus('Procesando reserva...');
-    const startDateTime = new Date(`${selectedDate}T${selectedTime}:00-03:00`).toISOString();
-    const endDateTime = new Date(new Date(startDateTime).getTime() + 60 * 60 * 1000).toISOString();
-    
-    const takenBoxesIds = busySlots
-      .filter(slot => new Date(slot.start_time).toISOString() === startDateTime)
-      .map(slot => slot.box_id);
-    const availableBox = boxesInCenter.find(b => !takenBoxesIds.includes(b.id));
-
-    if (!availableBox) {
-      setStatus('Lo sentimos, esa hora acaba de ser tomada.');
-      setLoading(false); return;
-    }
-
-    const { error } = await supabase.from('appointments').insert([{
-      center_id: selectedCenter,
-      box_id: availableBox.id,
-      professional_id: professional.id,
-      service_id: service.id,
-      patient_name: formData.name,
-      patient_phone: formData.phone,
-      patient_reason: formData.reason,
-      start_time: startDateTime,
-      end_time: endDateTime,
-      consent_accepted: true
-    }]);
-
-    if (!error) {
-      setStatus('¡Cita agendada con éxito!');
-      setFormData({ name: '', phone: '', reason: '' });
-      setConsentAccepted(false);
-      setSelectedDate(''); setSelectedTime(''); setSelectedCenter('');
-      setBusySlots([...busySlots, { start_time: startDateTime, box_id: availableBox.id, professional_id: professional.id }]);
-    } else {
-      setStatus('Error al agendar. Intenta nuevamente.');
-    }
-    setLoading(false);
-  };
-
-  if (!service || !professional) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-sans">Cargando enlace de reserva...</div>;
-  }
-
+export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 flex items-center justify-center font-sans">
-      <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
-        
-        <div className="mb-8 text-center bg-indigo-50/50 p-6 rounded-2xl border border-indigo-100/60">
-          <span className="bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Reserva Directa</span>
-          <h1 className="text-2xl font-extrabold text-slate-800 mt-3">{service.name}</h1>
-          <p className="text-slate-600 font-medium mt-1">Con {professional.name}</p>
-          <p className="text-indigo-600 font-bold text-lg mt-2">${service.price.toLocaleString('es-CL')}</p>
-        </div>
-
-        <form onSubmit={handleSchedule} className="space-y-6">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+      {/* NAVEGACIÓN SUPERIOR */}
+      <nav className="w-full bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-xl">OM</span>
+            </div>
+            <span className="font-bold text-xl tracking-tight text-slate-900">Centro OM</span>
+          </div>
           
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">1. Selecciona la Sede</label>
-            <select required className="w-full border border-slate-200 p-3.5 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50 text-slate-900 font-medium transition-all" 
-              value={selectedCenter} 
-              onChange={(e) => { setSelectedCenter(e.target.value); setSelectedDate(''); setSelectedTime(''); }}>
-              <option value="" disabled>Elige el centro de atención...</option>
-              {centersList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          <div className="flex items-center gap-4">
+            <Link href="/login-pacientes" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+              <UserCircle className="w-4 h-4" />
+              Portal Pacientes
+            </Link>
+            <div className="w-px h-4 bg-slate-300"></div>
+            <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+              <LogIn className="w-4 h-4" />
+              Acceso Equipo
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* HERO SECTION (Bienvenida) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
+        <h1 className="text-5xl font-extrabold text-slate-900 mb-6 tracking-tight">
+          Tu bienestar mental, <span className="text-blue-600">nuestra prioridad</span>
+        </h1>
+        <p className="text-xl text-slate-600 mb-10 max-w-2xl mx-auto">
+          Agenda tu sesión de psicoterapia presencial u online en menos de 2 minutos. 
+          Encuentra el espacio seguro que necesitas para sanar y crecer.
+        </p>
+        <div className="flex justify-center gap-4">
+          <Link href="/agendar" className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-700 flex items-center gap-2 transition-all shadow-lg hover:shadow-blue-200">
+            <Calendar className="w-5 h-5" />
+            Agendar mi primera sesión
+          </Link>
+        </div>
+      </section>
+
+      {/* SECCIÓN: CONOCE A NUESTROS TERAPEUTAS */}
+      <section className="bg-white py-20 border-t border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">Conoce a nuestro equipo</h2>
+            <p className="text-slate-600 max-w-2xl mx-auto">
+              Contamos con profesionales altamente capacitados en diversas áreas de la psicología, listos para acompañarte en tu proceso.
+            </p>
           </div>
 
-          {selectedCenter && (
-            <div className="animate-fade-in">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">2. Fecha de la sesión</label>
-              <input type="date" required className="w-full border border-slate-200 p-3.5 rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900 bg-slate-50 font-medium transition-all" 
-                value={selectedDate} 
-                onChange={(e) => { setSelectedDate(e.target.value); setSelectedTime(''); }} />
-            </div>
-          )}
-
-          {selectedDate && (
-            <div className="animate-fade-in">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">3. Horarios disponibles</label>
-              {availableTimes.length === 0 ? (
-                <div className="p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-sm font-medium text-center">No hay horas libres este día. Selecciona otra fecha.</div>
-              ) : (
-                <div className="grid grid-cols-3 gap-3">
-                  {availableTimes.map(time => (
-                    <button key={time} type="button" onClick={() => setSelectedTime(time)}
-                      className={`p-3 text-sm font-bold rounded-xl border transition-all ${selectedTime === time ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30'}`}>
-                      {time}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {selectedTime && (
-            <div className="space-y-4 pt-6 border-t border-slate-100 animate-fade-in">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">4. Tus Datos Confidenciales</label>
-              <input type="text" placeholder="Nombre completo" required className="w-full border border-slate-200 p-3.5 rounded-xl text-slate-900 bg-slate-50 focus:ring-2 focus:ring-indigo-600 font-medium" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-              <input type="tel" placeholder="Teléfono de contacto" required className="w-full border border-slate-200 p-3.5 rounded-xl text-slate-900 bg-slate-50 focus:ring-2 focus:ring-indigo-600 font-medium" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-              <textarea placeholder="Motivo de consulta (Confidencial - Opcional)" className="w-full border border-slate-200 p-3.5 rounded-xl text-slate-900 bg-slate-50 focus:ring-2 focus:ring-indigo-600 h-24 resize-none font-medium" value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} />
-              
-              <div className="flex items-start gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <input type="checkbox" id="consent" required className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" checked={consentAccepted} onChange={(e) => setConsentAccepted(e.target.checked)} />
-                <label htmlFor="consent" className="text-xs text-slate-600 leading-relaxed">
-                  Autorizo el tratamiento confidencial de mis datos conforme a la <strong>Ley 21.719</strong> y <strong>Ley 20.584</strong>.
-                </label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Tarjeta Terapeuta 1 */}
+            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
+              <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
+                {/* Puedes poner un tag <img /> aquí */}
+                <div className="w-full h-full bg-blue-100 flex items-center justify-center text-blue-500 font-bold text-2xl">JM</div>
               </div>
+              <h3 className="text-lg font-bold text-slate-900">Jaime Miranda</h3>
+              <p className="text-sm text-blue-600 font-medium mb-3">Psicólogo Clínico Adultos</p>
+              <p className="text-sm text-slate-500 mb-6">Especialista en ansiedad, depresión y terapia sistémica.</p>
+              <Link href="/agendar?profesional=jaime" className="text-blue-600 font-medium text-sm hover:underline flex items-center justify-center gap-1">
+                Ver disponibilidad <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
 
-              <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white font-bold text-base py-4 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all disabled:opacity-50">
-                {loading ? 'Procesando...' : '🔒 Confirmar Reserva'}
+            {/* Tarjeta Terapeuta 2 */}
+            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
+              <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
+                <div className="w-full h-full bg-purple-100 flex items-center justify-center text-purple-500 font-bold text-2xl">IO</div>
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Ivette Olivares</h3>
+              <p className="text-sm text-purple-600 font-medium mb-3">Psicóloga Infanto-Juvenil</p>
+              <p className="text-sm text-slate-500 mb-6">Enfoque en desarrollo emocional, crianza y terapia familiar.</p>
+              <Link href="/agendar?profesional=ivette" className="text-blue-600 font-medium text-sm hover:underline flex items-center justify-center gap-1">
+                Ver disponibilidad <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+            
+            {/* Tarjeta Terapeuta 3 (Ejemplo) */}
+            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center flex flex-col justify-center border-dashed">
+              <Users className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-slate-700">Ver todo el equipo</h3>
+              <p className="text-sm text-slate-500 mb-6">Conoce a todos nuestros especialistas y sus enfoques.</p>
+              <button className="bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                Ver directorio completo
               </button>
             </div>
-          )}
-          
-          {status && <div className={`p-4 rounded-xl text-center font-semibold text-sm ${status.includes('éxito') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-50 text-slate-700 border border-slate-200'}`}>{status}</div>}
-        </form>
-      </div>
-    </main>
-  );
-}
+          </div>
+        </div>
+      </section>
 
-// Wrapper de Suspense requerido por Next.js
-export default function DirectServiceBooking() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-sans">Preparando enlace...</div>}>
-      <DirectBookingContent />
-    </Suspense>
+      {/* SECCIÓN DE VENTAJAS (Estilo tarjetas informativas) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-6">
+              <Calendar className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Agendamiento 100% online</h3>
+            <p className="text-slate-600">Revisa la disponibilidad en tiempo real y reserva tu hora al instante, sin esperas ni llamadas telefónicas.</p>
+          </div>
+          
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-6">
+              <Users className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Telemedicina integrada</h3>
+            <p className="text-slate-600">Conéctate a tus sesiones desde cualquier lugar con enlaces seguros de Google Meet generados automáticamente.</p>
+          </div>
+
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-6">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-3">Privacidad garantizada</h3>
+            <p className="text-slate-600">Tus datos y registros clínicos están encriptados bajo los más altos estándares de seguridad y confidencialidad.</p>
+          </div>
+        </div>
+      </section>
+      
+      {/* FOOTER BÁSICO */}
+      <footer className="bg-slate-900 text-slate-400 py-8 text-center text-sm">
+        <p>© {new Date().getFullYear()} Centro Clínico OM. Todos los derechos reservados.</p>
+      </footer>
+    </div>
   );
 }
