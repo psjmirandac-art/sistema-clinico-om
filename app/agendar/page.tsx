@@ -7,14 +7,13 @@ export default function AgendarPage() {
   const router = useRouter();
   const [profesional, setProfesional] = useState('');
 
-  // Esta función maneja lo que ocurre cuando el paciente elige un profesional
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setProfesional(value);
     
-    // Si tenías una ruta dinámica para los servicios, esto los redirige automáticamente
+    // Al seleccionar, te envía a la subpágina con los horarios y servicios
     if (value) {
-       // router.push(`/agendar/${value}`); 
+       router.push(`/agendar/${value}`); 
     }
   };
 
