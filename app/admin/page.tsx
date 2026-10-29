@@ -6,7 +6,8 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { 
   Calendar as CalendarIcon, Users, Briefcase, DollarSign, Star, Bookmark, 
   Home, LogOut, Plus, X, ShieldCheck, Eye, EyeOff, Loader2, Mic, 
-  CheckCircle, AlertCircle, FileText, Trash2, Edit, Check, Clock, Phone, Mail
+  CheckCircle, AlertCircle, FileText, Trash2, Edit, Check, Clock, Phone, Mail,
+  ChevronLeft, ChevronRight, Save
 } from 'lucide-react';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -288,7 +289,7 @@ export default function AdminPanel() {
                     <div className="grid grid-cols-8 gap-2 mb-2">
                       <div className="text-center font-bold text-stone-400 text-xs py-2 uppercase tracking-widest">Hora</div>
                       {getWeekDays().map((day, i) => (
-                        <div key={i} className={`text-center py-2 rounded-xl ${isSameDay(day, newDate()) ? 'bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B]' : 'text-stone-500'}`}>
+                        <div key={i} className={`text-center py-2 rounded-xl ${isSameDay(day, new Date()) ? 'bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B]' : 'text-stone-500'}`}>
                           <div className="text-[10px] uppercase font-bold tracking-widest">{format(day, 'EEE', {locale:es})}</div>
                           <div className="text-xl font-semibold">{format(day, 'd')}</div>
                         </div>
