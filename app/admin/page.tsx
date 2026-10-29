@@ -7,7 +7,7 @@ import {
   Calendar as CalendarIcon, Users, Briefcase, DollarSign, Star, Bookmark, 
   Home, LogOut, Plus, X, ShieldCheck, Eye, EyeOff, Loader2, Mic, 
   CheckCircle, AlertCircle, FileText, Trash2, Edit, Check, Clock, Phone, Mail,
-  ChevronLeft, ChevronRight, Save
+  ChevronLeft, ChevronRight, Save, Copy
 } from 'lucide-react';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -59,10 +59,14 @@ export default function AdminPanel() {
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilterTab, setPatientFilterTab] = useState('Todos');
   
-  // --- MODALES Y FORMULARIOS AGENDA ---
+  // --- MODALES AGENDA Y CERTIFICADOS ---
   const [showApptModal, setShowApptModal] = useState(false);
   const [adminAppt, setAdminAppt] = useState({ id: '', patient_name: '', patient_rut: '', patient_email: '', patient_phone: '', professional_id: '', service_id: '', box_id: '', date: '', time: '', modality: 'Presencial' });
   const [apptActionModal, setApptActionModal] = useState<any>(null);
+  const [showCertModal, setShowCertModal] = useState(false);
+  const [certPrompt, setCertPrompt] = useState('');
+  const [certContent, setCertContent] = useState('');
+  const [isGeneratingCert, setIsGeneratingCert] = useState(false);
   
   // --- FICHA CLINICA E IA ---
   const [patientNotes, setPatientNotes] = useState<any[]>([]);
@@ -73,9 +77,6 @@ export default function AdminPanel() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
-  const [certPrompt, setCertPrompt] = useState('');
-  const [certContent, setCertContent] = useState('');
-  const [isGeneratingCert, setIsGeneratingCert] = useState(false);
   
   // --- CREACIÓN (TERAPIAS & EQUIPO) ---
   const [newName, setNewName] = useState(''); const [newPrice, setNewPrice] = useState(''); const [newProfId, setNewProfId] = useState(''); const [isCreating, setIsCreating] = useState(false);
@@ -169,6 +170,33 @@ export default function AdminPanel() {
       else { if(data.motivo) setNoteMotivo(data.motivo); if(data.desarrollo) setNoteDesarrollo(data.desarrollo); if(data.plan) setNotePlan(data.plan); showToast("Análisis completado", "success"); }
     } catch (e) { showToast("Error de conexión IA", "error"); }
     setIsAnalyzing(false); setTranscript('');
+  };
+
+  const handleGenerateCertAI = async () => {
+    if (!certPrompt.trim()) return;
+    setIsGeneratingCert(true);
+    try {
+      const res = await fetch('/api/generate-cert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: certPrompt,
+          patient_name: activePatient.name,
+          patient_rut: activePatient.rut || 'No especificado',
+          date: format(new Date(), 'dd/MM/yyyy')
+        })
+      });
+      const data = await res.json();
+      if (data.certificate) {
+        setCertContent(data.certificate);
+        showToast('Certificado redactado', 'success');
+      } else {
+        showToast("Error de IA: " + (data.error || 'Desconocido'), "error");
+      }
+    } catch (e) {
+      showToast("Error de conexión IA", "error");
+    }
+    setIsGeneratingCert(false);
   };
 
   const handleSaveNote = async () => {
@@ -347,12 +375,14 @@ export default function AdminPanel() {
               </motion.div>
             )}
 
-            {/* 4. FICHA CLINICA ACTIVA (ACTUALIZADA Y PREMIUM) */}
+            {/* 4. FICHA CLINICA ACTIVA (CON BOTÓN DE CERTIFICADO) */}
             {activePatient && (
               <motion.div variants={fadeIn} initial="hidden" animate="show" className="space-y-6">
                 <button onClick={() => setActivePatient(null)} className="text-stone-400 hover:text-stone-800 flex items-center gap-2 text-sm font-medium mb-2"><ChevronLeft size={16}/> Volver a la lista</button>
                 
                 <div className="bg-white border border-stone-100 rounded-[2rem] p-8 shadow-sm flex flex-col md:flex-row gap-8 items-start">
+                  
+                  {/* Info del Paciente + Botón Certificado */}
                   <div className="w-full md:w-1/3 space-y-4">
                     <div className="h-20 w-20 bg-[#F4F7F5] text-[#2C4A3B] rounded-[1.5rem] flex items-center justify-center font-bold text-3xl border border-[#E4ECE7]">{activePatient.name.charAt(0)}</div>
                     <div>
@@ -363,8 +393,15 @@ export default function AdminPanel() {
                       <p className="flex items-center gap-2"><Phone size={14} className="text-stone-400"/> {activePatient.phone}</p>
                       <p className="flex items-center gap-2"><Mail size={14} className="text-stone-400"/> {activePatient.email || 'Sin correo'}</p>
                     </div>
+                    
+                    {/* BOTÓN NUEVO: GENERAR CERTIFICADO */}
+                    <button onClick={() => { setCertPrompt(''); setCertContent(''); setShowCertModal(true); }} className="mt-6 w-full bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 hover:text-[#2C4A3B] hover:border-stone-300 transition-all py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-sm">
+                      <FileText size={16} /> Redactar Certificado
+                    </button>
+
                   </div>
                   
+                  {/* Evolución Actual */}
                   <div className="w-full md:w-2/3 bg-[#F9F8F6] p-6 rounded-[1.5rem] border border-stone-100">
                     <h3 className="text-[11px] font-bold text-stone-400 uppercase tracking-widest mb-4">Evolución Sesión Actual</h3>
                     <div className="space-y-4">
@@ -520,6 +557,51 @@ export default function AdminPanel() {
                     <button type="submit" disabled={loading} className="w-1/2 bg-[#2C4A3B] text-white py-3 rounded-xl font-semibold">{loading?'...':'Guardar'}</button>
                   </div>
                 </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* MODAL CERTIFICADOS (IA) */}
+        <AnimatePresence>
+          {showCertModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
+              <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} exit={{opacity:0, scale:0.95}} className="bg-white rounded-[2rem] p-8 w-full max-w-2xl shadow-xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                <button onClick={() => setShowCertModal(false)} className="absolute top-6 right-6 p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"><X size={18} /></button>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="h-10 w-10 bg-[#F4F7F5] text-[#2C4A3B] rounded-xl flex items-center justify-center"><FileText size={20} /></div>
+                  <div>
+                    <h3 className="text-xl font-bold text-stone-900">Certificado Médico / Psicológico</h3>
+                    <p className="text-xs text-stone-500">Asistente de Redacción Legal IA</p>
+                  </div>
+                </div>
+
+                {!certContent ? (
+                  <div className="space-y-4">
+                    <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1">Instrucciones para la IA</label>
+                    <textarea 
+                      placeholder="Ej: Emitir certificado para justificar inasistencia laboral el día de hoy por cuadro de ansiedad aguda. Recomendar contención familiar." 
+                      className="w-full h-32 border border-stone-200 rounded-xl p-4 text-sm bg-stone-50 focus:bg-white focus:ring-2 focus:ring-[#5F8575]/20 outline-none resize-none"
+                      value={certPrompt} onChange={e => setCertPrompt(e.target.value)}
+                    />
+                    <button onClick={handleGenerateCertAI} disabled={isGeneratingCert || !certPrompt.trim()} className="w-full bg-[#2C4A3B] text-white font-medium py-3 rounded-xl flex justify-center items-center gap-2 hover:bg-[#233b2f] transition-all disabled:opacity-70">
+                      {isGeneratingCert ? <Loader2 size={18} className="animate-spin" /> : 'Generar Certificado Formal'}
+                    </button>
+                    <p className="text-[10px] text-stone-400 text-center px-4">La IA estructurará el texto en un formato legal adecuado para Chile, bloqueando la emisión de días de reposo si eres psicólogo.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-stone-50 border border-stone-200 p-6 rounded-2xl">
+                      <p className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed font-serif">{certContent}</p>
+                    </div>
+                    <div className="flex gap-4">
+                      <button onClick={() => { setCertPrompt(''); setCertContent(''); }} className="w-1/3 py-3 rounded-xl font-semibold text-stone-500 hover:bg-stone-50 border border-stone-200 text-sm transition-all">Redactar otro</button>
+                      <button onClick={() => { navigator.clipboard.writeText(certContent); showToast('Copiado al portapapeles', 'success'); }} className="w-2/3 bg-[#5F8575] text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-[#4A6B5D] transition-all text-sm shadow-sm">
+                        <Copy size={16} /> Copiar Documento
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
           )}
