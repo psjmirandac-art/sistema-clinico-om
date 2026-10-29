@@ -1,19 +1,42 @@
 "use client";
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+// Conexión automática a tu Supabase usando las variables de Vercel
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function AgendarPage() {
   const router = useRouter();
-  const [profesional, setProfesional] = useState('');
+  const [profesionales, setProfesionales] = useState<any[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    async function cargarProfesionales() {
+      // Extrae la lista dinámica desde tu tabla de profesionales
+      const { data, error } = await supabase
+        .from('professionals')
+        .select('*');
+        
+      if (data) {
+        setProfesionales(data);
+      }
+      setCargando(false);
+    }
+    
+    cargarProfesionales();
+  }, []);
 
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setProfesional(value);
+    const idProfesional = e.target.value;
     
-    // Al seleccionar, te envía a la subpágina con los horarios y servicios
-    if (value) {
-       router.push(`/agendar/${value}`); 
+    if (idProfesional) {
+       // Ahora envía el UUID real a la siguiente página para cargar el calendario
+       router.push(`/agendar/${idProfesional}`); 
     }
   };
 
@@ -29,12 +52,18 @@ export default function AgendarPage() {
           </label>
           <select 
             className="w-full border border-slate-200 rounded-lg p-3 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow cursor-pointer"
-            value={profesional}
             onChange={handleSelect}
+            defaultValue=""
+            disabled={cargando}
           >
-            <option value="">Elegir especialista...</option>
-            <option value="jaime">Jaime Miranda - Psicólogo Clínico Adultos</option>
-            <option value="ivette">Ivette Olivares - Psicóloga Infanto-Juvenil</option>
+            <option value="">
+              {cargando ? 'Cargando especialistas...' : 'Elegir especialista...'}
+            </option>
+            {profesionales.map((prof) => (
+              <option key={prof.id} value={prof.id}>
+                {prof.name || prof.nombre} {prof.specialty || prof.especialidad ? `- ${prof.specialty || prof.especialidad}` : ''}
+              </option>
+            ))}
           </select>
         </div>
       </div>
