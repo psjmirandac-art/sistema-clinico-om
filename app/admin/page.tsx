@@ -68,7 +68,9 @@ export default function AdminPanel() {
   const [adminCenterId, setAdminCenterId] = useState<string>(ENV_CENTER_ID);
   
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
-  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  
+  // FIX: Iniciar con null para evitar el error SSR en Next.js con new Date()
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date | null>(null);
   
   // --- ESTADOS DE MODALES ---
   const [showApptModal, setShowApptModal] = useState(false);
@@ -135,6 +137,9 @@ export default function AdminPanel() {
 
   // --- EFECTOS INICIALES ---
   useEffect(() => {
+    // FIX: Setear la fecha segura solo en el cliente
+    setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+
     supabase.auth.getSession().then(({ data: { session } }) => { 
       setSession(session); 
       if (session) loadData(session); 
@@ -215,9 +220,9 @@ export default function AdminPanel() {
   });
   const averageTicket = currentMonthAppointments.length > 0 ? Math.round(totalIncome / currentMonthAppointments.length) : 0;
   
-  const prevWeek = () => setCurrentWeekStart(prev => addDays(prev, -7));
-  const nextWeek = () => setCurrentWeekStart(prev => addDays(prev, 7));
-  const getWeekDays = () => Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i));
+  const prevWeek = () => setCurrentWeekStart(prev => prev ? addDays(prev, -7) : null);
+  const nextWeek = () => setCurrentWeekStart(prev => prev ? addDays(prev, 7) : null);
+  const getWeekDays = () => currentWeekStart ? Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i)) : [];
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
   
   const patientsMap = new Map();
@@ -930,7 +935,7 @@ export default function AdminPanel() {
                   </button>
                 </div>
                 
-                {viewMode === 'calendar' && (
+                {viewMode === 'calendar' && currentWeekStart && (
                   <div className="bg-white border border-stone-100 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
                     <div className="min-w-[900px]">
                       <div className="flex justify-between items-center p-5 bg-[#F9F8F6] border-b border-stone-100 text-sm font-semibold text-stone-700">
