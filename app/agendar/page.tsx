@@ -3,10 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { User, ChevronRight, Loader2, CalendarHeart, AlertCircle } from 'lucide-react';
 
-// 1. Tipado estricto (Adiós a los 'any')
 interface Professional {
   id: string;
   name?: string;
@@ -16,7 +15,6 @@ interface Professional {
   avatar_url?: string;
 }
 
-// Idealmente mover esto a lib/supabase/client.ts en el futuro
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -35,7 +33,7 @@ export default function AgendarPage() {
         const { data, error } = await supabase
           .from('professionals')
           .select('*')
-          .order('name', { ascending: true }); // Orden alfabético
+          .order('name', { ascending: true }); 
         
         if (error) throw error;
         if (data) setProfesionales(data);
@@ -51,14 +49,13 @@ export default function AgendarPage() {
 
   const handleSelect = (idProfesional: string) => {
     setSeleccionando(idProfesional);
-    // Le damos 400ms para que termine la animación de clic antes de enrutar
     setTimeout(() => {
       router.push(`/agendar/${idProfesional}`);
     }, 400);
   };
 
-  // Variantes de animación para la lista en cascada
-  const containerVariants = {
+  // FIX: Tipado estricto con 'Variants' de framer-motion para evitar el error TS2322 en Vercel
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
@@ -66,9 +63,13 @@ export default function AgendarPage() {
     }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 15 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+    show: { 
+      opacity: 1, 
+      y: 0, 
+      transition: { type: "spring", stiffness: 300, damping: 24 } 
+    }
   };
 
   return (
@@ -142,7 +143,6 @@ export default function AgendarPage() {
                     `}
                   >
                     <div className="flex items-center gap-4">
-                      {/* Avatar minimalista */}
                       <div className="h-12 w-12 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 overflow-hidden shrink-0 group-hover:bg-white transition-colors">
                         {prof.avatar_url ? (
                           <img src={prof.avatar_url} alt={prof.name || prof.nombre} className="h-full w-full object-cover" />
