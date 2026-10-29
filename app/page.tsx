@@ -15,12 +15,12 @@ export default function LandingPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            <Link href="/login-pacientes" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+            <Link href="#" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
               <UserCircle className="w-4 h-4" />
               Portal Pacientes
             </Link>
             <div className="w-px h-4 bg-slate-300"></div>
-            <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+            <Link href="/admin" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
               <LogIn className="w-4 h-4" />
               Acceso Equipo
             </Link>
@@ -56,10 +56,8 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Tarjeta Terapeuta 1 */}
             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
               <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
-                {/* Puedes poner un tag <img /> aquí */}
                 <div className="w-full h-full bg-blue-100 flex items-center justify-center text-blue-500 font-bold text-2xl">JM</div>
               </div>
               <h3 className="text-lg font-bold text-slate-900">Jaime Miranda</h3>
@@ -70,7 +68,6 @@ export default function LandingPage() {
               </Link>
             </div>
 
-            {/* Tarjeta Terapeuta 2 */}
             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
               <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
                 <div className="w-full h-full bg-purple-100 flex items-center justify-center text-purple-500 font-bold text-2xl">IO</div>
@@ -83,7 +80,6 @@ export default function LandingPage() {
               </Link>
             </div>
             
-            {/* Tarjeta Terapeuta 3 (Ejemplo) */}
             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center flex flex-col justify-center border-dashed">
               <Users className="w-12 h-12 text-slate-400 mx-auto mb-4" />
               <h3 className="text-lg font-bold text-slate-700">Ver todo el equipo</h3>
@@ -96,7 +92,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* SECCIÓN DE VENTAJAS (Estilo tarjetas informativas) */}
+      {/* SECCIÓN DE VENTAJAS */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
