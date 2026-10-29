@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { 
@@ -22,10 +22,10 @@ const next14Days = Array.from({ length: 14 }).map((_, i) => addDays(today, i));
 // Horario de atención estándar: 9:00 a 18:00
 const availableHours = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
-export default function BookingCalendarPage() {
+// FIX: Recibimos params como prop directamente, eliminando el hook useParams()
+export default function BookingCalendarPage({ params }: { params: { serviceId: string } }) {
   const router = useRouter();
-  const params = useParams();
-  const serviceId = params.serviceId as string;
+  const serviceId = params.serviceId;
 
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedDate, setSelectedDate] = useState<Date>(today);
@@ -92,7 +92,7 @@ export default function BookingCalendarPage() {
       start_time: startDateTime.toISOString(),
       end_time: endDateTime.toISOString(),
       consent_accepted: true,
-      modality: 'Presencial' // O el valor por defecto que manejes
+      modality: 'Presencial' 
     }]);
 
     if (error) {
@@ -147,7 +147,7 @@ export default function BookingCalendarPage() {
                     <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar snap-x">
                       {next14Days.map((date) => {
                         const isSelected = isSameDay(date, selectedDate);
-                        // Excluir domingos si lo deseas (date.getDay() !== 0)
+                        // Excluir domingos (0)
                         if (date.getDay() === 0) return null; 
 
                         return (
