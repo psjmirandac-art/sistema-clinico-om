@@ -1,12 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 import { Calendar, User, ArrowRight, ShieldCheck, HeartHandshake, Clock, Sparkles } from 'lucide-react';
 
 export default function LandingPage() {
-  // Variantes de animación para efecto cascada
-  const containerVariants = {
+  // Tipado estricto con 'Variants' y 'as const' para evitar errores en el build de Vercel
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
@@ -14,9 +14,13 @@ export default function LandingPage() {
     }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+    show: { 
+      opacity: 1, 
+      y: 0, 
+      transition: { type: "spring" as const, stiffness: 300, damping: 24 } 
+    }
   };
 
   return (
