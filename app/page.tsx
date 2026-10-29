@@ -1,130 +1,131 @@
+'use client';
+
 import Link from 'next/link';
-import { Calendar, Users, ShieldCheck, ArrowRight, UserCircle, LogIn } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Calendar, User, ArrowRight, ShieldCheck, HeartHandshake, Clock, Sparkles } from 'lucide-react';
 
 export default function LandingPage() {
+  // Variantes de animación para efecto cascada
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: { staggerChildren: 0.15, delayChildren: 0.1 }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-      {/* NAVEGACIÓN SUPERIOR */}
-      <nav className="w-full bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-xl">OM</span>
-            </div>
-            <span className="font-bold text-xl tracking-tight text-slate-900">Centro OM</span>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Link href="/portal-pacientes" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
-              <UserCircle className="w-4 h-4" />
-              Portal Pacientes
-            </Link>
-            <div className="w-px h-4 bg-slate-300"></div>
-            <Link href="/admin" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
-              <LogIn className="w-4 h-4" />
-              Acceso Equipo
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* HERO SECTION (Bienvenida) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
-        <h1 className="text-5xl font-extrabold text-slate-900 mb-6 tracking-tight">
-          Tu bienestar mental, <span className="text-blue-600">nuestra prioridad</span>
-        </h1>
-        <p className="text-xl text-slate-600 mb-10 max-w-2xl mx-auto">
-          Agenda tu sesión de psicoterapia presencial u online en menos de 2 minutos. 
-          Encuentra el espacio seguro que necesitas para sanar y crecer.
-        </p>
-        <div className="flex justify-center gap-4">
-          <Link href="/agendar" className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-700 flex items-center gap-2 transition-all shadow-lg hover:shadow-blue-200">
-            <Calendar className="w-5 h-5" />
-            Agendar mi primera sesión
-          </Link>
-        </div>
-      </section>
-
-      {/* SECCIÓN: CONOCE A NUESTROS TERAPEUTAS */}
-      <section className="bg-white py-20 border-t border-slate-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">Conoce a nuestro equipo</h2>
-            <p className="text-slate-600 max-w-2xl mx-auto">
-              Contamos con profesionales altamente capacitados en diversas áreas de la psicología, listos para acompañarte en tu proceso.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
-              <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
-                <div className="w-full h-full bg-blue-100 flex items-center justify-center text-blue-500 font-bold text-2xl">JM</div>
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Jaime Miranda</h3>
-              <p className="text-sm text-blue-600 font-medium mb-3">Psicólogo Clínico Adultos</p>
-              <p className="text-sm text-slate-500 mb-6">Especialista en ansiedad, depresión y terapia sistémica.</p>
-              <Link href="/agendar?profesional=jaime" className="text-blue-600 font-medium text-sm hover:underline flex items-center justify-center gap-1">
-                Ver disponibilidad <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-
-            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center">
-              <div className="w-24 h-24 mx-auto bg-slate-300 rounded-full mb-4 overflow-hidden">
-                <div className="w-full h-full bg-purple-100 flex items-center justify-center text-purple-500 font-bold text-2xl">IO</div>
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Ivette Olivares</h3>
-              <p className="text-sm text-purple-600 font-medium mb-3">Psicóloga Infanto-Juvenil</p>
-              <p className="text-sm text-slate-500 mb-6">Enfoque en desarrollo emocional, crianza y terapia familiar.</p>
-              <Link href="/agendar?profesional=ivette" className="text-blue-600 font-medium text-sm hover:underline flex items-center justify-center gap-1">
-                Ver disponibilidad <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-            
-            <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:shadow-lg transition-shadow text-center flex flex-col justify-center border-dashed">
-              <Users className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-slate-700">Ver todo el equipo</h3>
-              <p className="text-sm text-slate-500 mb-6">Conoce a todos nuestros especialistas y sus enfoques.</p>
-              <button className="bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
-                Ver directorio completo
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SECCIÓN DE VENTAJAS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-6">
-              <Calendar className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold mb-3">Agendamiento 100% online</h3>
-            <p className="text-slate-600">Revisa la disponibilidad en tiempo real y reserva tu hora al instante, sin esperas ni llamadas telefónicas.</p>
-          </div>
-          
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-6">
-              <Users className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold mb-3">Telemedicina integrada</h3>
-            <p className="text-slate-600">Conéctate a tus sesiones desde cualquier lugar con enlaces seguros de Google Meet generados automáticamente.</p>
-          </div>
-
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mb-6">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold mb-3">Privacidad garantizada</h3>
-            <p className="text-slate-600">Tus datos y registros clínicos están encriptados bajo los más altos estándares de seguridad y confidencialidad.</p>
-          </div>
-        </div>
-      </section>
+    <div className="min-h-screen flex flex-col bg-[#F9F8F6] font-sans selection:bg-[#E4ECE7]">
       
-      {/* FOOTER BÁSICO */}
-      <footer className="bg-slate-900 text-slate-400 py-8 text-center text-sm">
-        <p>© 2026 Centro Clínico OM. Todos los derechos reservados.</p>
-      </footer>
+      {/* NAVBAR PREMIUM */}
+      <motion.nav 
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="w-full fixed top-0 bg-white/80 backdrop-blur-md border-b border-stone-100 z-50"
+      >
+        <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 bg-[#2C4A3B] text-white rounded-xl flex items-center justify-center shadow-md">
+              <ShieldCheck size={22} strokeWidth={1.5} />
+            </div>
+            <div>
+              <h1 className="font-bold text-stone-900 text-lg leading-tight tracking-tight">Centro OM</h1>
+              <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-widest">Salud Mental</span>
+            </div>
+          </div>
+          
+          <div className="hidden sm:flex items-center gap-6">
+            <Link href="/portal-pacientes" className="text-sm font-semibold text-stone-500 hover:text-stone-900 transition-colors">
+              Soy Paciente
+            </Link>
+            <Link href="/agendar" className="bg-[#2C4A3B] text-white hover:bg-[#233b2f] transition-all px-5 py-2.5 rounded-xl font-medium text-sm shadow-sm">
+              Agendar Sesión
+            </Link>
+          </div>
+        </div>
+      </motion.nav>
+
+      {/* HERO SECTION */}
+      <main className="flex-1 flex flex-col items-center justify-center pt-32 pb-20 px-6">
+        <motion.div 
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          className="max-w-4xl w-full text-center space-y-8"
+        >
+          {/* Badge Superior */}
+          <motion.div variants={itemVariants} className="flex justify-center">
+            <span className="bg-white border border-stone-200 text-stone-600 text-xs font-bold px-4 py-2 rounded-full uppercase tracking-widest shadow-sm flex items-center gap-2">
+              <Sparkles size={14} className="text-[#5F8575]" /> Atención Psicológica Especializada
+            </span>
+          </motion.div>
+
+          {/* Titular */}
+          <motion.h1 variants={itemVariants} className="text-5xl sm:text-6xl md:text-7xl font-bold text-stone-900 tracking-tight leading-[1.1]">
+            Tu bienestar mental, <br />
+            <span className="text-[#5F8575]">nuestra prioridad.</span>
+          </motion.h1>
+
+          {/* Bajada */}
+          <motion.p variants={itemVariants} className="text-lg sm:text-xl text-stone-500 max-w-2xl mx-auto leading-relaxed">
+            Un espacio seguro, profesional y confidencial diseñado para tu tranquilidad. Agenda tu sesión online o presencial en menos de 2 minutos.
+          </motion.p>
+
+          {/* Tarjetas de Acción (Embudo) */}
+          <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto pt-8">
+            
+            {/* Card Agendar */}
+            <Link href="/agendar" className="group text-left">
+              <div className="bg-white border border-stone-100 p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-lg transition-all h-full relative overflow-hidden flex flex-col justify-between">
+                <div className="h-14 w-14 bg-[#F4F7F5] text-[#2C4A3B] rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                  <Calendar size={28} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-stone-900 mb-2">Agendar nueva cita</h3>
+                  <p className="text-sm text-stone-500 mb-6">Revisa la disponibilidad de nuestros especialistas y reserva tu hora de inmediato.</p>
+                </div>
+                <div className="flex items-center gap-2 text-[#5F8575] font-semibold text-sm group-hover:text-[#2C4A3B]">
+                  Comenzar ahora <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+
+            {/* Card Portal */}
+            <Link href="/portal-pacientes" className="group text-left">
+              <div className="bg-[#2C4A3B] border border-[#233b2f] p-8 rounded-[2rem] shadow-md hover:shadow-xl transition-all h-full relative overflow-hidden flex flex-col justify-between text-white">
+                <div className="h-14 w-14 bg-white/10 text-white rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform backdrop-blur-sm border border-white/10">
+                  <User size={28} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold mb-2">Portal de Pacientes</h3>
+                  <p className="text-sm text-white/70 mb-6">Ingresa para gestionar tus citas, revisar tu historial y acceder a enlaces de telemedicina.</p>
+                </div>
+                <div className="flex items-center gap-2 text-white font-semibold text-sm group-hover:text-[#A7C4B5]">
+                  Acceder a mi cuenta <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </Link>
+          </motion.div>
+        </motion.div>
+
+        {/* Banderas de Confianza */}
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8, duration: 1 }}
+          className="mt-24 border-t border-stone-200 pt-10 flex flex-wrap justify-center gap-10 text-stone-400"
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><HeartHandshake size={18} /> Profesionales Clínicos</div>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><ShieldCheck size={18} /> Privacidad Absoluta</div>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><Clock size={18} /> Gestión Rápida</div>
+        </motion.div>
+      </main>
     </div>
   );
 }
