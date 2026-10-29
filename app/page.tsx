@@ -5,7 +5,6 @@ import { motion, Variants } from 'framer-motion';
 import { Calendar, User, ArrowRight, ShieldCheck, HeartHandshake, Clock, Sparkles } from 'lucide-react';
 
 export default function LandingPage() {
-  // Tipado estricto con 'Variants' y 'as const' para evitar errores en el build de Vercel
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
@@ -135,7 +134,7 @@ export default function LandingPage() {
       <footer className="w-full border-t border-stone-200 bg-white/50 py-6 mt-auto">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-stone-400 font-medium">
-            © {new Date().getFullYear()} Centro OM. Todos los derechos reservados.
+            © 2026 Centro OM. Todos los derechos reservados.
           </p>
           <Link href="/admin" className="text-[10px] font-bold text-stone-400 hover:text-[#5F8575] uppercase tracking-widest transition-colors flex items-center gap-2">
             <ShieldCheck size={14} /> Acceso Equipo Clínico
