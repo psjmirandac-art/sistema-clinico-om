@@ -56,7 +56,7 @@ export default function LandingPage() {
       </motion.nav>
 
       {/* HERO SECTION */}
-      <main className="flex-1 flex flex-col items-center justify-center pt-32 pb-20 px-6">
+      <main className="flex-1 flex flex-col items-center justify-center pt-32 pb-10 px-6">
         <motion.div 
           variants={containerVariants}
           initial="hidden"
@@ -123,13 +123,26 @@ export default function LandingPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.8, duration: 1 }}
-          className="mt-24 border-t border-stone-200 pt-10 flex flex-wrap justify-center gap-10 text-stone-400"
+          className="mt-20 border-t border-stone-200 pt-10 flex flex-wrap justify-center gap-10 text-stone-400"
         >
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><HeartHandshake size={18} /> Profesionales Clínicos</div>
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><ShieldCheck size={18} /> Privacidad Absoluta</div>
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest"><Clock size={18} /> Gestión Rápida</div>
         </motion.div>
       </main>
+
+      {/* FOOTER - ACCESO PROFESIONALES */}
+      <footer className="w-full border-t border-stone-200 bg-white/50 py-6 mt-auto">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-xs text-stone-400 font-medium">
+            © {new Date().getFullYear()} Centro OM. Todos los derechos reservados.
+          </p>
+          <Link href="/admin" className="text-[10px] font-bold text-stone-400 hover:text-[#5F8575] uppercase tracking-widest transition-colors flex items-center gap-2">
+            <ShieldCheck size={14} /> Acceso Equipo Clínico
+          </Link>
+        </div>
+      </footer>
+
     </div>
   );
 }
