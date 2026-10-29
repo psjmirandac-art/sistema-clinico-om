@@ -612,17 +612,69 @@ export default function AdminPanel() {
   }
 
   // ==========================================
-  // LOGIN (Mantenido intacto)
+  // PANTALLA DE LOGIN (ACTUALIZADA)
   // ==========================================
   return (
-    <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full max-w-sm bg-white rounded-[2rem] p-10 shadow-sm border border-stone-100 text-center">
-        <ShieldCheck size={40} className="mx-auto text-[#2C4A3B] mb-4" />
-        <h1 className="text-2xl font-bold mb-6 text-stone-900">Acceso Clínico</h1>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <input type="email" required placeholder="Correo" className="w-full border p-3.5 rounded-xl bg-stone-50 text-sm" value={email} onChange={e=>setEmail(e.target.value)} />
-          <input type="password" required placeholder="Contraseña" className="w-full border p-3.5 rounded-xl bg-stone-50 text-sm" value={password} onChange={e=>setPassword(e.target.value)} />
-          <button type="submit" disabled={loading} className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl">Ingresar</button>
+    <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4 font-sans selection:bg-[#E4ECE7]">
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="w-full max-w-sm bg-white rounded-[2rem] p-8 sm:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100 text-center"
+      >
+        <div className="mx-auto h-16 w-16 bg-[#F4F7F5] text-[#2C4A3B] rounded-2xl flex items-center justify-center shadow-sm border border-[#E4ECE7] mb-6">
+          <ShieldCheck size={32} strokeWidth={1.5} />
+        </div>
+        
+        <h1 className="text-2xl font-bold mb-2 text-stone-900 tracking-tight">Acceso Clínico</h1>
+        <p className="text-sm text-stone-500 mb-8">Ingresa tus credenciales para continuar.</p>
+        
+        <form onSubmit={handleLogin} className="space-y-5 text-left">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1">Correo Electrónico</label>
+            <input 
+              type="email" 
+              required 
+              placeholder="ejemplo@centro-om.cl" 
+              className="w-full border border-stone-200 py-3.5 px-4 rounded-xl text-sm bg-stone-50/50 text-stone-900 placeholder:text-stone-300 focus:bg-white outline-none focus:ring-2 focus:ring-[#5F8575]/20 focus:border-[#5F8575]/30 transition-all" 
+              value={email} 
+              onChange={e => setEmail(e.target.value)} 
+            />
+          </div>
+          
+          <div className="space-y-1.5 relative">
+            <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1">Contraseña</label>
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                required 
+                placeholder="••••••••" 
+                className="w-full border border-stone-200 py-3.5 pl-4 pr-12 rounded-xl text-sm bg-stone-50/50 text-stone-900 placeholder:text-stone-300 focus:bg-white outline-none focus:ring-2 focus:ring-[#5F8575]/20 focus:border-[#5F8575]/30 transition-all" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+              />
+              <button 
+                type="button" 
+                onClick={() => setShowPassword(!showPassword)} 
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+          
+          {error && (
+            <div className="text-[13px] font-medium text-red-500 text-center bg-red-50 py-2 rounded-lg mt-2">
+              {error}
+            </div>
+          )}
+          
+          <button 
+            type="submit" 
+            disabled={loading} 
+            className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl hover:bg-[#233b2f] transition-all hover:shadow-lg flex justify-center items-center gap-2 mt-4 disabled:opacity-70"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin text-[#E4ECE7]" /> : 'Ingresar al sistema'}
+          </button>
         </form>
       </motion.div>
     </div>
