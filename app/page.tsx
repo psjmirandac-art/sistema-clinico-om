@@ -15,7 +15,7 @@ export default function LandingPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            <Link href="#" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
+            <Link href="/portal-pacientes" className="text-sm font-medium text-slate-600 hover:text-blue-600 flex items-center gap-1 transition-colors">
               <UserCircle className="w-4 h-4" />
               Portal Pacientes
             </Link>
