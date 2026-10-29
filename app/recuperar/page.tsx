@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, KeyRound, Mail, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '', 
@@ -12,45 +14,98 @@ const supabase = createClient(
 export default function RecuperarClave() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState<{ type: 'error' | 'success' | null, text: string }>({ type: null, text: '' });
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
+    setStatus({ type: null, text: '' });
     
-    // Aquí usamos window.location.origin para que la redirección funcione tanto en local como en producción
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/actualizar-clave`,
     });
 
-    if (error) setMessage('Error: ' + error.message);
-    else setMessage('Si el correo está registrado, recibirás un enlace de recuperación pronto.');
+    if (error) {
+      // Sanitizamos el error para no asustar al usuario con logs de base de datos
+      setStatus({ type: 'error', text: 'No pudimos procesar la solicitud. Verifica el correo e intenta nuevamente.' });
+    } else {
+      // Mensaje ambiguo por seguridad (evita enumeración de usuarios)
+      setStatus({ type: 'success', text: 'Si el correo está registrado, recibirás un enlace seguro en breve.' });
+    }
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
-        <div className="text-center">
-          <div className="h-12 w-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl mx-auto mb-3">SC</div>
-          <h1 className="text-xl font-bold text-slate-900">Recuperar Acceso</h1>
-          <p className="text-xs text-slate-500 mt-2">Ingresa tu correo para recibir un enlace seguro.</p>
-        </div>
-        <form onSubmit={handleReset} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Correo Electrónico</label>
-            <input type="email" required className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-slate-50" value={email} onChange={(e) => setEmail(e.target.value)} />
+    <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center p-4 font-sans selection:bg-[#E4ECE7]">
+      
+      {/* Botón Volver */}
+      <div className="absolute top-6 left-6 sm:top-10 sm:left-10">
+        <Link 
+          href="/admin" 
+          className="text-stone-400 hover:text-stone-800 flex items-center gap-2 transition-colors font-medium text-sm px-4 py-2 hover:bg-stone-100/50 rounded-full"
+        >
+          <ArrowLeft size={16} />
+          <span>Volver al inicio</span>
+        </Link>
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="w-full max-w-[400px] bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100 p-8 sm:p-10 space-y-8"
+      >
+        <div className="text-center space-y-3">
+          <div className="mx-auto h-16 w-16 bg-[#F4F7F5] text-[#2C4A3B] rounded-2xl flex items-center justify-center shadow-sm border border-[#E4ECE7] mb-6">
+            <KeyRound strokeWidth={1.5} size={32} />
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 disabled:opacity-50">
-            {loading ? 'Enviando...' : 'Enviar enlace'}
+          <div>
+            <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Recuperar Acceso</h1>
+            <p className="text-sm text-stone-500 mt-2 leading-relaxed">
+              Ingresa tu correo institucional y te enviaremos un enlace seguro para restablecer tu contraseña.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleReset} className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1">Correo Electrónico</label>
+            <div className="relative">
+              <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input 
+                type="email" 
+                required 
+                placeholder="correo@ejemplo.com"
+                className="w-full pl-10 pr-4 py-3.5 border border-stone-200 rounded-xl text-sm bg-stone-50/50 focus:bg-white transition-all outline-none focus:ring-2 focus:ring-[#5F8575]/20 focus:border-[#5F8575]/30 text-stone-800 placeholder:text-stone-300" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading || status.type === 'success'} 
+            className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl transition-all hover:bg-[#233b2f] hover:shadow-lg disabled:opacity-70 disabled:hover:shadow-none flex justify-center items-center gap-2 mt-2"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin text-[#E4ECE7]" /> : 'Enviar enlace seguro'}
           </button>
         </form>
-        {message && <p className="text-xs font-semibold text-center text-emerald-600 bg-emerald-50 p-3 rounded-xl">{message}</p>}
-        <div className="text-center">
-          <Link href="/admin" className="text-xs font-bold text-slate-500 hover:text-slate-900">← Volver al login</Link>
-        </div>
-      </div>
+
+        <AnimatePresence mode="wait">
+          {status.type && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} 
+              animate={{ opacity: 1, height: 'auto' }} 
+              exit={{ opacity: 0, height: 0 }}
+              className={`flex items-start gap-2 p-4 rounded-xl text-sm overflow-hidden ${status.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-[#F4F7F5] text-[#2C4A3B]'}`}
+            >
+              {status.type === 'error' ? <AlertCircle size={18} className="shrink-0 mt-0.5" /> : <CheckCircle size={18} className="shrink-0 mt-0.5" />}
+              <p className="leading-relaxed font-medium">{status.text}</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
