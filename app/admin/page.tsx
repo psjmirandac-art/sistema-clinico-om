@@ -632,7 +632,7 @@ export default function AdminSuitePage() {
                   <div className="grid gap-3">
                     {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length === 0 ? (
                       <div className="text-center py-12 space-y-2">
-                        <CalendarX2 className="mx-auto text-stone-300" size={40} strokeWidth={1.5} />
+                        <Calendar className="mx-auto text-stone-300" size={40} strokeWidth={1.5} />
                         <p className="font-semibold text-stone-700 text-sm">No hay citas para este día</p>
                         <p className="text-xs text-stone-400">Haz clic en el botón superior o en el día del calendario para programar una sesión.</p>
                       </div>
