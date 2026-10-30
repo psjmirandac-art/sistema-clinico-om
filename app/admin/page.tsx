@@ -76,10 +76,25 @@ export default function AdminSuitePage() {
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
+  // --- CAMPOS COMPLETOS DE ADMISIÓN DE PACIENTE ---
+  const [pFirstName, setPFirstName] = useState('');
+  const [pLastName, setPLastName] = useState('');
+  const [pGender, setPGender] = useState('');
+  const [pDocument, setPDocument] = useState('');
+  const [pBirthDate, setPBirthDate] = useState('');
+  const [pPrevision, setPPrevision] = useState('');
+  const [pEmail, setPEmail] = useState('');
+  const [pPhone, setPPhone] = useState('');
+  const [pAddress, setPAddress] = useState('');
+  const [pComuna, setPComuna] = useState('');
+  const [pCiudad, setPCiudad] = useState('');
+  const [apptDate, setApptDate] = useState('');
+  const [apptTime, setApptTime] = useState('10:00');
+  const [savingAppt, setSavingAppt] = useState(false);
+
   const [rawNotes, setRawNotes] = useState('');
   const [aiStructuredNotes, setAiStructuredNotes] = useState('');
   const [certificateText, setCertificateText] = useState('');
-  const [certTemplate] = useState<'asistencia' | 'reposo' | 'informe'>('asistencia');
   const [isRecording, setIsRecording] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -88,16 +103,6 @@ export default function AdminSuitePage() {
 
   const [reportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
   const multiplier = reportPeriod === 'mes' ? 1 : reportPeriod === 'trimestre' ? 3 : 12;
-
-  const [apptPatientName, setApptPatientName] = useState('');
-  const [apptPatientEmail, setApptPatientEmail] = useState('');
-  const [apptDate, setApptDate] = useState('');
-  const [apptTime, setApptTime] = useState('10:00');
-  const [apptModality] = useState<'online' | 'presencial'>('presencial');
-  const [apptTherapist] = useState('');
-  const [apptBox] = useState<number>(1);
-  const [apptPaymentStatus] = useState<'pagado' | 'pendiente'>('pagado');
-  const [savingAppt, setSavingAppt] = useState(false);
 
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -213,29 +218,40 @@ export default function AdminSuitePage() {
     e.preventDefault();
     setSavingAppt(true);
 
+    const fullName = `${pFirstName} ${pLastName}`.trim();
     const payload: any = {
-      patient_name: apptPatientName,
-      patient_email: apptPatientEmail,
+      patient_name: fullName,
+      patient_email: pEmail,
+      patient_phone: pPhone,
+      patient_rut: pDocument,
+      patient_gender: pGender,
+      patient_birthdate: pBirthDate || null,
+      patient_prevision: pPrevision,
+      patient_address: `${pAddress}, ${pComuna}, ${pCiudad}`,
       date: apptDate,
       time: apptTime,
-      modality: apptModality,
-      professional_name: apptTherapist || profile?.name,
-      box_number: apptModality === 'presencial' ? apptBox : null,
-      status: apptPaymentStatus,
+      modality: 'presencial',
+      professional_name: profile?.name,
+      box_number: 1,
+      status: 'pagado',
       center_id: profile?.center_id,
       price: 35000, 
-      meet_link: apptModality === 'online' ? 'https://meet.google.com/new' : null
+      meet_link: null
     };
 
     const { data, error } = await supabase.from('appointments').insert([payload]).select().single();
     const created = (!error && data) ? data : { ...payload, id: `local-${Date.now()}` };
 
     setAppointments(prev => [...prev, created]);
+    if (!patientsList.some(p => p.patient_email === pEmail)) {
+      setPatientsList(prev => [{ patient_name: fullName, patient_email: pEmail, patient_phone: pPhone }, ...prev]);
+    }
+
     setIsNewApptModalOpen(false);
-    setApptPatientName('');
-    setApptPatientEmail('');
+    setPFirstName(''); setPLastName(''); setPGender(''); setPDocument(''); setPBirthDate('');
+    setPPrevision(''); setPEmail(''); setPPhone(''); setPAddress(''); setPComuna(''); setPCiudad('');
     setSavingAppt(false);
-    showToast('Cita agendada correctamente.');
+    showToast('Paciente y cita clínica agendados con éxito.');
   };
 
   const handleCreatePatient = (e: React.FormEvent) => {
@@ -486,7 +502,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA (CALENDARIO INTERACTIVO CON OPCIONES DE AGENDAMIENTO) */}
+            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 
@@ -652,22 +668,14 @@ export default function AdminSuitePage() {
                                     {appt.status}
                                   </span>
                                 </div>
-                                <p className="text-xs text-stone-500 mt-0.5">{appt.date} • Terapeuta: <strong>{appt.professional_name}</strong></p>
+                                <p className="text-xs text-stone-500 mt-0.5">{appt.date} • Terapeuta: <strong>{appt.professional_name}</strong> {appt.patient_phone && `• Tel: ${appt.patient_phone}`}</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              {appt.modality === 'presencial' ? (
-                                <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-xl">
-                                  <MapPin size={13} className="text-[#2C4A3B]" />
-                                  <select value={appt.box_number || 1} onChange={(e) => handleChangeAppointmentBox(appt.id, Number(e.target.value))} className="text-xs font-bold text-stone-900 bg-transparent outline-none cursor-pointer">
-                                    {Array.from({ length: boxesCount }, (_, i) => i + 1).map(n => <option key={n} value={n}>Box {n}</option>)}
-                                  </select>
-                                </div>
-                              ) : (
-                                <a href={appt.meet_link || 'https://meet.google.com/new'} target="_blank" rel="noreferrer" className="text-xs font-semibold px-3 py-2 bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] rounded-xl flex items-center gap-1.5">
-                                  <Video size={13} /> Meet
-                                </a>
-                              )}
+                              <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-xl">
+                                <MapPin size={13} className="text-[#2C4A3B]" />
+                                <span className="text-xs font-bold text-stone-900">Box {appt.box_number || 1}</span>
+                              </div>
                               <button onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} className="text-xs font-semibold px-3.5 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]">
                                 Ficha IA
                               </button>
@@ -822,42 +830,130 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL NUEVA CITA */}
+      {/* MODAL DE ADMISIÓN DE PACIENTE ( FORMULARIO COMPLETO ) */}
       <AnimatePresence>
         {isNewApptModalOpen && (
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-lg text-stone-900">Agendar Cita Médica</h3>
-                <button onClick={() => setIsNewApptModalOpen(false)}><X size={20}/></button>
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-2xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
+              
+              <div className="flex justify-between items-center border-b border-stone-100 pb-4">
+                <div>
+                  <h3 className="font-bold text-xl text-stone-900">Admisión de Nuevo Paciente y Cita</h3>
+                  <p className="text-xs text-stone-400 mt-0.5">Completa los datos clínicos requeridos para la ficha y agendamiento.</p>
+                </div>
+                <button onClick={() => setIsNewApptModalOpen(false)} className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-50"><X size={20}/></button>
               </div>
-              <form onSubmit={handleCreateAppointment} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Nombre Paciente</label>
-                  <input type="text" required placeholder="Ej: María Ignacia Silva" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Correo Electrónico</label>
-                  <input type="email" required placeholder="paciente@correo.cl" value={apptPatientEmail} onChange={e => setApptPatientEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Fecha</label>
-                    <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+
+              <form onSubmit={handleCreateAppointment} className="space-y-6">
+                
+                {/* SECCIÓN 1: DATOS PERSONALES */}
+                <div className="bg-stone-50/70 p-5 rounded-2xl border border-stone-100 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-[#2C4A3B] text-white font-bold text-xs flex items-center justify-center">1</span>
+                    <h4 className="font-bold text-xs text-stone-700 uppercase tracking-widest">Datos Personales</h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Nombre *</label>
+                      <input type="text" required placeholder="Nombre del paciente" value={pFirstName} onChange={e => setPFirstName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Apellido *</label>
+                      <input type="text" required placeholder="Apellido del paciente" value={pLastName} onChange={e => setPLastName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Hora</label>
-                    <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+                    <label className="text-[11px] font-bold text-stone-500 block mb-1">Género (opcional)</label>
+                    <select value={pGender} onChange={e => setPGender(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20">
+                      <option value="">Selecciona el género</option>
+                      <option value="Femenino">Femenino</option>
+                      <option value="Masculino">Masculino</option>
+                      <option value="No Binario">No Binario</option>
+                      <option value="Otro">Otro</option>
+                    </select>
                   </div>
                 </div>
-                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-[#233b2f] transition-colors">
-                  {savingAppt ? 'Guardando en agenda...' : 'Confirmar y Agendar Cita'}
+
+                {/* SECCIÓN 2: IDENTIFICACIÓN */}
+                <div className="bg-stone-50/70 p-5 rounded-2xl border border-stone-100 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-[#2C4A3B] text-white font-bold text-xs flex items-center justify-center">2</span>
+                    <h4 className="font-bold text-xs text-stone-700 uppercase tracking-widest">Identificación</h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Documento / RUN *</label>
+                      <input type="text" required placeholder="Ej: 12.345.678-9" value={pDocument} onChange={e => setPDocument(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Fecha de nacimiento</label>
+                      <input type="date" value={pBirthDate} onChange={e => setPBirthDate(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-500 block mb-1">Previsión *</label>
+                    <select value={pPrevision} onChange={e => setPPrevision(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20">
+                      <option value="">Selecciona la previsión</option>
+                      <option value="Fonasa">Fonasa</option>
+                      <option value="Isapre">Isapre</option>
+                      <option value="Particular">Particular</option>
+                      <option value="Convenio Institucional">Convenio Institucional</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* SECCIÓN 3: INFORMACIÓN DE CONTACTO */}
+                <div className="bg-stone-50/70 p-5 rounded-2xl border border-stone-100 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-[#2C4A3B] text-white font-bold text-xs flex items-center justify-center">3</span>
+                    <h4 className="font-bold text-xs text-stone-700 uppercase tracking-widest">Información de Contacto y Cita</h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Email *</label>
+                      <input type="email" required placeholder="correo@ejemplo.com" value={pEmail} onChange={e => setPEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Teléfono *</label>
+                      <input type="tel" required placeholder="+56912345678" value={pPhone} onChange={e => setPPhone(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-500 block mb-1">Dirección</label>
+                    <input type="text" placeholder="Calle y número" value={pAddress} onChange={e => setPAddress(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Comuna</label>
+                      <input type="text" placeholder="Ej: Providencia" value={pComuna} onChange={e => setPComuna(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Ciudad</label>
+                      <input type="text" placeholder="Ciudad" value={pCiudad} onChange={e => setPCiudad(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-stone-200/60">
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-700 block mb-1">Fecha de Sesión *</label>
+                      <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-stone-700 block mb-1">Hora *</label>
+                      <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" />
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-4 rounded-2xl font-bold text-sm hover:bg-[#233b2f] transition-all shadow-md flex items-center justify-center gap-2">
+                  {savingAppt ? <><Loader2 size={16} className="animate-spin" /> Registrando paciente...</> : 'Guardar Paciente y Confirmar Cita'}
                 </button>
               </form>
+
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }
