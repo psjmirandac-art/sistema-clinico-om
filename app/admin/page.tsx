@@ -7,10 +7,10 @@ import {
   Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
   Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
   X, Loader2, Lock, DoorOpen, UserPlus, Check, 
-  MapPin, Wallet, CreditCard, AlertCircle, 
+  MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, CalendarX2, UserCircle, ChevronLeft, ChevronRight
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -190,7 +190,7 @@ export default function AdminSuitePage() {
       setTimeout(() => {
         setIsSyncingCalendar(false);
         setCalendarLinked(true);
-        showToast('Agenda sincronizada con Google Calendar y enlaces de Meet actualizados.');
+        showToast('Agenda sincronizada con Google Calendar.');
       }, 900);
     } catch {
       setIsSyncingCalendar(false);
@@ -201,25 +201,12 @@ export default function AdminSuitePage() {
     const targetAppt = appointments.find(a => a.id === apptId);
     if (!targetAppt) return;
     if (targetAppt.modality === 'online') {
-      showToast('Esta sesión es Online (Meet), no requiere asignación de Box físico.');
+      showToast('Esta sesión es Online (Meet), no requiere Box físico.');
       return;
     }
     setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, box_number: newBox } : a));
     await supabase.from('appointments').update({ box_number: newBox }).eq('id', apptId);
-    showToast(`Box actualizado a Box ${newBox} correctamente.`);
-  };
-
-  const handleCancelUnpaidAppointment = async (appt: any) => {
-    setAppointments(prev => prev.filter(a => a.id !== appt.id));
-    await supabase.from('appointments').delete().eq('id', appt.id);
-    showToast(`Cita de ${appt.patient_name} anulada por no pago. Hora liberada.`);
-  };
-
-  const handleTogglePaymentStatus = async (apptId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'pendiente' ? 'pagado' : 'pendiente';
-    setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, status: nextStatus } : a));
-    await supabase.from('appointments').update({ status: nextStatus }).eq('id', apptId);
-    showToast(`Estado de pago actualizado a ${nextStatus.toUpperCase()}.`);
+    showToast(`Box actualizado a Box ${newBox}.`);
   };
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
@@ -248,7 +235,7 @@ export default function AdminSuitePage() {
     setApptPatientName('');
     setApptPatientEmail('');
     setSavingAppt(false);
-    showToast('Cita agendada con éxito.');
+    showToast('Cita agendada correctamente.');
   };
 
   const handleCreatePatient = (e: React.FormEvent) => {
@@ -258,7 +245,7 @@ export default function AdminSuitePage() {
     setSelectedPatient(newPatient);
     setIsNewPatientModalOpen(false);
     setNewPatientName('');
-    showToast(`Paciente inscrito correctamente.`);
+    showToast('Paciente inscrito con éxito.');
   };
 
   const handleDeletePatient = (e: React.MouseEvent, p: any) => {
@@ -499,14 +486,14 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA (CALENDARIO INTERACTIVO) */}
+            {/* TAB AGENDA (CALENDARIO INTERACTIVO CON OPCIONES DE AGENDAMIENTO) */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
-                    <p className="text-sm text-stone-500">Navega por los días del mes, selecciona una fecha para filtrar citas o cambia de Box en vivo.</p>
+                    <p className="text-sm text-stone-500">Haz clic en cualquier día para agendar una cita directa o gestionar la disponibilidad.</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <button 
@@ -555,7 +542,7 @@ export default function AdminSuitePage() {
 
                   <div className="grid grid-cols-7 gap-2">
                     {Array.from({ length: firstDay }).map((_, index) => (
-                      <div key={`empty-${index}`} className="h-24 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
+                      <div key={`empty-${index}`} className="h-28 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
                     ))}
 
                     {Array.from({ length: daysInMonth }).map((_, index) => {
@@ -571,8 +558,11 @@ export default function AdminSuitePage() {
                       return (
                         <div 
                           key={dateStr}
-                          onClick={() => setSelectedDateFilter(dateStr)}
-                          className={`h-24 rounded-2xl border p-2 flex flex-col justify-between transition-all cursor-pointer group ${
+                          onClick={() => {
+                            setSelectedDateFilter(dateStr);
+                            setApptDate(dateStr);
+                          }}
+                          className={`h-28 rounded-2xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group relative ${
                             isSelected 
                               ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' 
                               : isToday
@@ -584,17 +574,24 @@ export default function AdminSuitePage() {
                             <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>
                               {dayNum}
                             </span>
-                            {dayAppointments.length > 0 && (
-                              <span className="text-[9px] font-bold bg-[#2C4A3B] text-white px-1.5 py-0.5 rounded-md">
-                                {dayAppointments.length}
-                              </span>
-                            )}
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setApptDate(dateStr);
+                                setIsNewApptModalOpen(true);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"
+                              title="Agendar cita en este día"
+                            >
+                              <Plus size={14} />
+                            </button>
                           </div>
 
-                          <div className="space-y-1 overflow-y-hidden">
+                          <div className="space-y-1 overflow-y-hidden flex-1 mt-1">
                             {dayAppointments.slice(0, 2).map((appt, i) => (
-                              <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs">
-                                {appt.time} • {appt.patient_name}
+                              <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs flex items-center justify-between">
+                                <span>{appt.time} • {appt.patient_name}</span>
+                                <span className={`h-1.5 w-1.5 rounded-full ${appt.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
                               </div>
                             ))}
                             {dayAppointments.length > 2 && (
@@ -614,9 +611,22 @@ export default function AdminSuitePage() {
                     <h3 className="font-bold text-lg text-stone-900">
                       {selectedDateFilter ? `Citas para el ${selectedDateFilter}` : 'Todas las Sesiones en Agenda'}
                     </h3>
-                    <span className="text-xs font-semibold text-stone-500">
-                      {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length} citas encontradas
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-semibold text-stone-500">
+                        {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length} citas encontradas
+                      </span>
+                      {selectedDateFilter && (
+                        <button 
+                          onClick={() => {
+                            setApptDate(selectedDateFilter);
+                            setIsNewApptModalOpen(true);
+                          }}
+                          className="text-xs font-semibold bg-[#2C4A3B] text-white px-3 py-1.5 rounded-xl hover:bg-[#233b2f] flex items-center gap-1 shadow-xs"
+                        >
+                          <Plus size={13} /> Agendar para el {selectedDateFilter}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid gap-3">
@@ -624,7 +634,7 @@ export default function AdminSuitePage() {
                       <div className="text-center py-12 space-y-2">
                         <CalendarX2 className="mx-auto text-stone-300" size={40} strokeWidth={1.5} />
                         <p className="font-semibold text-stone-700 text-sm">No hay citas para este día</p>
-                        <p className="text-xs text-stone-400">Haz clic en "Nueva Cita" para programar una sesión en esta fecha.</p>
+                        <p className="text-xs text-stone-400">Haz clic en el botón superior o en el día del calendario para programar una sesión.</p>
                       </div>
                     ) : (
                       appointments
@@ -794,32 +804,55 @@ export default function AdminSuitePage() {
         </div>
       </main>
 
+      {/* MODAL NUEVO PACIENTE */}
       <AnimatePresence>
         {isNewPatientModalOpen && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
-              <div className="flex justify-between items-center"><h3 className="font-bold text-lg text-stone-900">Inscribir Nuevo Paciente</h3><button onClick={() => setIsNewPatientModalOpen(false)}><X size={20}/></button></div>
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-lg text-stone-900">Inscribir Nuevo Paciente</h3>
+                <button onClick={() => setIsNewPatientModalOpen(false)}><X size={20}/></button>
+              </div>
               <form onSubmit={handleCreatePatient} className="space-y-3.5">
-                <input type="text" required value={newPatientName} onChange={e => setNewPatientName(e.target.value)} placeholder="Nombre Completo" className="w-full p-3 rounded-xl border bg-stone-50 text-sm" />
-                <button type="submit" className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">Guardar Paciente en Ficha</button>
+                <input type="text" required value={newPatientName} onChange={e => setNewPatientName(e.target.value)} placeholder="Nombre Completo del Paciente" className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+                <button type="submit" className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-[#233b2f] transition-colors">Guardar Paciente</button>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
+      {/* MODAL NUEVA CITA */}
       <AnimatePresence>
         {isNewApptModalOpen && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
-              <div className="flex justify-between items-center"><h3 className="font-bold text-lg text-stone-900">Agendar Cita</h3><button onClick={() => setIsNewApptModalOpen(false)}><X size={20}/></button></div>
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-lg text-stone-900">Agendar Cita Médica</h3>
+                <button onClick={() => setIsNewApptModalOpen(false)}><X size={20}/></button>
+              </div>
               <form onSubmit={handleCreateAppointment} className="space-y-4">
-                <input type="text" required placeholder="Nombre Paciente" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="w-full p-3 rounded-xl border bg-stone-50 text-sm" />
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
-                  <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
+                <div>
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Nombre Paciente</label>
+                  <input type="text" required placeholder="Ej: María Ignacia Silva" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
                 </div>
-                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">{savingAppt ? 'Guardando...' : 'Confirmar Cita'}</button>
+                <div>
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Correo Electrónico</label>
+                  <input type="email" required placeholder="paciente@correo.cl" value={apptPatientEmail} onChange={e => setApptPatientEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Fecha</label>
+                    <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Hora</label>
+                    <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
+                  </div>
+                </div>
+                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-[#233b2f] transition-colors">
+                  {savingAppt ? 'Guardando en agenda...' : 'Confirmar y Agendar Cita'}
+                </button>
               </form>
             </motion.div>
           </div>
