@@ -451,9 +451,9 @@ export default function AdminSuitePage() {
     showToast('Reporte CSV descargado.');
   };
 
-  // Helpers para el Calendario Interactivo
-  const currentYear = currentMonthDate ? currentMonthDate.getFullYear() : new Date().getFullYear();
-  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : new Date().getMonth();
+  // Helpers seguros para el Calendario Interactivo
+  const currentYear = currentMonthDate ? currentMonthDate.getFullYear() : 2026;
+  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : 9; // Octubre por defecto seguro
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
