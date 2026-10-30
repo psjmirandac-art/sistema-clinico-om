@@ -11,7 +11,7 @@ import {
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Send, Eye, Store, Smartphone,
   MessageSquare, Award, ShoppingCart, CheckCircle2, Ban, Snowflake, 
-  ArrowUpDown, Share2, CalendarX2
+  ArrowUpDown, Share2, CalendarX2, UserCircle
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -59,7 +59,7 @@ export default function AdminSuitePage() {
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  // --- DATOS CENTRALES DEL CENTRO (100% REALES, SIN MOCKS) ---
+  // --- DATOS CENTRALES DEL CENTRO ---
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [therapists, setTherapists] = useState<any[]>([]);
@@ -89,7 +89,6 @@ export default function AdminSuitePage() {
   const [aiLoading, setAiLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // Historial y Archivos (Vacíos por defecto para cuentas nuevas)
   const [clinicalRecords, setClinicalRecords] = useState<Record<string, any[]>>({});
   const [patientFiles] = useState<any[]>([]);
   const [previewFile, setPreviewFile] = useState<any | null>(null);
@@ -103,7 +102,7 @@ export default function AdminSuitePage() {
   const [multiDatesInput, setMultiDatesInput] = useState('');
 
   // --- FINANZAS Y PAQUETES DE SESIONES ---
-  const [packages, setPackages] = useState<any[]>([]);
+  const [packages] = useState<any[]>([]);
   const [cancelledRecoveredCount, setCancelledRecoveredCount] = useState(0);
   const [cancelledRecoveredAmount, setCancelledRecoveredAmount] = useState(0);
 
@@ -114,14 +113,14 @@ export default function AdminSuitePage() {
   const [newTherapistSpecialty, setNewTherapistSpecialty] = useState('Psicología Clínica');
   const [newTherapistRole, setNewTherapistRole] = useState<'terapeuta' | 'admin'>('terapeuta');
 
-  // --- EVALUACIONES, VITRINA Y ABANDONOS (Vacíos por defecto) ---
+  // --- EVALUACIONES, VITRINA Y ABANDONOS ---
   const [reviews] = useState<any[]>([]);
-  const [peerRecommendations, setPeerRecommendations] = useState<any[]>([]);
+  const [peerRecommendations] = useState<any[]>([]);
   const [newPeerName, setNewPeerName] = useState('');
   const [newPeerSpecialty, setNewPeerSpecialty] = useState('');
   const [newPeerText, setNewPeerText] = useState('');
-  const [courseModules, setCourseModules] = useState<any[]>([]);
-  const [abandonedCarts, setAbandonedCarts] = useState<any[]>([]);
+  const [courseModules] = useState<any[]>([]);
+  const [abandonedCarts] = useState<any[]>([]);
 
   // --- COMUNICACIONES ---
   const [waAssistantActive, setWaAssistantActive] = useState(true);
@@ -146,7 +145,6 @@ export default function AdminSuitePage() {
   const [apptPaymentStatus, setApptPaymentStatus] = useState<'pagado' | 'pendiente'>('pagado');
   const [savingAppt, setSavingAppt] = useState(false);
 
-  // 1. Inicialización de Sesión
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     setApptDate(todayStr);
@@ -186,7 +184,6 @@ export default function AdminSuitePage() {
     await fetchClinicalData(activeCenterId);
   }
 
-  // AQUI SE LIMPIARON LOS MOCKS: Lee estrictamente la DB
   async function fetchClinicalData(centerId?: string) {
     try {
       if (!centerId) return;
@@ -208,7 +205,6 @@ export default function AdminSuitePage() {
       setTherapists(fetchedProfs);
       setServices(fetchedServs);
 
-      // Poblar directorio de pacientes únicos en base a las citas reales
       const uniquePats = Array.from(new Map(fetchedAppts.map((a: any) => [a.patient_email || a.patient_name, a])).values());
       setPatientsList(uniquePats);
       if (uniquePats.length > 0) setSelectedPatient(uniquePats[0]);
@@ -439,21 +435,6 @@ export default function AdminSuitePage() {
     showToast(`Capacidad actualizada a ${validCount} Boxes.`);
   };
 
-  const handleCreateTherapist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = { name: newTherapistName, email: newTherapistEmail, specialty: newTherapistSpecialty, role: newTherapistRole, center_id: profile?.center_id };
-    const { data, error } = await supabase.from('professionals').insert([payload]).select().single();
-    const created = (!error && data) ? { ...data, status: 'activos' } : { ...payload, id: `th-${Date.now()}`, status: 'activos' };
-    setTherapists(prev => [...prev, created]);
-    setNewTherapistName(''); setNewTherapistEmail('');
-    showToast(`${created.name} agregado al equipo.`);
-  };
-
-  const handleUpdateTherapistStatus = (id: string, nextStatus: 'activos' | 'congelados' | 'eliminados') => {
-    setTherapists(prev => prev.map(t => t.id === id ? { ...t, status: nextStatus } : t));
-    showToast(`Estado actualizado a ${nextStatus.toUpperCase()}.`);
-  };
-
   const handleExportReportCSV = () => {
     const headers = 'Paciente,Terapeuta,Fecha,Hora,Modalidad,Box,Estado,Monto\n';
     const rows = appointments.map(a => `"${a.patient_name}","${a.professional_name}","${a.date}","${a.time}","${a.modality}","${a.box_number || 'Online'}","${a.status}","${a.price || 35000}"`).join('\n');
@@ -464,12 +445,8 @@ export default function AdminSuitePage() {
     showToast('Reporte CSV descargado.');
   };
 
-  // CÁLCULOS DINÁMICOS REALES (Mocks Eliminados)
-  const multiplier = reportPeriod === 'mes' ? 1 : reportPeriod === 'trimestre' ? 3 : 12;
   const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
   const pendingAppointments = appointments.filter(a => a.status === 'pendiente');
-  
-  // Total facturado real (Citas pagadas reales de la DB)
   const dynamicGross = (paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0)) * multiplier;
   const dynamicNet = Math.round(dynamicGross * 0.88);
   const dynamicRecovered = cancelledRecoveredAmount * multiplier;
@@ -586,7 +563,6 @@ export default function AdminSuitePage() {
         <div className="flex-1 overflow-y-auto p-6 lg:p-8 bg-[#F9F8F6] custom-scrollbar">
           <AnimatePresence mode="wait">
 
-            {/* TAB INICIO */}
             {activeTab === 'inicio' && (
               <motion.div key="inicio" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -626,7 +602,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
@@ -692,7 +667,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB PACIENTES Y FICHAS IA */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
@@ -786,7 +760,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB REPORTES */}
             {activeTab === 'reportes' && (
               <motion.div key="reportes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-8">
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -809,7 +782,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TABS RESTANTES (Placeholder/Vacíos para nueva cuenta) */}
             {['servicios', 'finanzas', 'equipo', 'vitrina', 'comunicaciones', 'resenas', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
@@ -822,7 +794,6 @@ export default function AdminSuitePage() {
         </div>
       </main>
 
-      {/* MODALES OMITIDOS PARA BREVEDAD (COMPARTEN EXACTAMENTE LA MISMA LÓGICA ANTERIOR DE NEW PATIENT Y NEW APPT) */}
       <AnimatePresence>
         {isNewPatientModalOpen && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
