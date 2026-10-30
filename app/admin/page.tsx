@@ -5,8 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
-  Plus, Mic, MicOff, Sparkles, FileText, Video, CheckCircle2, 
-  Clock, Trash2, Search, X, Loader2, Printer, Lock
+  Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
+  X, Loader2, Printer, Lock, DoorOpen, UserPlus, Minus, Check, MapPin
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -14,7 +14,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-type TabType = 'inicio' | 'agenda' | 'pacientes' | 'servicios' | 'resenas';
+type TabType = 'inicio' | 'agenda' | 'pacientes' | 'equipo' | 'servicios' | 'resenas';
 
 export default function AdminSuitePage() {
   const { center } = useTenant();
@@ -38,10 +38,20 @@ export default function AdminSuitePage() {
   const [activeTab, setActiveTab] = useState<TabType>('inicio');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
 
-  // --- DATOS CLÍNICOS ---
+  // --- DATOS CLÍNICOS, EQUIPO Y BOXES ---
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
-  const [loadingData, setLoadingData] = useState(false);
+  const [therapists, setTherapists] = useState<any[]>([]);
+  const [boxesCount, setBoxesCount] = useState<number>(3);
+  const [savingBoxes, setSavingBoxes] = useState(false);
+  const [boxesSavedToast, setBoxesSavedToast] = useState(false);
+
+  // --- ESTADO NUEVO TERAPEUTA ---
+  const [newTherapistName, setNewTherapistName] = useState('');
+  const [newTherapistEmail, setNewTherapistEmail] = useState('');
+  const [newTherapistSpecialty, setNewTherapistSpecialty] = useState('Psicología Clínica');
+  const [newTherapistRole, setNewTherapistRole] = useState<'terapeuta' | 'admin'>('terapeuta');
+  const [savingTherapist, setSavingTherapist] = useState(false);
 
   // --- ESTADO DE FICHA CLÍNICA + IA GROQ ---
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
@@ -63,7 +73,9 @@ export default function AdminSuitePage() {
   const [apptPatientEmail, setApptPatientEmail] = useState('');
   const [apptDate, setApptDate] = useState('');
   const [apptTime, setApptTime] = useState('10:00');
-  const [apptModality, setApptModality] = useState<'online' | 'presencial'>('online');
+  const [apptModality, setApptModality] = useState<'online' | 'presencial'>('presencial');
+  const [apptTherapist, setApptTherapist] = useState('');
+  const [apptBox, setApptBox] = useState<number>(1);
   const [savingAppt, setSavingAppt] = useState(false);
 
   // 1. Verificar Sesión e Inicializar RBAC
@@ -109,29 +121,109 @@ export default function AdminSuitePage() {
       center_id: activeCenterId
     });
 
-    fetchClinicalData(activeCenterId);
+    await fetchClinicalData(activeCenterId);
   }
 
   async function fetchClinicalData(centerId?: string) {
-    setLoadingData(true);
     try {
       let apptQuery = supabase.from('appointments').select('*').order('date', { ascending: true });
       let servQuery = supabase.from('services').select('*').order('created_at', { ascending: false });
+      let profQuery = supabase.from('professionals').select('*').order('name', { ascending: true });
 
       if (centerId) {
         apptQuery = apptQuery.eq('center_id', centerId);
         servQuery = servQuery.eq('center_id', centerId);
+        profQuery = profQuery.eq('center_id', centerId);
+
+        const { data: centerInfo } = await supabase
+          .from('centers')
+          .select('boxes_count')
+          .eq('id', centerId)
+          .maybeSingle();
+
+        if (centerInfo?.boxes_count) {
+          setBoxesCount(centerInfo.boxes_count);
+        }
       }
 
-      const [{ data: appts }, { data: servs }] = await Promise.all([apptQuery, servQuery]);
+      const [{ data: appts }, { data: servs }, { data: profs }] = await Promise.all([
+        apptQuery,
+        servQuery,
+        profQuery
+      ]);
+
       if (appts) setAppointments(appts);
       if (servs) setServices(servs);
+      if (profs) {
+        setTherapists(profs);
+        if (profs.length > 0 && !apptTherapist) {
+          setApptTherapist(profs[0].name);
+        }
+      }
     } catch (err) {
       console.error('Error cargando datos clínicos:', err);
-    } finally {
-      setLoadingData(false);
     }
   }
+
+  // --- GUARDAR CANTIDAD DE BOXES ---
+  const handleSaveBoxesCount = async (newCount: number) => {
+    const validCount = Math.max(1, Math.min(30, newCount));
+    setBoxesCount(validCount);
+    setSavingBoxes(true);
+    setBoxesSavedToast(false);
+
+    try {
+      const activeCenterId = profile?.center_id || center?.id;
+      if (activeCenterId) {
+        await supabase
+          .from('centers')
+          .update({ boxes_count: validCount })
+          .eq('id', activeCenterId);
+      }
+      setBoxesSavedToast(true);
+      setTimeout(() => setBoxesSavedToast(false), 2500);
+    } finally {
+      setSavingBoxes(false);
+    }
+  };
+
+  // --- AGREGAR Y ELIMINAR TERAPEUTAS ---
+  const handleCreateTherapist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTherapistName || !newTherapistEmail) return;
+    setSavingTherapist(true);
+
+    try {
+      const activeCenterId = profile?.center_id || center?.id;
+      const payload: any = {
+        name: newTherapistName,
+        email: newTherapistEmail.toLowerCase().trim(),
+        specialty: newTherapistSpecialty,
+        role: newTherapistRole
+      };
+      if (activeCenterId) payload.center_id = activeCenterId;
+
+      const { data, error } = await supabase
+        .from('professionals')
+        .insert([payload])
+        .select()
+        .single();
+
+      if (!error && data) {
+        setTherapists((prev) => [...prev, data]);
+        setNewTherapistName('');
+        setNewTherapistEmail('');
+        setNewTherapistSpecialty('Psicología Clínica');
+      }
+    } finally {
+      setSavingTherapist(false);
+    }
+  };
+
+  const handleDeleteTherapist = async (id: string) => {
+    await supabase.from('professionals').delete().eq('id', id);
+    setTherapists((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // --- LOGIN Y LOGOUT ---
   const handleLogin = async (e: React.FormEvent) => {
@@ -208,7 +300,6 @@ export default function AdminSuitePage() {
         if (mode === 'ficha') setAiStructuredNotes(data.result || data.text);
         if (mode === 'certificado') setCertificateText(data.result || data.text);
       } else {
-        // Fallback estructurado clínico si el endpoint aún no responde
         if (mode === 'ficha') {
           setAiStructuredNotes(
             `📋 EVOLUCIÓN CLÍNICA ESTRUCTURADA\n` +
@@ -220,7 +311,7 @@ export default function AdminSuitePage() {
         } else {
           setCertificateText(
             `CERTIFICADO DE ASISTENCIA PSICOLÓGICA\n\n` +
-            `Certifico que ${selectedPatient?.patient_name || 'el/la paciente'} asistió a sesión de atención psicológica clínica en ${center?.name || 'Centro OM'} con fecha de hoy.\n\n` +
+            `Certifico que ${selectedPatient?.patient_name || 'el/la paciente'} asistió a sesión de atención psicológica clínica en ${center?.name || 'Kairós Clínico'} con fecha de hoy.\n\n` +
             `Se extiende el presente documento para los fines que estime convenientes.\n\n` +
             `Firma: ${profile?.name} - Especialista Clínico`
           );
@@ -245,6 +336,8 @@ export default function AdminSuitePage() {
         date: apptDate,
         time: apptTime,
         modality: apptModality,
+        professional_name: apptTherapist || profile?.name,
+        box_number: apptModality === 'presencial' ? apptBox : null,
         status: 'confirmed',
         meet_link: apptModality === 'online' ? 'https://meet.google.com/new' : null
       };
@@ -287,7 +380,6 @@ export default function AdminSuitePage() {
     setServices((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // --- PANTALLA DE CARGA INICIAL ---
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
@@ -296,7 +388,6 @@ export default function AdminSuitePage() {
     );
   }
 
-  // --- PANTALLA DE LOGIN (SI NO HAY SESIÓN) ---
   if (!session) {
     return (
       <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4 font-sans">
@@ -310,7 +401,7 @@ export default function AdminSuitePage() {
               <ShieldCheck size={24} />
             </div>
             <div>
-              <h1 className="font-bold text-stone-900 text-lg leading-tight">{center?.name || 'Centro OM'}</h1>
+              <h1 className="font-bold text-stone-900 text-lg leading-tight">{center?.name || 'Kairós Clínico'}</h1>
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Acceso Equipo Clínico</span>
             </div>
           </div>
@@ -350,7 +441,6 @@ export default function AdminSuitePage() {
     );
   }
 
-  // Lista única de pacientes extraída de las citas
   const uniquePatients = Array.from(
     new Map(appointments.map((a) => [a.patient_email || a.patient_name, a])).values()
   ).filter((p) => (p.patient_name || '').toLowerCase().includes(searchPatient.toLowerCase()));
@@ -361,20 +451,18 @@ export default function AdminSuitePage() {
       {/* SIDEBAR */}
       <aside className="w-64 bg-white border-r border-stone-200/80 flex flex-col flex-shrink-0 z-20">
         
-        {/* Brand Header */}
         <div className="h-20 flex items-center px-6 border-b border-stone-100">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 bg-kairos-primary text-white rounded-xl flex items-center justify-center shadow-sm">
               <ShieldCheck size={20} strokeWidth={1.8} />
             </div>
             <div>
-              <h1 className="font-bold text-stone-900 text-sm leading-tight">{center?.name || 'Centro OM'}</h1>
+              <h1 className="font-bold text-stone-900 text-sm leading-tight">{center?.name || 'Kairós Clínico'}</h1>
               <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Portal Clínico</span>
             </div>
           </div>
         </div>
 
-        {/* Menú de Navegación por Pestañas */}
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
           <div>
             <h2 className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-3 px-3">Día a Día</h2>
@@ -402,6 +490,12 @@ export default function AdminSuitePage() {
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all ${activeTab === 'pacientes' ? 'bg-stone-100/90 text-stone-900 font-semibold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-900 font-medium'}`}
               >
                 <Users size={18} className={activeTab === 'pacientes' ? 'text-kairos-primary' : ''} /> Pacientes y Fichas
+              </button>
+              <button 
+                onClick={() => setActiveTab('equipo')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all ${activeTab === 'equipo' ? 'bg-stone-100/90 text-stone-900 font-semibold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-900 font-medium'}`}
+              >
+                <DoorOpen size={18} className={activeTab === 'equipo' ? 'text-kairos-primary' : ''} /> Terapeutas y Boxes
               </button>
               <button 
                 onClick={() => setActiveTab('servicios')}
@@ -444,9 +538,18 @@ export default function AdminSuitePage() {
         
         {/* Topbar */}
         <header className="h-20 bg-white/60 backdrop-blur-md border-b border-stone-200/60 flex items-center justify-between px-8 shrink-0">
-          <div className="bg-stone-100 border border-stone-200/80 text-stone-600 text-xs font-semibold px-3.5 py-1.5 rounded-xl">
-            Sede: {center?.name || 'Centro OM'}
+          <div className="flex items-center gap-3">
+            <div className="bg-stone-100 border border-stone-200/80 text-stone-600 text-xs font-semibold px-3.5 py-1.5 rounded-xl">
+              Sede: {center?.name || 'Kairós Clínico'}
+            </div>
+            <button 
+              onClick={() => setActiveTab('equipo')}
+              className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-stone-500 bg-white border border-stone-200/80 px-3 py-1.5 rounded-xl hover:border-kairos-primary transition-colors"
+            >
+              <Users size={13} className="text-kairos-primary" /> {therapists.length} Terapeutas • {boxesCount} Boxes
+            </button>
           </div>
+
           <button 
             onClick={() => setIsNewApptModalOpen(true)}
             className="bg-kairos-primary text-white px-4 py-2.5 rounded-xl text-xs font-semibold hover:opacity-95 transition-all shadow-sm flex items-center gap-2"
@@ -472,14 +575,20 @@ export default function AdminSuitePage() {
                   Hola, {profile?.name}
                 </h2>
                 <p className="text-stone-500 text-sm mt-2">
-                  Bienvenido a tu panel clínico de lujo. Tienes <strong className="text-stone-800">{appointments.length}</strong> sesiones registradas en tu sede.
+                  Bienvenido a tu panel clínico de lujo. Tienes <strong className="text-stone-800">{appointments.length}</strong> sesiones registradas, <strong className="text-stone-800">{therapists.length}</strong> terapeutas activos y <strong className="text-stone-800">{boxesCount}</strong> boxes habilitados.
                 </p>
-                <div className="mt-6 flex gap-3">
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
                   <button 
                     onClick={() => setActiveTab('agenda')}
                     className="bg-white border border-stone-200 text-stone-700 font-semibold text-sm px-6 py-3 rounded-2xl hover:border-kairos-primary hover:text-kairos-primary transition-all shadow-sm flex items-center gap-2"
                   >
                     <Calendar size={17} /> Abrir Agenda
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('equipo')}
+                    className="bg-white border border-stone-200 text-stone-700 font-semibold text-sm px-6 py-3 rounded-2xl hover:border-kairos-primary hover:text-kairos-primary transition-all shadow-sm flex items-center gap-2"
+                  >
+                    <DoorOpen size={17} /> Terapeutas y Boxes
                   </button>
                   <button 
                     onClick={() => setActiveTab('pacientes')}
@@ -500,11 +609,9 @@ export default function AdminSuitePage() {
                 exit={{ opacity: 0, y: -10 }}
                 className="max-w-5xl mx-auto space-y-6"
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-stone-900">Agenda Clínica</h2>
-                    <p className="text-sm text-stone-500">Gestiona tus sesiones programadas y enlaces de telemedicina.</p>
-                  </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-stone-900">Agenda Clínica</h2>
+                  <p className="text-sm text-stone-500">Sesiones programadas con asignación de terapeuta y box físico o telemedicina.</p>
                 </div>
 
                 {appointments.length === 0 ? (
@@ -523,14 +630,22 @@ export default function AdminSuitePage() {
                           </div>
                           <div>
                             <h4 className="font-bold text-stone-900">{appt.patient_name || 'Paciente'}</h4>
-                            <p className="text-xs text-stone-500">{appt.date} • Modalidad {appt.modality || 'Online'}</p>
+                            <p className="text-xs text-stone-500">
+                              {appt.date} • Terapeuta: <strong className="text-stone-700">{appt.professional_name || profile?.name}</strong> • {appt.modality === 'presencial' ? `Box ${appt.box_number || 1}` : 'Online'}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          {appt.meet_link && (
-                            <a href={appt.meet_link} target="_blank" rel="noreferrer" className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-stone-100 text-stone-700 hover:bg-stone-200 flex items-center gap-1.5">
-                              <Video size={14} /> Google Meet
-                            </a>
+                          {appt.modality === 'presencial' ? (
+                            <span className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-stone-100 text-stone-700 flex items-center gap-1.5">
+                              <MapPin size={14} className="text-kairos-primary" /> Box {appt.box_number || 1}
+                            </span>
+                          ) : (
+                            appt.meet_link && (
+                              <a href={appt.meet_link} target="_blank" rel="noreferrer" className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-stone-100 text-stone-700 hover:bg-stone-200 flex items-center gap-1.5">
+                                <Video size={14} /> Google Meet
+                              </a>
+                            )
                           )}
                           <button 
                             onClick={() => {
@@ -558,7 +673,6 @@ export default function AdminSuitePage() {
                 exit={{ opacity: 0, y: -10 }}
                 className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6"
               >
-                {/* Columna Izquierda: Directorio */}
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit">
                   <h3 className="font-bold text-stone-900 text-lg">Pacientes</h3>
                   <div className="relative">
@@ -589,7 +703,6 @@ export default function AdminSuitePage() {
                   </div>
                 </div>
 
-                {/* Columna Derecha: Ficha Clínica Asistida por Voz e IA */}
                 <div className="lg:col-span-2 bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 space-y-6">
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-100 pb-4">
                     <div>
@@ -657,7 +770,175 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB 4: TERAPIAS Y SERVICIOS */}
+            {/* TAB 4: TERAPEUTAS Y BOXES (NUEVO MÓDULO) */}
+            {activeTab === 'equipo' && (
+              <motion.div 
+                key="equipo"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="max-w-5xl mx-auto space-y-8"
+              >
+                <div>
+                  <h2 className="text-2xl font-bold text-stone-900">Terapeutas y Boxes</h2>
+                  <p className="text-sm text-stone-500">Configura la capacidad física de tu centro y administra a los profesionales de tu equipo.</p>
+                </div>
+
+                {/* BLOQUE 1: CAPACIDAD DE BOXES DEL CENTRO */}
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.02)] space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-100 pb-5">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-kairos-accent">Infraestructura Física</span>
+                      <h3 className="text-lg font-bold text-stone-900 mt-0.5">Cantidad de Boxes de Atención</h3>
+                      <p className="text-xs text-stone-500">Define cuántos consultorios o boxes físicos tiene habilitados tu sede.</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => handleSaveBoxesCount(boxesCount - 1)}
+                        disabled={boxesCount <= 1 || savingBoxes}
+                        className="h-10 w-10 rounded-xl border border-stone-200 flex items-center justify-center text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <div className="px-5 py-2 rounded-xl bg-stone-50 border border-stone-200 text-center min-w-[90px]">
+                        <span className="text-lg font-bold text-stone-900">{boxesCount}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400 block">Boxes</span>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => handleSaveBoxesCount(boxesCount + 1)}
+                        disabled={savingBoxes}
+                        className="h-10 w-10 rounded-xl bg-kairos-primary text-white flex items-center justify-center hover:opacity-95 disabled:opacity-40"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {boxesSavedToast && (
+                    <div className="text-xs text-kairos-primary bg-[#F4F7F5] border border-[#E4ECE7] px-4 py-2.5 rounded-xl flex items-center gap-2 font-semibold">
+                      <Check size={14} /> Capacidad de boxes actualizada en tu centro.
+                    </div>
+                  )}
+
+                  {/* Grilla Visual de Boxes */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {Array.from({ length: boxesCount }, (_, i) => i + 1).map((boxNum) => {
+                      const assignedCount = appointments.filter(
+                        (a) => a.modality === 'presencial' && Number(a.box_number || 1) === boxNum
+                      ).length;
+
+                      return (
+                        <div key={boxNum} className="p-4 rounded-2xl border border-stone-200/80 bg-stone-50/60 flex flex-col justify-between gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                              <DoorOpen size={15} className="text-kairos-primary" /> Box {boxNum}
+                            </span>
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" title="Habilitado" />
+                          </div>
+                          <p className="text-[11px] text-stone-500">
+                            {assignedCount === 0 ? 'Disponible para reserva' : `${assignedCount} cita(s) asignada(s)`}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* BLOQUE 2: GESTIÓN DE TERAPEUTAS */}
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.02)] space-y-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-kairos-accent">Equipo Clínico</span>
+                    <h3 className="text-lg font-bold text-stone-900 mt-0.5">Terapeutas del Centro ({therapists.length})</h3>
+                    <p className="text-xs text-stone-500">Agrega a los psicólogos y especialistas que atienden en tu centro.</p>
+                  </div>
+
+                  {/* Formulario Agregar Terapeuta */}
+                  <form onSubmit={handleCreateTherapist} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end bg-stone-50/70 p-4 rounded-2xl border border-stone-200/60">
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Nombre Completo</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="Ej: Dra. Sofía Vega" 
+                        value={newTherapistName} 
+                        onChange={(e) => setNewTherapistName(e.target.value)} 
+                        className="w-full p-2.5 rounded-xl border border-stone-200 text-xs bg-white outline-none" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Correo Electrónico</label>
+                      <input 
+                        type="email" 
+                        required 
+                        placeholder="sofia@clinica.cl" 
+                        value={newTherapistEmail} 
+                        onChange={(e) => setNewTherapistEmail(e.target.value)} 
+                        className="w-full p-2.5 rounded-xl border border-stone-200 text-xs bg-white outline-none" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Especialidad</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="Psicología Adultos" 
+                        value={newTherapistSpecialty} 
+                        onChange={(e) => setNewTherapistSpecialty(e.target.value)} 
+                        className="w-full p-2.5 rounded-xl border border-stone-200 text-xs bg-white outline-none" 
+                      />
+                    </div>
+                    <button 
+                      type="submit" 
+                      disabled={savingTherapist}
+                      className="bg-kairos-primary text-white py-2.5 px-4 rounded-xl text-xs font-semibold hover:opacity-95 flex items-center justify-center gap-1.5 h-[38px]"
+                    >
+                      {savingTherapist ? <Loader2 size={14} className="animate-spin" /> : <><UserPlus size={14} /> Agregar Terapeuta</>}
+                    </button>
+                  </form>
+
+                  {/* Lista de Terapeutas */}
+                  <div className="grid gap-3">
+                    {therapists.length === 0 ? (
+                      <p className="text-xs text-stone-400 text-center py-6">Aún no hay terapeutas registrados en esta sede.</p>
+                    ) : (
+                      therapists.map((t) => (
+                        <div key={t.id || t.email} className="p-4 rounded-2xl border border-stone-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-stone-200 transition-all">
+                          <div className="flex items-center gap-3.5">
+                            <div className="h-10 w-10 rounded-xl bg-[#F4F7F5] text-kairos-primary font-bold text-xs flex items-center justify-center border border-[#E4ECE7]">
+                              {(t.name || 'T').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-bold text-sm text-stone-900">{t.name}</h4>
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-stone-100 text-stone-600">
+                                  {t.role === 'admin' ? 'Administrador' : 'Terapeuta'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-stone-400">{t.specialty || 'Psicología Clínica'} • {t.email}</p>
+                            </div>
+                          </div>
+
+                          {t.email !== profile?.email && (
+                            <button 
+                              onClick={() => handleDeleteTherapist(t.id)}
+                              className="text-stone-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors self-end sm:self-center"
+                              title="Eliminar terapeuta"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB 5: TERAPIAS Y SERVICIOS */}
             {activeTab === 'servicios' && (
               <motion.div 
                 key="servicios"
@@ -701,7 +982,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB 5: RESEÑAS */}
+            {/* TAB 6: RESEÑAS */}
             {activeTab === 'resenas' && (
               <motion.div 
                 key="resenas"
@@ -713,7 +994,7 @@ export default function AdminSuitePage() {
                 <Star className="mx-auto text-amber-400 fill-amber-400" size={36} />
                 <h3 className="text-xl font-bold text-stone-900">Calidad Clínica 5.0</h3>
                 <p className="text-sm text-stone-500 max-w-md mx-auto">
-                  Las evaluaciones post-sesión de tus pacientes en {center?.name || 'Centro OM'} aparecerán centralizadas en este módulo.
+                  Las evaluaciones post-sesión de tus pacientes en {center?.name || 'Kairós Clínico'} aparecerán centralizadas en este módulo.
                 </p>
               </motion.div>
             )}
@@ -722,7 +1003,7 @@ export default function AdminSuitePage() {
         </div>
       </main>
 
-      {/* MODAL: + NUEVA CITA */}
+      {/* MODAL: + NUEVA CITA CON ASIGNACIÓN DE TERAPEUTA Y BOX */}
       <AnimatePresence>
         {isNewApptModalOpen && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -748,6 +1029,57 @@ export default function AdminSuitePage() {
                   <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Correo del Paciente</label>
                   <input type="email" required value={apptPatientEmail} onChange={(e) => setApptPatientEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 text-sm bg-stone-50" placeholder="camila@email.com" />
                 </div>
+
+                {/* Selector de Terapeuta */}
+                <div>
+                  <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Terapeuta Asignado</label>
+                  <select 
+                    value={apptTherapist} 
+                    onChange={(e) => setApptTherapist(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-stone-200 text-sm bg-stone-50 outline-none"
+                  >
+                    {therapists.length === 0 ? (
+                      <option value={profile?.name || ''}>{profile?.name || 'Terapeuta Principal'}</option>
+                    ) : (
+                      therapists.map((t) => (
+                        <option key={t.id || t.email} value={t.name}>
+                          {t.name} ({t.specialty || 'Clínica'})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                {/* Modalidad y Box */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Modalidad</label>
+                    <select 
+                      value={apptModality} 
+                      onChange={(e) => setApptModality(e.target.value as 'online' | 'presencial')}
+                      className="w-full p-3 rounded-xl border border-stone-200 text-sm bg-stone-50 outline-none"
+                    >
+                      <option value="presencial">Presencial</option>
+                      <option value="online">Online (Meet)</option>
+                    </select>
+                  </div>
+
+                  {apptModality === 'presencial' && (
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Box Físico</label>
+                      <select 
+                        value={apptBox} 
+                        onChange={(e) => setApptBox(Number(e.target.value))}
+                        className="w-full p-3 rounded-xl border border-stone-200 text-sm bg-stone-50 outline-none"
+                      >
+                        {Array.from({ length: boxesCount }, (_, i) => i + 1).map((num) => (
+                          <option key={num} value={num}>Box {num}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Fecha</label>
