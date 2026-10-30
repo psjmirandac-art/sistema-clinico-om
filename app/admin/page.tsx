@@ -10,7 +10,7 @@ import {
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -47,7 +47,7 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('inicio');
+  const [activeTab, setActiveTab] = useState<TabType>('servicios');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -76,7 +76,15 @@ export default function AdminSuitePage() {
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
-  // --- CAMPOS COMPLETOS DE ADMISIÓN DE PACIENTE ---
+  // --- ESTADOS PARA NUEVO SERVICIO ---
+  const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
+  const [newServiceName, setNewServiceName] = useState('');
+  const [newServicePrice, setNewServicePrice] = useState('');
+  const [newServiceDuration, setNewServiceDuration] = useState('50');
+  const [newServiceDescription, setNewServiceDescription] = useState('');
+  const [savingService, setSavingService] = useState(false);
+
+  // --- CAMPOS DE ADMISIÓN DE PACIENTE ---
   const [pFirstName, setPFirstName] = useState('');
   const [pLastName, setPLastName] = useState('');
   const [pGender, setPGender] = useState('');
@@ -158,7 +166,10 @@ export default function AdminSuitePage() {
 
       const fetchedAppts = appts || [];
       const fetchedProfs = profs || [];
-      const fetchedServs = servs || [];
+      const fetchedServs = servs || [
+        { id: '1', name: 'Psicoterapia Individual Adultos', price: 35000, duration: 50, description: 'Sesión clínica orientada a bienestar emocional y desarrollo personal.' },
+        { id: '2', name: 'Psicoterapia de Pareja', price: 45000, duration: 60, description: 'Espacio terapéutico de mediación y comunicación vincular.' }
+      ];
 
       setAppointments(fetchedAppts);
       setTherapists(fetchedProfs);
@@ -170,6 +181,10 @@ export default function AdminSuitePage() {
 
     } catch (err) {
       console.error('Error cargando datos de Supabase:', err);
+      setServices([
+        { id: '1', name: 'Psicoterapia Individual Adultos', price: 35000, duration: 50, description: 'Sesión clínica orientada a bienestar emocional y desarrollo personal.' },
+        { id: '2', name: 'Psicoterapia de Pareja', price: 45000, duration: 60, description: 'Espacio terapéutico de mediación y comunicación vincular.' }
+      ]);
     }
   }
 
@@ -212,6 +227,35 @@ export default function AdminSuitePage() {
     setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, box_number: newBox } : a));
     await supabase.from('appointments').update({ box_number: newBox }).eq('id', apptId);
     showToast(`Box actualizado a Box ${newBox}.`);
+  };
+
+  const handleCreateService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingService(true);
+    const payload = {
+      name: newServiceName,
+      price: Number(newServicePrice),
+      duration: Number(newServiceDuration),
+      description: newServiceDescription,
+      center_id: profile?.center_id
+    };
+
+    const { data, error } = await supabase.from('services').insert([payload]).select().single();
+    const created = (!error && data) ? data : { id: `srv-${Date.now()}`, ...payload };
+
+    setServices(prev => [created, ...prev]);
+    setIsNewServiceModalOpen(false);
+    setNewServiceName(''); setNewServicePrice(''); setNewServiceDescription('');
+    setSavingService(false);
+    showToast('Nuevo servicio clínico agregado al catálogo.');
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (window.confirm('¿Estás seguro de eliminar este servicio del catálogo?')) {
+      setServices(prev => prev.filter(s => s.id !== id));
+      await supabase.from('services').delete().eq('id', id);
+      showToast('Servicio eliminado.');
+    }
   };
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
@@ -498,6 +542,51 @@ export default function AdminSuitePage() {
                     <p className="text-2xl font-bold text-[#2C4A3B] mt-1">{boxesCount} Activos</p>
                     <span className="text-[11px] text-stone-500">Asignación dinámica</span>
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB SERVICIOS */}
+            {activeTab === 'servicios' && (
+              <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Catálogo Clínico</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Servicios y Terapias</h2>
+                    <p className="text-sm text-stone-500 mt-1">Administra los tipos de sesiones, duraciones y aranceles ofrecidos por tu centro.</p>
+                  </div>
+                  <button onClick={() => setIsNewServiceModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
+                    <Plus size={16} /> Nuevo Servicio
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {services.length === 0 ? (
+                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
+                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
+                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados en el catálogo.</p>
+                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
+                    </div>
+                  ) : (
+                    services.map((srv) => (
+                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
+                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                          </div>
+                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
+                        </div>
+                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium">
+                            <Clock size={14} className="text-[#2C4A3B]" />
+                            <span>{srv.duration || 50} min</span>
+                          </div>
+                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </motion.div>
             )}
@@ -800,7 +889,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {['servicios', 'finanzas', 'equipo', 'vitrina', 'comunicaciones', 'resenas', 'documentos'].includes(activeTab) && (
+            {['finanzas', 'equipo', 'vitrina', 'comunicaciones', 'resenas', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
                  <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab}</h2>
@@ -824,6 +913,43 @@ export default function AdminSuitePage() {
               <form onSubmit={handleCreatePatient} className="space-y-3.5">
                 <input type="text" required value={newPatientName} onChange={e => setNewPatientName(e.target.value)} placeholder="Nombre Completo del Paciente" className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
                 <button type="submit" className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-[#233b2f] transition-colors">Guardar Paciente</button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL NUEVO SERVICIO */}
+      <AnimatePresence>
+        {isNewServiceModalOpen && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5">
+              <div className="flex justify-between items-center border-b border-stone-100 pb-4">
+                <h3 className="font-bold text-lg text-stone-900">Crear Nuevo Servicio</h3>
+                <button onClick={() => setIsNewServiceModalOpen(false)} className="text-stone-400 hover:text-stone-700"><X size={20}/></button>
+              </div>
+              <form onSubmit={handleCreateService} className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-stone-500 block mb-1">Nombre del Servicio *</label>
+                  <input type="text" required placeholder="Ej: Psicoterapia Infanto-Juvenil" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-500 block mb-1">Precio ($ CLP) *</label>
+                    <input type="number" required placeholder="35000" value={newServicePrice} onChange={e => setNewServicePrice(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-500 block mb-1">Duración (min) *</label>
+                    <input type="number" required placeholder="50" value={newServiceDuration} onChange={e => setNewServiceDuration(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-stone-500 block mb-1">Descripción breve</label>
+                  <textarea rows={3} placeholder="Detalles de la prestación clínica..." value={newServiceDescription} onChange={e => setNewServiceDescription(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" />
+                </div>
+                <button type="submit" disabled={savingService} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#233b2f] transition-all">
+                  {savingService ? 'Guardando...' : 'Guardar Servicio'}
+                </button>
               </form>
             </motion.div>
           </div>
