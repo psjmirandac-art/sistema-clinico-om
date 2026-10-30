@@ -11,7 +11,7 @@ import {
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Send, Eye, Store, Smartphone,
   MessageSquare, Award, ShoppingCart, CheckCircle2, Ban, Snowflake, 
-  ArrowUpDown, Share2, CalendarX2, UserCircle
+  ArrowUpDown, Share2, CalendarX2, UserCircle, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -66,10 +66,11 @@ export default function AdminSuitePage() {
   const [boxesCount, setBoxesCount] = useState<number>(1);
   const [savingBoxes, setSavingBoxes] = useState(false);
 
-  // --- AGENDA Y GOOGLE CALENDAR ---
+  // --- AGENDA Y CALENDARIO INTERACTIVO ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
 
   // --- PACIENTES Y FICHAS IA ---
   const [patientsList, setPatientsList] = useState<any[]>([]);
@@ -446,6 +447,22 @@ export default function AdminSuitePage() {
     showToast('Reporte CSV descargado.');
   };
 
+  // Helpers para el Calendario Interactivo
+  const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (year: number, month: number) => {
+    let day = new Date(year, month, 1).getDay();
+    return day === 0 ? 6 : day - 1; // Lunes como primer día de la semana
+  };
+
+  const currentYear = currentMonthDate.getFullYear();
+  const currentMonth = currentMonthDate.getMonth();
+  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+  const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+  const handlePrevMonth = () => setCurrentMonthDate(new Date(currentYear, currentMonth - 1, 1));
+  const handleNextMonth = () => setCurrentMonthDate(new Date(currentYear, currentMonth + 1, 1));
+
   const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
   const pendingAppointments = appointments.filter(a => a.status === 'pendiente');
   const dynamicGross = (paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0)) * multiplier;
@@ -603,71 +620,189 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
+            {/* ==========================================
+                TAB: CALENDARIO INTERACTIVO DE LUJO (NUEVO)
+               ========================================== */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                
+                {/* Cabecera del Calendario */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
-                    <p className="text-sm text-stone-500">Cambia el Box de cualquier cita en vivo y gestiona pagos pendientes.</p>
+                    <p className="text-sm text-stone-500">Navega por los días del mes, selecciona una fecha para filtrar citas o cambia de Box en vivo.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <input type="date" value={selectedDateFilter} onChange={e => setSelectedDateFilter(e.target.value)} className="p-2.5 rounded-xl border border-stone-200 text-xs bg-stone-50 outline-none" />
-                    <button onClick={handleGoogleSync} disabled={isSyncingCalendar} className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all">
+                    <button 
+                      onClick={handleGoogleSync} 
+                      disabled={isSyncingCalendar}
+                      className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all"
+                    >
                       {isSyncingCalendar ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                       {calendarLinked ? 'Google Calendar Sincronizado' : 'Vincular Google Calendar'}
+                    </button>
+                    <button 
+                      onClick={() => setIsNewApptModalOpen(true)}
+                      className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"
+                    >
+                      <Plus size={15} /> Nueva Cita
                     </button>
                   </div>
                 </div>
 
-                <div className="grid gap-3">
-                  {appointments.length === 0 ? (
-                    <div className="bg-white rounded-3xl border border-stone-100 p-16 text-center space-y-3">
-                      <CalendarX2 className="mx-auto text-stone-300" size={48} strokeWidth={1} />
-                      <p className="font-semibold text-stone-700 text-lg">Tu agenda está despejada</p>
-                      <p className="text-sm text-stone-400 max-w-sm mx-auto">No tienes sesiones programadas en la base de datos. Haz clic en "Nueva Cita" para comenzar.</p>
+                {/* Grid del Calendario Interactivo Mensual */}
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
+                  
+                  {/* Controles de Mes */}
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-4">
+                    <h3 className="text-lg font-bold text-stone-900 capitalize">
+                      {monthNames[currentMonth]} {currentYear}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {selectedDateFilter && (
+                        <button 
+                          onClick={() => setSelectedDateFilter('')}
+                          className="text-xs font-semibold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]"
+                        >
+                          Ver Todo el Mes
+                        </button>
+                      )}
+                      <button onClick={handlePrevMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
+                        <ChevronLeft size={18} />
+                      </button>
+                      <button onClick={handleNextMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
+                        <ChevronRight size={18} />
+                      </button>
                     </div>
-                  ) : (
-                    appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).map((appt) => (
-                      <div key={appt.id} className="bg-white border border-stone-100 p-5 rounded-2xl shadow-xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 hover:border-stone-200 transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="h-14 w-14 rounded-2xl bg-stone-50 border border-stone-200 flex flex-col items-center justify-center shrink-0">
-                            <span className="font-bold text-sm text-[#2C4A3B]">{appt.time || '10:00'}</span>
-                            <span className="text-[9px] text-stone-400 uppercase font-bold">50 min</span>
+                  </div>
+
+                  {/* Días de la semana */}
+                  <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                    <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+                  </div>
+
+                  {/* Celdas del Mes */}
+                  <div className="grid grid-cols-7 gap-2">
+                    {/* Espacios vacíos del inicio de mes */}
+                    {Array.from({ length: firstDay }).map((_, index) => (
+                      <div key={`empty-${index}`} className="h-24 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
+                    ))}
+
+                    {/* Días reales del mes */}
+                    {Array.from({ length: daysInMonth }).map((_, index) => {
+                      const dayNum = index + 1;
+                      const formattedDay = dayNum < 10 ? `0${dayNum}` : `${dayNum}`;
+                      const formattedMonth = (currentMonth + 1) < 10 ? `0${currentMonth + 1}` : `${currentMonth + 1}`;
+                      const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+                      
+                      const dayAppointments = appointments.filter(a => a.date === dateStr);
+                      const isSelected = selectedDateFilter === dateStr;
+                      const isToday = new Date().toISOString().split('T')[0] === dateStr;
+
+                      return (
+                        <div 
+                          key={dateStr}
+                          onClick={() => setSelectedDateFilter(dateStr)}
+                          className={`h-24 rounded-2xl border p-2 flex flex-col justify-between transition-all cursor-pointer group ${
+                            isSelected 
+                              ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' 
+                              : isToday
+                              ? 'border-[#2C4A3B]/60 bg-white'
+                              : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>
+                              {dayNum}
+                            </span>
+                            {dayAppointments.length > 0 && (
+                              <span className="text-[9px] font-bold bg-[#2C4A3B] text-white px-1.5 py-0.5 rounded-md">
+                                {dayAppointments.length}
+                              </span>
+                            )}
                           </div>
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <h4 className="font-bold text-stone-900 text-base">{appt.patient_name}</h4>
-                              <button onClick={() => handleTogglePaymentStatus(appt.id, appt.status)} className={`text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-md font-bold flex items-center gap-1 cursor-pointer ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                {appt.status === 'pendiente' ? <><AlertCircle size={10}/> Pago Pendiente</> : <><Check size={10}/> Pagado</>}
+
+                          <div className="space-y-1 overflow-y-hidden">
+                            {dayAppointments.slice(0, 2).map((appt, i) => (
+                              <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs">
+                                {appt.time} • {appt.patient_name}
+                              </div>
+                            ))}
+                            {dayAppointments.length > 2 && (
+                              <div className="text-[9px] text-stone-400 font-bold pl-0.5">
+                                +{dayAppointments.length - 2} más
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Lista de Citas Filtradas para la Fecha Seleccionada o Total */}
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-stone-100 pb-4">
+                    <h3 className="font-bold text-lg text-stone-900">
+                      {selectedDateFilter ? `Citas para el ${selectedDateFilter}` : 'Todas las Sesiones en Agenda'}
+                    </h3>
+                    <span className="text-xs font-semibold text-stone-500">
+                      {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length} citas encontradas
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length === 0 ? (
+                      <div className="text-center py-12 space-y-2">
+                        <CalendarX2 className="mx-auto text-stone-300" size={40} strokeWidth={1.5} />
+                        <p className="font-semibold text-stone-700 text-sm">No hay citas para este día</p>
+                        <p className="text-xs text-stone-400">Haz clic en "Nueva Cita" para programar una sesión en esta fecha.</p>
+                      </div>
+                    ) : (
+                      appointments
+                        .filter(a => !selectedDateFilter || a.date === selectedDateFilter)
+                        .map((appt) => (
+                          <div key={appt.id} className="border border-stone-100 p-4 rounded-2xl bg-stone-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-stone-200 transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="h-12 w-12 rounded-xl bg-white border border-stone-200 flex flex-col items-center justify-center shrink-0">
+                                <span className="font-bold text-xs text-[#2C4A3B]">{appt.time}</span>
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-sm text-stone-900">{appt.patient_name}</h4>
+                                  <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded font-bold ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {appt.status}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-stone-500 mt-0.5">{appt.date} • Terapeuta: <strong>{appt.professional_name}</strong></p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {appt.modality === 'presencial' ? (
+                                <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-xl">
+                                  <MapPin size={13} className="text-[#2C4A3B]" />
+                                  <select value={appt.box_number || 1} onChange={(e) => handleChangeAppointmentBox(appt.id, Number(e.target.value))} className="text-xs font-bold text-stone-900 bg-transparent outline-none cursor-pointer">
+                                    {Array.from({ length: boxesCount }, (_, i) => i + 1).map(n => <option key={n} value={n}>Box {n}</option>)}
+                                  </select>
+                                </div>
+                              ) : (
+                                <a href={appt.meet_link || 'https://meet.google.com/new'} target="_blank" rel="noreferrer" className="text-xs font-semibold px-3 py-2 bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] rounded-xl flex items-center gap-1.5">
+                                  <Video size={13} /> Meet
+                                </a>
+                              )}
+                              <button onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} className="text-xs font-semibold px-3.5 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]">
+                                Ficha IA
                               </button>
                             </div>
-                            <p className="text-xs text-stone-500">{appt.date} • Terapeuta: <strong className="text-stone-700">{appt.professional_name}</strong></p>
                           </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-end">
-                          {appt.modality === 'presencial' ? (
-                            <div className="flex items-center gap-1.5 bg-stone-50 border border-stone-200 px-3 py-1.5 rounded-xl">
-                              <MapPin size={13} className="text-[#2C4A3B]" />
-                              <span className="text-[11px] font-semibold text-stone-600">Box:</span>
-                              <select value={appt.box_number || 1} onChange={(e) => handleChangeAppointmentBox(appt.id, Number(e.target.value))} className="text-xs font-bold text-stone-900 bg-transparent outline-none cursor-pointer">
-                                {Array.from({ length: boxesCount }, (_, i) => i + 1).map(n => <option key={n} value={n}>Box {n}</option>)}
-                              </select>
-                            </div>
-                          ) : (
-                            <a href={appt.meet_link || 'https://meet.google.com/new'} target="_blank" rel="noreferrer" className="text-xs font-semibold px-3.5 py-2 bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] rounded-xl flex items-center gap-1.5">
-                              <Video size={14} /> Meet
-                            </a>
-                          )}
-                          {appt.status === 'pendiente' && <button onClick={() => handleCancelUnpaidAppointment(appt)} className="text-xs font-semibold px-3.5 py-2 bg-red-50 text-red-600 border border-red-100 rounded-xl hover:bg-red-100 transition-colors">Anular por No Pago</button>}
-                          <button onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} className="text-xs font-semibold px-4 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]">Ficha IA</button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                        ))
+                    )}
+                  </div>
                 </div>
               </motion.div>
             )}
 
+            {/* TAB PACIENTES Y FICHAS IA */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
