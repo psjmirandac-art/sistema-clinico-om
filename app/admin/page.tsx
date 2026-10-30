@@ -66,7 +66,7 @@ export default function AdminSuitePage() {
   const [boxesCount, setBoxesCount] = useState<number>(1);
   const [savingBoxes, setSavingBoxes] = useState(false);
 
-  // --- AGENDA Y CALENDARIO INTERACTIVO (Blindado contra prerender estático) ---
+  // --- AGENDA Y CALENDARIO INTERACTIVO ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
