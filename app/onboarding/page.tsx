@@ -16,13 +16,11 @@ export default function OnboardingSaaS() {
   const [error, setError] = useState('');
   const [slugError, setSlugError] = useState('');
   
-  // Estado del Centro (Tenant)
   const [centerName, setCenterName] = useState('');
   const [slug, setSlug] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#2C4A3B');
   const [accentColor, setAccentColor] = useState('#5F8575');
   
-  // Estado del Administrador
   const [adminName, setAdminName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,10 +29,9 @@ export default function OnboardingSaaS() {
     const val = e.target.value;
     setCenterName(val);
     setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
-    setSlugError(''); // Limpiamos el error al escribir
+    setSlugError('');
   };
 
-  // Validación de URL en el Paso 1
   const validateAndProceed = async () => {
     if (!centerName || !slug) return;
     setLoading(true);
@@ -65,33 +62,33 @@ export default function OnboardingSaaS() {
     setError('');
 
     try {
-      // 1. Intentamos crear la cuenta
       let { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
 
-      // Si el usuario ya existe, login silencioso
       if (authError && authError.message.includes('already registered')) {
         const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
         if (loginError) throw new Error('El correo ya existe. Ingresa la contraseña correcta para vincularlo.');
         authData = loginData;
       } else if (authError) {
-        throw new Error(`Error de autenticación: ${authError.message}`);
+        throw new Error(`Auth Error: ${authError.message}`);
       }
 
-      // 2. Crear el Tenant (Centro)
+      // Si no hay sesión activa aquí, el RLS bloqueará el insert
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error('Sesión no iniciada. Apaga "Confirm Email" en Supabase Auth.');
+
       const { data: centerData, error: centerError } = await supabase
         .from('centers')
         .insert([{ name: centerName, slug, primary_color: primaryColor, accent_color: accentColor }])
         .select()
         .single();
 
-      if (centerError) throw new Error('Error al crear la clínica. Es posible que la URL haya sido tomada.');
+      if (centerError) throw new Error(`DB Error (Centers): ${centerError.message}`);
 
-      // 3. Vincular Perfil
       const { error: profError } = await supabase
         .from('professionals')
         .insert([{ center_id: centerData.id, name: adminName, email: email }]);
 
-      if (profError) throw new Error('Error al vincular el perfil de administrador.');
+      if (profError) throw new Error(`DB Error (Profs): ${profError.message}`);
 
       setStep(4);
     } catch (err: any) {
@@ -211,7 +208,7 @@ export default function OnboardingSaaS() {
                   <input type="password" required minLength={6} className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
 
-                {error && <p className="text-xs text-red-500 bg-red-50 p-3 rounded-lg border border-red-100 font-medium flex items-center gap-2"><AlertCircle size={14}/> {error}</p>}
+                {error && <p className="text-[11px] text-red-500 bg-red-50 p-3 rounded-lg border border-red-100 font-medium flex items-start gap-2"><AlertCircle size={14} className="shrink-0 mt-0.5"/> <span>{error}</span></p>}
 
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setStep(2)} className="px-4 py-3 rounded-xl border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"><ArrowLeft size={18} /></button>
