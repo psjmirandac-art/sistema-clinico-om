@@ -26,7 +26,6 @@ export default function OnboardingSaaS() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Generador de slug automático
   const handleCenterNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setCenterName(val);
@@ -39,13 +38,17 @@ export default function OnboardingSaaS() {
     setError('');
 
     try {
-      // 1. Crear el usuario en Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+      // 1. Intentamos crear la cuenta
+      let { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
 
-      if (authError) throw new Error(`Error de autenticación: ${authError.message}`);
+      // Si el usuario ya existe, hacemos un login silencioso
+      if (authError && authError.message.includes('already registered')) {
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+        if (loginError) throw new Error('El correo ya está registrado. Ingresa la contraseña correcta para vincularlo.');
+        authData = loginData;
+      } else if (authError) {
+        throw new Error(`Error de autenticación: ${authError.message}`);
+      }
 
       // 2. Crear el Tenant (Centro) en la base de datos
       const { data: centerData, error: centerError } = await supabase
@@ -72,7 +75,7 @@ export default function OnboardingSaaS() {
 
       if (profError) throw new Error('Error al vincular el perfil de administrador.');
 
-      // Registro exitoso, pasamos a la pantalla de éxito
+      // Éxito absoluto
       setStep(4);
     } catch (err: any) {
       setError(err.message);
@@ -94,7 +97,6 @@ export default function OnboardingSaaS() {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100 p-8 sm:p-10 relative overflow-hidden"
       >
-        {/* Barra de progreso */}
         {step < 4 && (
           <div className="flex justify-between mb-8 gap-2">
             {[1, 2, 3].map((s) => (
@@ -104,7 +106,6 @@ export default function OnboardingSaaS() {
         )}
 
         <AnimatePresence mode="wait">
-          {/* PASO 1: Datos de la Clínica */}
           {step === 1 && (
             <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
               <div>
@@ -133,7 +134,6 @@ export default function OnboardingSaaS() {
             </motion.div>
           )}
 
-          {/* PASO 2: Identidad Visual */}
           {step === 2 && (
             <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                <div>
@@ -159,7 +159,6 @@ export default function OnboardingSaaS() {
                 </div>
               </div>
 
-              {/* Vista previa en miniatura */}
               <div className="p-4 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-between" style={{ borderColor: primaryColor }}>
                 <span className="text-sm font-semibold" style={{ color: primaryColor }}>Vista Previa Botón</span>
                 <div className="px-4 py-2 rounded-lg text-white text-xs font-bold" style={{ backgroundColor: primaryColor }}>Agendar Cita</div>
@@ -172,7 +171,6 @@ export default function OnboardingSaaS() {
             </motion.div>
           )}
 
-          {/* PASO 3: Cuenta Administrador */}
           {step === 3 && (
             <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
               <div>
@@ -207,7 +205,6 @@ export default function OnboardingSaaS() {
             </motion.div>
           )}
 
-          {/* PASO 4: Éxito */}
           {step === 4 && (
             <motion.div key="step4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 space-y-4">
               <div className="w-20 h-20 bg-[#F4F7F5] text-[#5F8575] rounded-full flex items-center justify-center mx-auto border border-[#E4ECE7] mb-6">
