@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, User, Palette, CheckCircle, ArrowRight, ArrowLeft, Loader2, ShieldCheck } from 'lucide-react';
+import { Building2, User, Palette, CheckCircle, ArrowRight, ArrowLeft, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -14,6 +14,7 @@ export default function OnboardingSaaS() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [slugError, setSlugError] = useState('');
   
   // Estado del Centro (Tenant)
   const [centerName, setCenterName] = useState('');
@@ -30,6 +31,32 @@ export default function OnboardingSaaS() {
     const val = e.target.value;
     setCenterName(val);
     setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
+    setSlugError(''); // Limpiamos el error al escribir
+  };
+
+  // Validación de URL en el Paso 1
+  const validateAndProceed = async () => {
+    if (!centerName || !slug) return;
+    setLoading(true);
+    setSlugError('');
+    
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('centers')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle();
+
+      if (data) {
+        setSlugError(`La URL /${slug} ya está en uso. Por favor elige otra.`);
+      } else {
+        setStep(2);
+      }
+    } catch (err) {
+      setSlugError('Error al verificar disponibilidad.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -41,41 +68,31 @@ export default function OnboardingSaaS() {
       // 1. Intentamos crear la cuenta
       let { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
 
-      // Si el usuario ya existe, hacemos un login silencioso
+      // Si el usuario ya existe, login silencioso
       if (authError && authError.message.includes('already registered')) {
         const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-        if (loginError) throw new Error('El correo ya está registrado. Ingresa la contraseña correcta para vincularlo.');
+        if (loginError) throw new Error('El correo ya existe. Ingresa la contraseña correcta para vincularlo.');
         authData = loginData;
       } else if (authError) {
         throw new Error(`Error de autenticación: ${authError.message}`);
       }
 
-      // 2. Crear el Tenant (Centro) en la base de datos
+      // 2. Crear el Tenant (Centro)
       const { data: centerData, error: centerError } = await supabase
         .from('centers')
-        .insert([{
-          name: centerName,
-          slug,
-          primary_color: primaryColor,
-          accent_color: accentColor
-        }])
+        .insert([{ name: centerName, slug, primary_color: primaryColor, accent_color: accentColor }])
         .select()
         .single();
 
-      if (centerError) throw new Error(`Error al crear la clínica: El enlace /${slug} quizás ya existe.`);
+      if (centerError) throw new Error('Error al crear la clínica. Es posible que la URL haya sido tomada.');
 
-      // 3. Vincular al usuario como Profesional/Admin de este nuevo centro
+      // 3. Vincular Perfil
       const { error: profError } = await supabase
         .from('professionals')
-        .insert([{
-          center_id: centerData.id,
-          name: adminName,
-          email: email
-        }]);
+        .insert([{ center_id: centerData.id, name: adminName, email: email }]);
 
       if (profError) throw new Error('Error al vincular el perfil de administrador.');
 
-      // Éxito absoluto
       setStep(4);
     } catch (err: any) {
       setError(err.message);
@@ -121,15 +138,16 @@ export default function OnboardingSaaS() {
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">URL de tu Portal</label>
-                  <div className="flex items-center border border-stone-200 rounded-xl overflow-hidden bg-stone-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#5F8575]/20 transition-all">
+                  <div className={`flex items-center border rounded-xl overflow-hidden bg-stone-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#5F8575]/20 transition-all ${slugError ? 'border-red-300 ring-red-100' : 'border-stone-200'}`}>
                     <span className="px-3 text-sm text-stone-400 border-r border-stone-200 bg-stone-100">kairos.cl/</span>
-                    <input type="text" className="w-full p-3.5 text-sm bg-transparent outline-none text-stone-600 font-medium" value={slug} onChange={(e) => setSlug(e.target.value)} />
+                    <input type="text" className="w-full p-3.5 text-sm bg-transparent outline-none text-stone-600 font-medium" value={slug} onChange={(e) => {setSlug(e.target.value); setSlugError('');}} />
                   </div>
+                  {slugError && <p className="text-[11px] text-red-500 mt-1.5 pl-1 flex items-center gap-1 font-medium"><AlertCircle size={12}/> {slugError}</p>}
                 </div>
               </div>
 
-              <button onClick={() => centerName && slug && setStep(2)} disabled={!centerName || !slug} className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center gap-2 disabled:opacity-50 hover:bg-[#233b2f] transition-colors">
-                Continuar <ArrowRight size={16} />
+              <button onClick={validateAndProceed} disabled={!centerName || !slug || loading} className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center gap-2 disabled:opacity-70 hover:bg-[#233b2f] transition-colors">
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <>Continuar <ArrowRight size={16} /></>}
               </button>
             </motion.div>
           )}
@@ -193,7 +211,7 @@ export default function OnboardingSaaS() {
                   <input type="password" required minLength={6} className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
 
-                {error && <p className="text-xs text-red-500 bg-red-50 p-3 rounded-lg border border-red-100 font-medium">{error}</p>}
+                {error && <p className="text-xs text-red-500 bg-red-50 p-3 rounded-lg border border-red-100 font-medium flex items-center gap-2"><AlertCircle size={14}/> {error}</p>}
 
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setStep(2)} className="px-4 py-3 rounded-xl border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"><ArrowLeft size={18} /></button>
