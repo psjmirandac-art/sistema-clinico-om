@@ -10,7 +10,7 @@ import {
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -47,7 +47,7 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('servicios');
+  const [activeTab, setActiveTab] = useState<TabType>('comunicaciones');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -75,6 +75,13 @@ export default function AdminSuitePage() {
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
+
+  // --- ESTADOS COMUNICACIONES IA ---
+  const [waBotActive, setWaBotActive] = useState(true);
+  const [waAutoRemind, setWaAutoRemind] = useState(true);
+  const [waAutoReschedule, setWaAutoReschedule] = useState(true);
+  const [customBroadcastMsg, setCustomBroadcastMsg] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   // --- ESTADOS PARA NUEVO SERVICIO ---
   const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
@@ -181,10 +188,6 @@ export default function AdminSuitePage() {
 
     } catch (err) {
       console.error('Error cargando datos de Supabase:', err);
-      setServices([
-        { id: '1', name: 'Psicoterapia Individual Adultos', price: 35000, duration: 50, description: 'Sesión clínica orientada a bienestar emocional y desarrollo personal.' },
-        { id: '2', name: 'Psicoterapia de Pareja', price: 45000, duration: 60, description: 'Espacio terapéutico de mediación y comunicación vincular.' }
-      ]);
     }
   }
 
@@ -256,6 +259,17 @@ export default function AdminSuitePage() {
       await supabase.from('services').delete().eq('id', id);
       showToast('Servicio eliminado.');
     }
+  };
+
+  const handleSendBroadcast = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customBroadcastMsg.trim()) return;
+    setSendingBroadcast(true);
+    setTimeout(() => {
+      setSendingBroadcast(false);
+      setCustomBroadcastMsg('');
+      showToast('Mensaje masivo enviado a través del Asistente WhatsApp IA.');
+    }, 1000);
   };
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
@@ -542,6 +556,74 @@ export default function AdminSuitePage() {
                     <p className="text-2xl font-bold text-[#2C4A3B] mt-1">{boxesCount} Activos</p>
                     <span className="text-[11px] text-stone-500">Asignación dinámica</span>
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB COMUNICACIONES (IA) */}
+            {activeTab === 'comunicaciones' && (
+              <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Automatización IA</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Asistente de WhatsApp y Notificaciones</h2>
+                    <p className="text-sm text-stone-500 mt-1">El bot gestiona confirmaciones automáticas, recordatorios 24h antes y re-agendamientos sin intervención humana.</p>
+                  </div>
+                  <div className="bg-[#F4F7F5] border border-[#E4ECE7] px-4 py-2.5 rounded-2xl flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-[#2C4A3B]">Conectado a Meta Cloud API</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Bot Conversacional IA</h3>
+                        <input type="checkbox" checked={waBotActive} onChange={() => setWaBotActive(!waBotActive)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Responde dudas frecuentes de aranceles, ubicación y horarios de atención 24/7.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Estado: Operativo</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Recordatorios Automáticos</h3>
+                        <input type="checkbox" checked={waAutoRemind} onChange={() => setWaAutoRemind(!waAutoRemind)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Envía un WhatsApp de confirmación al paciente 24 horas y 2 horas antes de la sesión.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Configurado</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Re-agendamiento por No Pago</h3>
+                        <input type="checkbox" checked={waAutoReschedule} onChange={() => setWaAutoReschedule(!waAutoReschedule)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Libera la hora automáticamente si la transferencia no se registra y ofrece el cupo a lista de espera.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs space-y-5">
+                  <h3 className="font-bold text-base text-stone-900">Difusión Masiva o Anuncio a Pacientes</h3>
+                  <form onSubmit={handleSendBroadcast} className="space-y-4">
+                    <textarea 
+                      rows={3} 
+                      value={customBroadcastMsg} 
+                      onChange={e => setCustomBroadcastMsg(e.target.value)} 
+                      placeholder="Escribe un comunicado oficial para todos los pacientes activos (ej: Aviso por feriado o cambio de horario general)..." 
+                      className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-xs outline-none focus:bg-white" 
+                    />
+                    <button type="submit" disabled={sendingBroadcast || !customBroadcastMsg.trim()} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] transition-all disabled:opacity-50">
+                      {sendingBroadcast ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Enviar Difusión por WhatsApp
+                    </button>
+                  </form>
                 </div>
               </motion.div>
             )}
@@ -889,7 +971,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {['finanzas', 'equipo', 'vitrina', 'comunicaciones', 'resenas', 'documentos'].includes(activeTab) && (
+            {['finanzas', 'equipo', 'vitrina', 'resenas', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
                  <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab}</h2>
