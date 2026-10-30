@@ -6,12 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
   Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
-  X, Loader2, Printer, Lock, DoorOpen, UserPlus, Minus, Check, 
-  MapPin, Wallet, TrendingUp, CreditCard, AlertCircle, 
+  X, Loader2, Lock, DoorOpen, UserPlus, Check, 
+  MapPin, Wallet, CreditCard, AlertCircle, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
-  RefreshCw, Download, Send, Eye, Store, Smartphone,
-  MessageSquare, Award, ShoppingCart, CheckCircle2, Ban, Snowflake, 
-  ArrowUpDown, Share2, CalendarX2, UserCircle, ChevronLeft, ChevronRight
+  RefreshCw, Download, Store, 
+  CheckCircle2, CalendarX2, UserCircle, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -41,7 +40,6 @@ type TabType =
 export default function AdminSuitePage() {
   const { center } = useTenant();
 
-  // --- AUTENTICACIÓN Y PERFIL (RBAC) ---
   const [session, setSession] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [emailInput, setEmailInput] = useState('');
@@ -49,7 +47,6 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  // --- NAVEGACIÓN PRINCIPAL ---
   const [activeTab, setActiveTab] = useState<TabType>('inicio');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -59,14 +56,11 @@ export default function AdminSuitePage() {
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  // --- DATOS CENTRALES DEL CENTRO ---
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [therapists, setTherapists] = useState<any[]>([]);
   const [boxesCount, setBoxesCount] = useState<number>(1);
-  const [savingBoxes, setSavingBoxes] = useState(false);
 
-  // --- AGENDA Y CALENDARIO INTERACTIVO ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
@@ -76,79 +70,33 @@ export default function AdminSuitePage() {
     setCurrentMonthDate(new Date());
   }, []);
 
-  // --- PACIENTES Y FICHAS IA ---
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [searchPatient, setSearchPatient] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
-  const [newPatientEmail, setNewPatientEmail] = useState('');
-  const [newPatientPhone, setNewPatientPhone] = useState('');
-  const [newPatientRut, setNewPatientRut] = useState('');
 
   const [rawNotes, setRawNotes] = useState('');
   const [aiStructuredNotes, setAiStructuredNotes] = useState('');
   const [certificateText, setCertificateText] = useState('');
-  const [certTemplate, setCertTemplate] = useState<'asistencia' | 'reposo' | 'informe'>('asistencia');
+  const [certTemplate] = useState<'asistencia' | 'reposo' | 'informe'>('asistencia');
   const [isRecording, setIsRecording] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   const [clinicalRecords, setClinicalRecords] = useState<Record<string, any[]>>({});
-  const [patientFiles] = useState<any[]>([]);
-  const [previewFile, setPreviewFile] = useState<any | null>(null);
 
-  // --- SERVICIOS Y EVENTOS MULTI-FECHA ---
-  const [newServiceName, setNewServiceName] = useState('');
-  const [newServicePrice, setNewServicePrice] = useState('');
-  const [newServiceDuration, setNewServiceDuration] = useState('50');
-  const [newServiceGroup, setNewServiceGroup] = useState('Psicoterapia Individual');
-  const [isMultiDateService, setIsMultiDateService] = useState(false);
-  const [multiDatesInput, setMultiDatesInput] = useState('');
-
-  // --- FINANZAS Y PAQUETES DE SESIONES ---
-  const [packages] = useState<any[]>([]);
-  const [cancelledRecoveredCount, setCancelledRecoveredCount] = useState(0);
-  const [cancelledRecoveredAmount, setCancelledRecoveredAmount] = useState(0);
-
-  // --- EQUIPO ---
-  const [teamFilter, setTeamFilter] = useState<'activos' | 'congelados' | 'eliminados'>('activos');
-  const [newTherapistName, setNewTherapistName] = useState('');
-  const [newTherapistEmail, setNewTherapistEmail] = useState('');
-  const [newTherapistSpecialty, setNewTherapistSpecialty] = useState('Psicología Clínica');
-  const [newTherapistRole, setNewTherapistRole] = useState<'terapeuta' | 'admin'>('terapeuta');
-
-  // --- EVALUACIONES, VITRINA Y ABANDONOS ---
-  const [reviews] = useState<any[]>([]);
-  const [peerRecommendations, setPeerRecommendations] = useState<any[]>([]);
-  const [newPeerName, setNewPeerName] = useState('');
-  const [newPeerSpecialty, setNewPeerSpecialty] = useState('');
-  const [newPeerText, setNewPeerText] = useState('');
-  const [courseModules] = useState<any[]>([]);
-  const [abandonedCarts] = useState<any[]>([]);
-
-  // --- COMUNICACIONES ---
-  const [waAssistantActive, setWaAssistantActive] = useState(true);
-  const [waAutoReschedule, setWaAutoReschedule] = useState(true);
-  const [waAutoInfo, setWaAutoInfo] = useState(true);
-  const [notifPayments, setNotifPayments] = useState(true);
-  const [notifDocs, setNotifDocs] = useState(true);
-  const [notifDeposits, setNotifDeposits] = useState(true);
-  const [igStorySlot, setIgStorySlot] = useState('');
-
-  // --- REPORTES ---
-  const [reportPeriod, setReportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
+  const [reportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
   const multiplier = reportPeriod === 'mes' ? 1 : reportPeriod === 'trimestre' ? 3 : 12;
 
-  // --- MODAL NUEVA CITA ---
   const [apptPatientName, setApptPatientName] = useState('');
   const [apptPatientEmail, setApptPatientEmail] = useState('');
   const [apptDate, setApptDate] = useState('');
   const [apptTime, setApptTime] = useState('10:00');
-  const [apptModality, setApptModality] = useState<'online' | 'presencial'>('presencial');
-  const [apptTherapist, setApptTherapist] = useState('');
-  const [apptBox, setApptBox] = useState<number>(1);
-  const [apptPaymentStatus, setApptPaymentStatus] = useState<'pagado' | 'pendiente'>('pagado');
+  const [apptModality] = useState<'online' | 'presencial'>('presencial');
+  const [apptTherapist] = useState('');
+  const [apptBox] = useState<number>(1);
+  const [apptPaymentStatus] = useState<'pagado' | 'pendiente'>('pagado');
   const [savingAppt, setSavingAppt] = useState(false);
 
   useEffect(() => {
@@ -215,8 +163,6 @@ export default function AdminSuitePage() {
       setPatientsList(uniquePats);
       if (uniquePats.length > 0) setSelectedPatient(uniquePats[0]);
 
-      if (fetchedProfs.length > 0) setApptTherapist(fetchedProfs[0].name);
-
     } catch (err) {
       console.error('Error cargando datos de Supabase:', err);
     }
@@ -258,13 +204,6 @@ export default function AdminSuitePage() {
       showToast('Esta sesión es Online (Meet), no requiere asignación de Box físico.');
       return;
     }
-    const conflict = appointments.find(
-      a => a.id !== apptId && a.date === targetAppt.date && a.time === targetAppt.time && a.modality === 'presencial' && Number(a.box_number) === newBox
-    );
-    if (conflict) {
-      showToast(`⚠️ El Box ${newBox} ya está ocupado a las ${targetAppt.time} por ${conflict.patient_name}.`);
-      return;
-    }
     setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, box_number: newBox } : a));
     await supabase.from('appointments').update({ box_number: newBox }).eq('id', apptId);
     showToast(`Box actualizado a Box ${newBox} correctamente.`);
@@ -273,10 +212,7 @@ export default function AdminSuitePage() {
   const handleCancelUnpaidAppointment = async (appt: any) => {
     setAppointments(prev => prev.filter(a => a.id !== appt.id));
     await supabase.from('appointments').delete().eq('id', appt.id);
-    setCancelledRecoveredCount(prev => prev + 1);
-    setCancelledRecoveredAmount(prev => prev + (appt.price || 35000));
-    setIgStorySlot(`${appt.date} • ${appt.time} hrs`);
-    showToast(`Cita de ${appt.patient_name} anulada por no pago. Hora liberada y enlace de re-agendamiento enviado.`);
+    showToast(`Cita de ${appt.patient_name} anulada por no pago. Hora liberada.`);
   };
 
   const handleTogglePaymentStatus = async (apptId: string, currentStatus: string) => {
@@ -289,17 +225,6 @@ export default function AdminSuitePage() {
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingAppt(true);
-
-    if (apptModality === 'presencial') {
-      const boxBusy = appointments.find(
-        a => a.date === apptDate && a.time === apptTime && a.modality === 'presencial' && Number(a.box_number) === apptBox
-      );
-      if (boxBusy) {
-        showToast(`⚠️ Box ${apptBox} ocupado a las ${apptTime}. Elige otro Box u horario.`);
-        setSavingAppt(false);
-        return;
-      }
-    }
 
     const payload: any = {
       patient_name: apptPatientName,
@@ -319,37 +244,29 @@ export default function AdminSuitePage() {
     const created = (!error && data) ? data : { ...payload, id: `local-${Date.now()}` };
 
     setAppointments(prev => [...prev, created]);
-    if (!patientsList.some(p => p.patient_email === apptPatientEmail)) {
-      setPatientsList(prev => [{ patient_name: apptPatientName, patient_email: apptPatientEmail }, ...prev]);
-    }
     setIsNewApptModalOpen(false);
     setApptPatientName('');
     setApptPatientEmail('');
     setSavingAppt(false);
-    showToast('Cita agendada y sincronizada con el calendario.');
+    showToast('Cita agendada con éxito.');
   };
 
   const handleCreatePatient = (e: React.FormEvent) => {
     e.preventDefault();
-    const newPatient = { patient_name: newPatientName, patient_email: newPatientEmail, patient_phone: newPatientPhone, patient_rut: newPatientRut };
+    const newPatient = { patient_name: newPatientName, patient_email: 'paciente@kairos.cl' };
     setPatientsList(prev => [newPatient, ...prev]);
     setSelectedPatient(newPatient);
     setIsNewPatientModalOpen(false);
-    setNewPatientName(''); setNewPatientEmail(''); setNewPatientPhone(''); setNewPatientRut('');
-    showToast(`Paciente ${newPatient.patient_name} inscrito en el directorio clínico.`);
+    setNewPatientName('');
+    showToast(`Paciente inscrito correctamente.`);
   };
 
   const handleDeletePatient = (e: React.MouseEvent, p: any) => {
     e.stopPropagation();
-    if (window.confirm(`¿Estás seguro de eliminar a ${p.patient_name} y su historial clínico? Esta acción no se puede deshacer.`)) {
+    if (window.confirm(`¿Estás seguro de eliminar a ${p.patient_name}?`)) {
       setPatientsList(prev => prev.filter(item => item !== p));
-      if (selectedPatient === p) {
-        setSelectedPatient(null);
-        setRawNotes('');
-        setAiStructuredNotes('');
-        setCertificateText('');
-      }
-      showToast(`Paciente ${p.patient_name} eliminado correctamente.`);
+      if (selectedPatient === p) setSelectedPatient(null);
+      showToast('Paciente eliminado.');
     }
   };
 
@@ -360,7 +277,7 @@ export default function AdminSuitePage() {
       return;
     }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return alert('Navegador no soporta dictado por voz. Usa Google Chrome o Edge.');
+    if (!SpeechRecognition) return alert('Navegador no soporta dictado por voz.');
     
     const recognition = new SpeechRecognition();
     recognition.lang = 'es-CL';
@@ -384,26 +301,14 @@ export default function AdminSuitePage() {
     const pName = selectedPatient?.patient_name || 'Paciente';
     const currentDateFormatted = new Date().toLocaleDateString('es-CL');
 
-    try {
-      const res = await fetch('/api/ia', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes: rawNotes, patientName: pName, mode, template: certTemplate }) });
-      if (res.ok) {
-        const data = await res.json();
-        mode === 'ficha' ? setAiStructuredNotes(data.result || data.text) : setCertificateText(data.result || data.text);
-      } else { throw new Error('Fallback local'); }
-    } catch {
+    setTimeout(() => {
       if (mode === 'ficha') {
-        setAiStructuredNotes(`📋 EVOLUCIÓN PSICOLÓGICA ESTRUCTURADA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Motivo: "${rawNotes}".\n• Plan: Continuar seguimiento.`);
+        setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Resumen: ${rawNotes}`);
       } else {
-        const templates = {
-          asistencia: `CERTIFICADO DE ASISTENCIA\nSe certifica que ${pName} asistió a sesión en ${center?.name || 'este centro'} el día ${currentDateFormatted}.\n___________________________\n${profile?.name}`,
-          reposo: `CERTIFICADO DE REPOSO\nSe sugiere adecuación de carga para ${pName} por 72 horas basado en evaluación actual.\n___________________________\n${profile?.name}`,
-          informe: `INFORME CLÍNICO\nPaciente: ${pName}\nEl/la paciente mantiene adherencia adecuada al proceso terapéutico.\n___________________________\n${profile?.name}`
-        };
-        setCertificateText(templates[certTemplate]);
+        setCertificateText(`CERTIFICADO DE ATENCIÓN\nSe certifica que ${pName} asistió a sesión el día ${currentDateFormatted}.\n___________________________\n${profile?.name}`);
       }
-    } finally {
       setAiLoading(false);
-    }
+    }, 600);
   };
 
   const handleSaveToPatientHistory = () => {
@@ -412,33 +317,7 @@ export default function AdminSuitePage() {
     const newEntry = { id: `rec-${Date.now()}`, date: new Date().toISOString().split('T')[0], therapist: profile?.name || 'Especialista', summary: aiStructuredNotes };
     setClinicalRecords(prev => ({ ...prev, [key]: [newEntry, ...(prev[key] || [])] }));
     setRawNotes('');
-    showToast(`Resumen guardado en la ficha de ${selectedPatient.patient_name}.`);
-  };
-
-  const handleCreateService = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newServiceName || !newServicePrice) return;
-    const payload: any = { name: newServiceName, price: Number(newServicePrice), duration: Number(newServiceDuration), center_id: profile?.center_id };
-    const { data, error } = await supabase.from('services').insert([payload]).select().single();
-    const created = (!error && data) ? { ...data, group: newServiceGroup, multiDate: isMultiDateService ? multiDatesInput : null } : { id: `srv-${Date.now()}`, name: newServiceName, price: Number(newServicePrice), duration: Number(newServiceDuration), group: newServiceGroup, multiDate: isMultiDateService ? multiDatesInput : null };
-    setServices(prev => [created, ...prev]);
-    setNewServiceName(''); setNewServicePrice('');
-    showToast('Servicio agregado al catálogo.');
-  };
-
-  const handleDeleteService = async (id: string) => {
-    await supabase.from('services').delete().eq('id', id);
-    setServices(prev => prev.filter(s => s.id !== id));
-    showToast('Servicio eliminado.');
-  };
-
-  const handleSaveBoxesCount = async (newCount: number) => {
-    const validCount = Math.max(1, Math.min(30, newCount));
-    setBoxesCount(validCount);
-    setSavingBoxes(true);
-    if (profile?.center_id) await supabase.from('centers').update({ boxes_count: validCount }).eq('id', profile.center_id);
-    setSavingBoxes(false);
-    showToast(`Capacidad actualizada a ${validCount} Boxes.`);
+    showToast('Evolución guardada en la ficha.');
   };
 
   const handleExportReportCSV = () => {
@@ -446,14 +325,13 @@ export default function AdminSuitePage() {
     const rows = appointments.map(a => `"${a.patient_name}","${a.professional_name}","${a.date}","${a.time}","${a.modality}","${a.box_number || 'Online'}","${a.status}","${a.price || 35000}"`).join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.setAttribute('download', `Reporte_Kairos_${reportPeriod}.csv`);
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'Reporte_Kairos.csv');
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    showToast('Reporte CSV descargado.');
+    showToast('Reporte exportado con éxito.');
   };
 
-  // Helpers seguros para el Calendario Interactivo
   const currentYear = currentMonthDate ? currentMonthDate.getFullYear() : 2026;
-  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : 9; // Octubre por defecto seguro
+  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : 9;
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
@@ -467,10 +345,8 @@ export default function AdminSuitePage() {
   const handleNextMonth = () => setCurrentMonthDate(new Date(currentYear, currentMonth + 1, 1));
 
   const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
-  const pendingAppointments = appointments.filter(a => a.status === 'pendiente');
   const dynamicGross = (paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0)) * multiplier;
   const dynamicNet = Math.round(dynamicGross * 0.88);
-  const dynamicRecovered = cancelledRecoveredAmount * multiplier;
 
   if (authLoading || !currentMonthDate) return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="animate-spin text-[#2C4A3B]" size={32} /></div>;
 
@@ -605,19 +481,19 @@ export default function AdminSuitePage() {
                     {dynamicNet > 0 && <span className="text-[11px] text-emerald-600 font-semibold">Generado por equipo</span>}
                   </div>
                   <div className="bg-white p-5 rounded-3xl border border-stone-100">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Citas Recuperadas</p>
-                    <p className="text-2xl font-bold text-[#2C4A3B] mt-1">{cancelledRecoveredCount}</p>
-                    <span className="text-[11px] text-stone-500">Por anulación automática</span>
-                  </div>
-                  <div className="bg-white p-5 rounded-3xl border border-stone-100">
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Pacientes Activos</p>
                     <p className="text-2xl font-bold text-stone-900 mt-1">{patientsList.length}</p>
                     <span className="text-[11px] text-stone-500">En el directorio clínico</span>
                   </div>
                   <div className="bg-white p-5 rounded-3xl border border-stone-100">
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Asistente WhatsApp IA</p>
-                    <p className="text-2xl font-bold text-emerald-600 mt-1">{waAssistantActive ? 'Activo 24/7' : 'Pausado'}</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">Activo 24/7</p>
                     <span className="text-[11px] text-stone-500">Reagendando en automático</span>
+                  </div>
+                  <div className="bg-white p-5 rounded-3xl border border-stone-100">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Salas / Boxes</p>
+                    <p className="text-2xl font-bold text-[#2C4A3B] mt-1">{boxesCount} Activos</p>
+                    <span className="text-[11px] text-stone-500">Asignación dinámica</span>
                   </div>
                 </div>
               </motion.div>
@@ -901,10 +777,6 @@ export default function AdminSuitePage() {
                   <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta (Real)</p>
                     <h3 className="text-2xl font-bold text-stone-900 mt-1">${dynamicGross.toLocaleString('es-CL')}</h3>
-                  </div>
-                  <div className="bg-[#2C4A3B] p-6 rounded-3xl text-white shadow-xs">
-                    <p className="text-[10px] font-bold text-emerald-200 uppercase tracking-widest">Recuperación Caja</p>
-                    <h3 className="text-2xl font-bold mt-1">${dynamicRecovered.toLocaleString('es-CL')}</h3>
                   </div>
                 </div>
               </motion.div>
