@@ -10,7 +10,7 @@ import {
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send, DollarSign, ArrowUpRight, ArrowDownLeft
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send, DollarSign, ArrowUpRight
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -47,7 +47,7 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('finanzas');
+  const [activeTab, setActiveTab] = useState<TabType>('inicio');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -75,6 +75,13 @@ export default function AdminSuitePage() {
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
+
+  // --- ESTADOS RESEÑAS / EVALUACIONES ---
+  const [reviewsList] = useState<any[]>([
+    { id: '1', patient: 'Valentina R.', rating: 5, comment: 'Excelente atención y espacio muy acogedor. Me ha ayudado muchísimo en mi proceso.', date: 'Hace 2 días', therapist: 'Dr. Jaime Miranda' },
+    { id: '2', patient: 'Matías S.', rating: 5, comment: 'Puntualidad impecable y profesionalismo absoluto. Totalmente recomendado.', date: 'Hace 5 días', therapist: 'Dra. Sofía Valdés' },
+    { id: '3', patient: 'Camila P.', rating: 4, comment: 'Muy buena experiencia con el agendamiento online y los recordatorios por WhatsApp.', date: 'Hace 1 semana', therapist: 'Dr. Jaime Miranda' }
+  ]);
 
   // --- ESTADOS COMUNICACIONES IA ---
   const [waBotActive, setWaBotActive] = useState(true);
@@ -560,7 +567,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB FINANZAS */}
             {activeTab === 'finanzas' && (
               <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -627,7 +633,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB COMUNICACIONES (IA) */}
             {activeTab === 'comunicaciones' && (
               <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -695,7 +700,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB SERVICIOS */}
             {activeTab === 'servicios' && (
               <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -740,28 +744,19 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
                     <p className="text-sm text-stone-500">Haz clic en cualquier día para agendar una cita directa o gestionar la disponibilidad.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <button 
-                      onClick={handleGoogleSync} 
-                      disabled={isSyncingCalendar}
-                      className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all"
-                    >
+                    <button onClick={handleGoogleSync} disabled={isSyncingCalendar} className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all">
                       {isSyncingCalendar ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                       {calendarLinked ? 'Google Calendar Sincronizado' : 'Vincular Google Calendar'}
                     </button>
-                    <button 
-                      onClick={() => setIsNewApptModalOpen(true)}
-                      className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"
-                    >
+                    <button onClick={() => setIsNewApptModalOpen(true)} className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]">
                       <Plus size={15} /> Nueva Cita
                     </button>
                   </div>
@@ -774,19 +769,12 @@ export default function AdminSuitePage() {
                     </h3>
                     <div className="flex items-center gap-2">
                       {selectedDateFilter && (
-                        <button 
-                          onClick={() => setSelectedDateFilter('')}
-                          className="text-xs font-semibold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]"
-                        >
+                        <button onClick={() => setSelectedDateFilter('')} className="text-xs font-semibold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]">
                           Ver Todo el Mes
                         </button>
                       )}
-                      <button onClick={handlePrevMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
-                        <ChevronLeft size={18} />
-                      </button>
-                      <button onClick={handleNextMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
-                        <ChevronRight size={18} />
-                      </button>
+                      <button onClick={handlePrevMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronLeft size={18} /></button>
+                      <button onClick={handleNextMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronRight size={18} /></button>
                     </div>
                   </div>
 
@@ -817,30 +805,13 @@ export default function AdminSuitePage() {
                             setApptDate(dateStr);
                           }}
                           className={`h-28 rounded-2xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group relative ${
-                            isSelected 
-                              ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' 
-                              : isToday
-                              ? 'border-[#2C4A3B]/60 bg-white'
-                              : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'
+                            isSelected ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' : isToday ? 'border-[#2C4A3B]/60 bg-white' : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'
                           }`}
                         >
                           <div className="flex justify-between items-center">
-                            <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>
-                              {dayNum}
-                            </span>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setApptDate(dateStr);
-                                setIsNewApptModalOpen(true);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"
-                              title="Agendar cita en este día"
-                            >
-                              <Plus size={14} />
-                            </button>
+                            <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>{dayNum}</span>
+                            <button onClick={(e) => { e.stopPropagation(); setApptDate(dateStr); setIsNewApptModalOpen(true); }} className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"><Plus size={14} /></button>
                           </div>
-
                           <div className="space-y-1 overflow-y-hidden flex-1 mt-1">
                             {dayAppointments.slice(0, 2).map((appt, i) => (
                               <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs flex items-center justify-between">
@@ -848,85 +819,16 @@ export default function AdminSuitePage() {
                                 <span className={`h-1.5 w-1.5 rounded-full ${appt.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
                               </div>
                             ))}
-                            {dayAppointments.length > 2 && (
-                              <div className="text-[9px] text-stone-400 font-bold pl-0.5">
-                                +{dayAppointments.length - 2} más
-                              </div>
-                            )}
+                            {dayAppointments.length > 2 && <div className="text-[9px] text-stone-400 font-bold pl-0.5">+{dayAppointments.length - 2} más</div>}
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
-
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-stone-100 pb-4">
-                    <h3 className="font-bold text-lg text-stone-900">
-                      {selectedDateFilter ? `Citas para el ${selectedDateFilter}` : 'Todas las Sesiones en Agenda'}
-                    </h3>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-stone-500">
-                        {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length} citas encontradas
-                      </span>
-                      {selectedDateFilter && (
-                        <button 
-                          onClick={() => {
-                            setApptDate(selectedDateFilter);
-                            setIsNewApptModalOpen(true);
-                          }}
-                          className="text-xs font-semibold bg-[#2C4A3B] text-white px-3 py-1.5 rounded-xl hover:bg-[#233b2f] flex items-center gap-1 shadow-xs"
-                        >
-                          <Plus size={13} /> Agendar para el {selectedDateFilter}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3">
-                    {appointments.filter(a => !selectedDateFilter || a.date === selectedDateFilter).length === 0 ? (
-                      <div className="text-center py-12 space-y-2">
-                        <Calendar className="mx-auto text-stone-300" size={40} strokeWidth={1.5} />
-                        <p className="font-semibold text-stone-700 text-sm">No hay citas para este día</p>
-                        <p className="text-xs text-stone-400">Haz clic en el botón superior o en el día del calendario para programar una sesión.</p>
-                      </div>
-                    ) : (
-                      appointments
-                        .filter(a => !selectedDateFilter || a.date === selectedDateFilter)
-                        .map((appt) => (
-                          <div key={appt.id} className="border border-stone-100 p-4 rounded-2xl bg-stone-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-stone-200 transition-all">
-                            <div className="flex items-center gap-4">
-                              <div className="h-12 w-12 rounded-xl bg-white border border-stone-200 flex flex-col items-center justify-center shrink-0">
-                                <span className="font-bold text-xs text-[#2C4A3B]">{appt.time}</span>
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-bold text-sm text-stone-900">{appt.patient_name}</h4>
-                                  <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded font-bold ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                    {appt.status}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-stone-500 mt-0.5">{appt.date} • Terapeuta: <strong>{appt.professional_name}</strong> {appt.patient_phone && `• Tel: ${appt.patient_phone}`}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center gap-1.5 bg-white border border-stone-200 px-3 py-1.5 rounded-xl">
-                                <MapPin size={13} className="text-[#2C4A3B]" />
-                                <span className="text-xs font-bold text-stone-900">Box {appt.box_number || 1}</span>
-                              </div>
-                              <button onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} className="text-xs font-semibold px-3.5 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]">
-                                Ficha IA
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                    )}
-                  </div>
-                </div>
               </motion.div>
             )}
 
-            {/* TAB PACIENTES Y FICHAS IA */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
@@ -998,24 +900,50 @@ export default function AdminSuitePage() {
                           </div>
                         )}
                       </div>
-
-                      <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 shadow-xs">
-                        <h4 className="font-bold text-sm text-stone-900 uppercase tracking-wider">Historial Guardado</h4>
-                        {activePatientHistory.length === 0 ? (
-                          <p className="text-xs text-stone-400">Aún no hay evoluciones guardadas para este paciente.</p>
-                        ) : (
-                          <div className="space-y-3">
-                            {activePatientHistory.map((item: any) => (
-                              <div key={item.id} className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200/70 space-y-1.5">
-                                <div className="flex justify-between text-[11px] font-bold text-[#2C4A3B]"><span>{item.date}</span><span>{item.therapist}</span></div>
-                                <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans">{item.summary}</pre>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </>
                   )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'resenas' && (
+              <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Satisfacción y Feedback</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Evaluaciones de Pacientes</h2>
+                    <p className="text-sm text-stone-500 mt-1">Reseñas y calificaciones del centro clínico recopiladas post-atención.</p>
+                  </div>
+                  <div className="flex items-center gap-4 bg-[#F4F7F5] border border-[#E4ECE7] px-5 py-3 rounded-2xl">
+                    <Star className="text-amber-500 fill-amber-500" size={22} />
+                    <div>
+                      <p className="text-lg font-bold text-stone-900 leading-none">4.8 / 5.0</p>
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Satisfacción General</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {reviewsList.map((rev) => (
+                    <div key={rev.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs space-y-4 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h3 className="font-bold text-stone-900 text-sm">{rev.patient}</h3>
+                          <span className="text-[11px] text-stone-400">{rev.date}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star key={i} size={14} className={i < rev.rating ? 'text-amber-500 fill-amber-500' : 'text-stone-200'} />
+                          ))}
+                        </div>
+                        <p className="text-xs text-stone-600 italic leading-relaxed">"{rev.comment}"</p>
+                      </div>
+                      <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[11px]">
+                        <span className="text-stone-400">Terapeuta:</span>
+                        <span className="font-bold text-[#2C4A3B]">{rev.therapist}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </motion.div>
             )}
@@ -1038,7 +966,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {['equipo', 'vitrina', 'resenas', 'documentos'].includes(activeTab) && (
+            {['equipo', 'vitrina', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
                  <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab}</h2>
