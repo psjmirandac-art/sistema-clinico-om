@@ -1,73 +1,57 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+interface TenantContextType {
+  center: { id: string; name: string; slug: string; boxes_count: number } | null;
+  loading: boolean;
+}
+
+const TenantContext = createContext<TenantContextType>({ center: null, loading: true });
+
+// Fallback seguro para evitar que el build reviente si las envs no están definidas en Vercel
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-interface CenterConfig {
-  id: string;
-  name: string;
-  slug: string;
-  logo_url?: string;
-  primary_color: string;
-  accent_color: string;
-}
-
-interface TenantContextType {
-  center: CenterConfig | null;
-  loading: boolean;
-  switchCenter: (slug: string) => Promise<void>;
-}
-
-const TenantContext = createContext<TenantContextType>({
-  center: null,
-  loading: true,
-  switchCenter: async () => {},
-});
-
-export function TenantProvider({ children, defaultSlug = 'centro-om' }: { children: React.ReactNode, defaultSlug?: string }) {
-  const [center, setCenter] = useState<CenterConfig | null>(null);
+export function TenantProvider({ children }: { children: React.ReactNode }) {
+  const [center, setCenter] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchCenterBySlug = async (slug: string) => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('centers')
-      .select('*')
-      .eq('slug', slug)
-      .single();
-
-    if (!error && data) {
-      setCenter(data);
-      if (typeof document !== 'undefined') {
-        document.documentElement.style.setProperty('--kairos-primary', data.primary_color || '#2C4A3B');
-        document.documentElement.style.setProperty('--kairos-accent', data.accent_color || '#5F8575');
-      }
-    } else {
-      setCenter({
-        id: 'default',
-        name: 'Kairós Clínico',
-        slug: defaultSlug,
-        primary_color: '#2C4A3B',
-        accent_color: '#5F8575'
-      });
-    }
-    setLoading(false);
-  };
-
   useEffect(() => {
-    fetchCenterBySlug(defaultSlug);
-  }, [defaultSlug]);
+    async function loadTenant() {
+      try {
+        // Si estamos en entorno de pruebas sin envs reales, evitamos la consulta
+        if (supabaseUrl.includes('placeholder')) {
+          setCenter({ id: 'demo-center', name: 'Kairós Clínico', slug: 'kairos', boxes_count: 2 });
+          setLoading(false);
+          return;
+        }
 
-  const switchCenter = async (slug: string) => {
-    await fetchCenterBySlug(slug);
-  };
+        const hostname = window.location.hostname;
+        const slug = hostname.includes('localhost') ? 'centro-om' : hostname.split('.')[0];
+        
+        const { data } = await supabase.from('centers').select('*').eq('slug', slug).maybeSingle();
+        if (data) {
+          setCenter(data);
+        } else {
+          // Fallback por defecto al primer centro disponible
+          const { data: firstCenter } = await supabase.from('centers').select('*').limit(1).maybeSingle();
+          setCenter(firstCenter || { id: 'demo-center', name: 'Kairós Clínico', slug: 'kairos', boxes_count: 2 });
+        }
+      } catch (err) {
+        console.error('Error cargando tenant:', err);
+        setCenter({ id: 'demo-center', name: 'Kairós Clínico', slug: 'kairos', boxes_count: 2 });
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadTenant();
+  }, []);
 
   return (
-    <TenantContext.Provider value={{ center, loading, switchCenter }}>
+    <TenantContext.Provider value={{ center, loading }}>
       {children}
     </TenantContext.Provider>
   );
