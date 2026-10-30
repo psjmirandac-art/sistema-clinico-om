@@ -1,12 +1,19 @@
 'use client';
 
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
 import { motion, Variants } from 'framer-motion';
 import { Calendar, User, ArrowRight, ShieldCheck, HeartHandshake, Clock, Sparkles } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
 export default function LandingPage() {
-  const { center } = useTenant(); // Consumimos el motor multi-tenant
+  const { center } = useTenant();
+  const [currentYear, setCurrentYear] = useState<number | null>(null);
+
+  // Evitamos el error de Next.js renderizando la fecha solo en el lado del cliente
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -135,11 +142,11 @@ export default function LandingPage() {
         </motion.div>
       </main>
 
-      {/* FOOTER */}
+      {/* FOOTER REFACCIONADO */}
       <footer className="w-full border-t border-stone-200 bg-white/50 py-6 mt-auto">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-stone-400 font-medium">
-            © {new Date().getFullYear()} {center?.name || 'Centro Clínico'}. Impulsado por Kairós.
+            © {currentYear || '2024'} {center?.name || 'Centro Clínico'}. Impulsado por Kairós.
           </p>
           <Link href="/admin" className="text-[10px] font-bold text-stone-400 hover:text-kairos-accent uppercase tracking-widest transition-colors flex items-center gap-2">
             <ShieldCheck size={14} /> Acceso Equipo Clínico
