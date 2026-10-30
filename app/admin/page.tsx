@@ -10,7 +10,7 @@ import {
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send, DollarSign, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -47,7 +47,7 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('comunicaciones');
+  const [activeTab, setActiveTab] = useState<TabType>('finanzas');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -560,6 +560,73 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
+            {/* TAB FINANZAS */}
+            {activeTab === 'finanzas' && (
+              <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión Contable</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Finanzas y Facturación</h2>
+                    <p className="text-sm text-stone-500 mt-1">Control consolidado de ingresos, comisiones de terapeutas y transacciones clínicas.</p>
+                  </div>
+                  <button onClick={handleExportReportCSV} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
+                    <Download size={16} /> Exportar Reporte Financiero
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta</p>
+                    <p className="text-3xl font-bold text-stone-900">${dynamicGross.toLocaleString('es-CL')}</p>
+                    <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold pt-1">
+                      <ArrowUpRight size={14} /> <span>+12% vs mes anterior</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Ingresos Netos (Centro)</p>
+                    <p className="text-3xl font-bold text-[#2C4A3B]">${dynamicNet.toLocaleString('es-CL')}</p>
+                    <span className="text-xs text-stone-500 block pt-1">Comisión institucional aplicada (88%)</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Sesiones Pagadas</p>
+                    <p className="text-3xl font-bold text-stone-900">{paidAppointments.length} <span className="text-sm font-normal text-stone-400">citas</span></p>
+                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con pasarela</span>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-4">
+                  <h3 className="font-bold text-base text-stone-900">Historial de Transacciones Recientes</h3>
+                  <div className="space-y-3">
+                    {appointments.length === 0 ? (
+                      <p className="text-xs text-stone-400 py-6 text-center">No hay transacciones registradas en este período.</p>
+                    ) : (
+                      appointments.map((appt) => (
+                        <div key={appt.id} className="p-4 rounded-2xl bg-stone-50/70 border border-stone-100 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                              <DollarSign size={18} />
+                            </div>
+                            <div>
+                              <p className="font-bold text-xs text-stone-900">{appt.patient_name}</p>
+                              <p className="text-[11px] text-stone-400">{appt.date} • {appt.professional_name}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-xs text-stone-900">${Number(appt.price || 35000).toLocaleString('es-CL')}</p>
+                            <span className={`text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {appt.status || 'pagado'}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* TAB COMUNICACIONES (IA) */}
             {activeTab === 'comunicaciones' && (
               <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
@@ -971,7 +1038,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {['finanzas', 'equipo', 'vitrina', 'resenas', 'documentos'].includes(activeTab) && (
+            {['equipo', 'vitrina', 'resenas', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
                  <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab}</h2>
