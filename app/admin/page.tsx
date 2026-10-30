@@ -115,7 +115,7 @@ export default function AdminSuitePage() {
 
   // --- EVALUACIONES, VITRINA Y ABANDONOS ---
   const [reviews] = useState<any[]>([]);
-  const [peerRecommendations] = useState<any[]>([]);
+  const [peerRecommendations, setPeerRecommendations] = useState<any[]>([]);
   const [newPeerName, setNewPeerName] = useState('');
   const [newPeerSpecialty, setNewPeerSpecialty] = useState('');
   const [newPeerText, setNewPeerText] = useState('');
@@ -133,6 +133,7 @@ export default function AdminSuitePage() {
 
   // --- REPORTES ---
   const [reportPeriod, setReportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
+  const multiplier = reportPeriod === 'mes' ? 1 : reportPeriod === 'trimestre' ? 3 : 12;
 
   // --- MODAL NUEVA CITA ---
   const [apptPatientName, setApptPatientName] = useState('');
