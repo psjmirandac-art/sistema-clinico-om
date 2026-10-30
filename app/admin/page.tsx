@@ -66,11 +66,15 @@ export default function AdminSuitePage() {
   const [boxesCount, setBoxesCount] = useState<number>(1);
   const [savingBoxes, setSavingBoxes] = useState(false);
 
-  // --- AGENDA Y CALENDARIO INTERACTIVO ---
+  // --- AGENDA Y CALENDARIO INTERACTIVO (Blindado contra prerender de Next.js) ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
-  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
+  const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    setCurrentMonthDate(new Date());
+  }, []);
 
   // --- PACIENTES Y FICHAS IA ---
   const [patientsList, setPatientsList] = useState<any[]>([]);
@@ -448,14 +452,13 @@ export default function AdminSuitePage() {
   };
 
   // Helpers para el Calendario Interactivo
+  const currentYear = currentMonthDate.getFullYear();
+  const currentMonth = currentMonthDate.getMonth();
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
-    return day === 0 ? 6 : day - 1; // Lunes como primer día de la semana
+    return day === 0 ? 6 : day - 1;
   };
-
-  const currentYear = currentMonthDate.getFullYear();
-  const currentMonth = currentMonthDate.getMonth();
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
   const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -621,12 +624,11 @@ export default function AdminSuitePage() {
             )}
 
             {/* ==========================================
-                TAB: CALENDARIO INTERACTIVO DE LUJO (NUEVO)
+                TAB: CALENDARIO INTERACTIVO DE LUJO
                ========================================== */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 
-                {/* Cabecera del Calendario */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
@@ -650,10 +652,7 @@ export default function AdminSuitePage() {
                   </div>
                 </div>
 
-                {/* Grid del Calendario Interactivo Mensual */}
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
-                  
-                  {/* Controles de Mes */}
                   <div className="flex items-center justify-between border-b border-stone-100 pb-4">
                     <h3 className="text-lg font-bold text-stone-900 capitalize">
                       {monthNames[currentMonth]} {currentYear}
@@ -676,19 +675,15 @@ export default function AdminSuitePage() {
                     </div>
                   </div>
 
-                  {/* Días de la semana */}
                   <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
                     <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
                   </div>
 
-                  {/* Celdas del Mes */}
                   <div className="grid grid-cols-7 gap-2">
-                    {/* Espacios vacíos del inicio de mes */}
                     {Array.from({ length: firstDay }).map((_, index) => (
                       <div key={`empty-${index}`} className="h-24 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
                     ))}
 
-                    {/* Días reales del mes */}
                     {Array.from({ length: daysInMonth }).map((_, index) => {
                       const dayNum = index + 1;
                       const formattedDay = dayNum < 10 ? `0${dayNum}` : `${dayNum}`;
@@ -740,7 +735,6 @@ export default function AdminSuitePage() {
                   </div>
                 </div>
 
-                {/* Lista de Citas Filtradas para la Fecha Seleccionada o Total */}
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-4">
                   <div className="flex items-center justify-between border-b border-stone-100 pb-4">
                     <h3 className="font-bold text-lg text-stone-900">
@@ -950,12 +944,12 @@ export default function AdminSuitePage() {
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
               <div className="flex justify-between items-center"><h3 className="font-bold text-lg text-stone-900">Agendar Cita</h3><button onClick={() => setIsNewApptModalOpen(false)}><X size={20}/></button></div>
               <form onSubmit={handleCreateAppointment} className="space-y-4">
-                <input type="text" required placeholder="Nombre Paciente" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="w-full p-3 rounded-xl border bg-stone-50 text-sm" />
+                <input type="text" required placeholder="Nombre Paciente" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
                 <div className="grid grid-cols-2 gap-3">
                   <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
                   <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
                 </div>
-                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">{savingAppt ? 'Guardando...' : 'Confirmar Cita'}</button>
+                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">{savingAppt ? 'Guardandoपुरम...' : 'Confirmar Cita'}</button>
               </form>
             </motion.div>
           </div>
