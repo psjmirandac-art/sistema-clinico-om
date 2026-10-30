@@ -9,9 +9,9 @@ import {
   X, Loader2, Printer, Lock, DoorOpen, UserPlus, Minus, Check, 
   MapPin, Wallet, TrendingUp, CreditCard, AlertCircle, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
-  UserCircle, RefreshCw, Download, Send, Eye, Store, Smartphone,
-  Instagram, MessageSquare, Clock, Filter, Award, ThumbsUp, Layers,
-  BookOpen, ShoppingCart, CheckCircle2, Ban, Snowflake, ArrowUpDown
+  RefreshCw, Download, Send, Eye, Store, Smartphone,
+  MessageSquare, Award, ShoppingCart, CheckCircle2, Ban, Snowflake, 
+  ArrowUpDown, Share2
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -101,7 +101,7 @@ export default function AdminSuitePage() {
     ]
   });
 
-  const [patientFiles, setPatientFiles] = useState<any[]>([
+  const [patientFiles] = useState<any[]>([
     { id: 'f1', patient: 'Camila Rojas', name: 'Test_Ansiedad_Beck_BAI.pdf', type: 'pdf', date: '2026-10-18', content: 'Resultado Test de Beck (BAI): Puntaje 18 (Ansiedad Moderada). Ítems predominantes: tensión motora e hipervigilancia.' },
     { id: 'f2', patient: 'Camila Rojas', name: 'Autorregistro_Semanal.txt', type: 'txt', date: '2026-10-22', content: 'Lunes: Episodio de estrés antes de reunión (7/10). Respiración diafragmática redujo malestar a 3/10.\nJueves: Mejor conciliación del sueño.' },
     { id: 'f3', patient: 'Diego Muñoz', name: 'Derivacion_Psiquiatria.pdf', type: 'pdf', date: '2026-10-20', content: 'Interconsulta psiquiátrica: Paciente en esquema estable con Sertralina 50mg/día. Se sugiere psicoterapia cognitivo-conductual coadyuvante.' }
@@ -133,7 +133,7 @@ export default function AdminSuitePage() {
   const [newTherapistRole, setNewTherapistRole] = useState<'terapeuta' | 'admin'>('terapeuta');
 
   // --- EVALUACIONES Y RECOMENDACIONES ENTRE COLEGAS ---
-  const [reviews, setReviews] = useState<any[]>([
+  const [reviews] = useState<any[]>([
     { id: 'r1', author: 'Camila R.', rating: 5, text: 'Excelente atención y calidez en cada sesión.', targetType: 'Servicio', targetTitle: 'Psicoterapia Individual', date: 'Hace 2 días' },
     { id: 'r2', author: 'Martín V.', rating: 5, text: 'El taller de manejo de ansiedad de 3 días me dio herramientas súper concretas.', targetType: 'Vitrina • Taller Multi-fecha', targetTitle: 'Taller Regulación Emocional', date: 'Hace 5 días' }
   ]);
@@ -742,7 +742,7 @@ export default function AdminSuitePage() {
                     <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Panel de Control Clínico</span>
                     <h2 className="text-3xl font-bold text-stone-900 mt-1">Hola, {profile?.name}</h2>
                     <p className="text-stone-500 text-sm mt-1">
-                      Tienes <strong className="text-stone-900">{appointments.length} sesiones</strong> en agenda, <strong className="text-stone-900">{therapists.filter(t => t.status === 'activos').length} profesionales</strong> activos y <strong className="text-stone-900">{boxesCount} boxes</strong> habilitados.
+                      Tienes <strong className="text-stone-900">{appointments.length} sesiones</strong> en agenda ({pendingAppointments.length} por confirmar pago), <strong className="text-stone-900">{therapists.filter(t => t.status === 'activos').length} profesionales</strong> activos y <strong className="text-stone-900">{boxesCount} boxes</strong> habilitados.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
@@ -1261,14 +1261,18 @@ export default function AdminSuitePage() {
                 </div>
 
                 <form onSubmit={handleCreateService} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xs space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                     <div className="sm:col-span-2">
                       <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Nombre de la Prestación o Taller</label>
-                      <input type="text" required placeholder="Ej: Psicoterapia Individual o Taller de Cierre" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 text-xs bg-stone-50" />
+                      <input type="text" required placeholder="Ej: Psicoterapia Individual" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 text-xs bg-stone-50" />
                     </div>
                     <div>
                       <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Grupo / Categoría</label>
                       <input type="text" value={newServiceGroup} onChange={e => setNewServiceGroup(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 text-xs bg-stone-50" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Duración (Min)</label>
+                      <input type="number" required value={newServiceDuration} onChange={e => setNewServiceDuration(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 text-xs bg-stone-50" />
                     </div>
                     <div>
                       <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-1">Valor (CLP)</label>
@@ -1484,9 +1488,9 @@ export default function AdminSuitePage() {
                       <input type="text" value={igStorySlot} onChange={e => setIgStorySlot(e.target.value)} className="flex-1 p-2.5 rounded-xl border border-stone-200 text-xs bg-stone-50" />
                       <button 
                         onClick={() => showToast('Gráfica de Historia para Instagram copiada y lista para publicar.')}
-                        className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+                        className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f] transition-colors"
                       >
-                        <Instagram size={14} /> Generar Story
+                        <Share2 size={14} /> Generar Story IG
                       </button>
                     </div>
                   </div>
