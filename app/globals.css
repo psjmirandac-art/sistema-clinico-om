@@ -1,26 +1,39 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 1. Fondo de Lujo Kairós (Arena y Texto Stone-800) */
+  --background: #F9F8F6;
+  --foreground: #292524;
+
+  /* 2. Motor Multi-Tenant: Paleta por defecto (Centro OM) */
+  --kairos-primary: #2C4A3B;
+  --kairos-accent: #5F8575;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Forzamos paleta clara en el MVP clínico para mantener la paz visual */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #F9F8F6;
+    --foreground: #292524;
   }
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Eliminamos Arial. El font-family ahora lo controla Plus Jakarta Sans desde el layout */
+}
+
+/* Utilidades para ocultar las scrollbars nativas feas pero mantener funcionalidad */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #E4ECE7;
+  border-radius: 20px;
 }
