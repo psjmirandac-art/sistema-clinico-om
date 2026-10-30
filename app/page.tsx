@@ -3,8 +3,11 @@
 import Link from 'next/link';
 import { motion, Variants } from 'framer-motion';
 import { Calendar, User, ArrowRight, ShieldCheck, HeartHandshake, Clock, Sparkles } from 'lucide-react';
+import { useTenant } from '@/providers/TenantProvider';
 
 export default function LandingPage() {
+  const { center } = useTenant(); // Consumimos el motor multi-tenant
+
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
@@ -23,9 +26,9 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F9F8F6] font-sans selection:bg-[#E4ECE7]">
+    <div className="min-h-screen flex flex-col font-sans">
       
-      {/* NAVBAR PREMIUM */}
+      {/* NAVBAR DINÁMICO */}
       <motion.nav 
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -34,11 +37,13 @@ export default function LandingPage() {
       >
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 bg-[#2C4A3B] text-white rounded-xl flex items-center justify-center shadow-md">
+            <div className="h-10 w-10 bg-kairos-primary text-white rounded-xl flex items-center justify-center shadow-md transition-colors">
               <ShieldCheck size={22} strokeWidth={1.5} />
             </div>
             <div>
-              <h1 className="font-bold text-stone-900 text-lg leading-tight tracking-tight">Centro OM</h1>
+              <h1 className="font-bold text-stone-900 text-lg leading-tight tracking-tight">
+                {center?.name || 'Kairós'}
+              </h1>
               <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-widest">Salud Mental</span>
             </div>
           </div>
@@ -47,7 +52,7 @@ export default function LandingPage() {
             <Link href="/portal-pacientes" className="text-sm font-semibold text-stone-500 hover:text-stone-900 transition-colors">
               Soy Paciente
             </Link>
-            <Link href="/agendar" className="bg-[#2C4A3B] text-white hover:bg-[#233b2f] transition-all px-5 py-2.5 rounded-xl font-medium text-sm shadow-sm">
+            <Link href="/agendar" className="bg-kairos-primary text-white hover:bg-kairos-primary/90 transition-all px-5 py-2.5 rounded-xl font-medium text-sm shadow-sm">
               Agendar Sesión
             </Link>
           </div>
@@ -65,14 +70,14 @@ export default function LandingPage() {
           {/* Badge Superior */}
           <motion.div variants={itemVariants} className="flex justify-center">
             <span className="bg-white border border-stone-200 text-stone-600 text-xs font-bold px-4 py-2 rounded-full uppercase tracking-widest shadow-sm flex items-center gap-2">
-              <Sparkles size={14} className="text-[#5F8575]" /> Atención Psicológica Especializada
+              <Sparkles size={14} className="text-kairos-accent" /> Atención Psicológica Especializada
             </span>
           </motion.div>
 
           {/* Titular */}
           <motion.h1 variants={itemVariants} className="text-5xl sm:text-6xl md:text-7xl font-bold text-stone-900 tracking-tight leading-[1.1]">
             Tu bienestar mental, <br />
-            <span className="text-[#5F8575]">nuestra prioridad.</span>
+            <span className="text-kairos-accent transition-colors">nuestra prioridad.</span>
           </motion.h1>
 
           {/* Bajada */}
@@ -86,14 +91,14 @@ export default function LandingPage() {
             {/* Card Agendar */}
             <Link href="/agendar" className="group text-left">
               <div className="bg-white border border-stone-100 p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-lg transition-all h-full relative overflow-hidden flex flex-col justify-between">
-                <div className="h-14 w-14 bg-[#F4F7F5] text-[#2C4A3B] rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <div className="h-14 w-14 bg-stone-50 text-kairos-primary rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <Calendar size={28} />
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-stone-900 mb-2">Agendar nueva cita</h3>
                   <p className="text-sm text-stone-500 mb-6">Revisa la disponibilidad de nuestros especialistas y reserva tu hora de inmediato.</p>
                 </div>
-                <div className="flex items-center gap-2 text-[#5F8575] font-semibold text-sm group-hover:text-[#2C4A3B]">
+                <div className="flex items-center gap-2 text-kairos-accent font-semibold text-sm group-hover:text-kairos-primary transition-colors">
                   Comenzar ahora <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -101,7 +106,7 @@ export default function LandingPage() {
 
             {/* Card Portal */}
             <Link href="/portal-pacientes" className="group text-left">
-              <div className="bg-[#2C4A3B] border border-[#233b2f] p-8 rounded-[2rem] shadow-md hover:shadow-xl transition-all h-full relative overflow-hidden flex flex-col justify-between text-white">
+              <div className="bg-kairos-primary border border-kairos-primary/80 p-8 rounded-[2rem] shadow-md hover:shadow-xl transition-all h-full relative overflow-hidden flex flex-col justify-between text-white">
                 <div className="h-14 w-14 bg-white/10 text-white rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform backdrop-blur-sm border border-white/10">
                   <User size={28} />
                 </div>
@@ -109,7 +114,7 @@ export default function LandingPage() {
                   <h3 className="text-xl font-bold mb-2">Portal de Pacientes</h3>
                   <p className="text-sm text-white/70 mb-6">Ingresa para gestionar tus citas, revisar tu historial y acceder a enlaces de telemedicina.</p>
                 </div>
-                <div className="flex items-center gap-2 text-white font-semibold text-sm group-hover:text-[#A7C4B5]">
+                <div className="flex items-center gap-2 text-white font-semibold text-sm opacity-90 group-hover:opacity-100">
                   Acceder a mi cuenta <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -130,13 +135,13 @@ export default function LandingPage() {
         </motion.div>
       </main>
 
-      {/* FOOTER - ACCESO PROFESIONALES */}
+      {/* FOOTER */}
       <footer className="w-full border-t border-stone-200 bg-white/50 py-6 mt-auto">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-stone-400 font-medium">
-            © 2026 Centro OM. Todos los derechos reservados.
+            © {new Date().getFullYear()} {center?.name || 'Centro Clínico'}. Impulsado por Kairós.
           </p>
-          <Link href="/admin" className="text-[10px] font-bold text-stone-400 hover:text-[#5F8575] uppercase tracking-widest transition-colors flex items-center gap-2">
+          <Link href="/admin" className="text-[10px] font-bold text-stone-400 hover:text-kairos-accent uppercase tracking-widest transition-colors flex items-center gap-2">
             <ShieldCheck size={14} /> Acceso Equipo Clínico
           </Link>
         </div>
