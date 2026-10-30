@@ -66,11 +66,11 @@ export default function AdminSuitePage() {
   const [boxesCount, setBoxesCount] = useState<number>(1);
   const [savingBoxes, setSavingBoxes] = useState(false);
 
-  // --- AGENDA Y CALENDARIO INTERACTIVO (Blindado contra prerender de Next.js) ---
+  // --- AGENDA Y CALENDARIO INTERACTIVO (Blindado contra prerender estático) ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
-  const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => new Date());
+  const [currentMonthDate, setCurrentMonthDate] = useState<Date | null>(null);
 
   useEffect(() => {
     setCurrentMonthDate(new Date());
@@ -452,8 +452,8 @@ export default function AdminSuitePage() {
   };
 
   // Helpers para el Calendario Interactivo
-  const currentYear = currentMonthDate.getFullYear();
-  const currentMonth = currentMonthDate.getMonth();
+  const currentYear = currentMonthDate ? currentMonthDate.getFullYear() : new Date().getFullYear();
+  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : new Date().getMonth();
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
@@ -472,7 +472,7 @@ export default function AdminSuitePage() {
   const dynamicNet = Math.round(dynamicGross * 0.88);
   const dynamicRecovered = cancelledRecoveredAmount * multiplier;
 
-  if (authLoading) return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="animate-spin text-[#2C4A3B]" size={32} /></div>;
+  if (authLoading || !currentMonthDate) return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="animate-spin text-[#2C4A3B]" size={32} /></div>;
 
   if (!session) {
     return (
@@ -623,9 +623,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* ==========================================
-                TAB: CALENDARIO INTERACTIVO DE LUJO
-               ========================================== */}
+            {/* TAB AGENDA (CALENDARIO INTERACTIVO) */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 
@@ -944,12 +942,12 @@ export default function AdminSuitePage() {
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
               <div className="flex justify-between items-center"><h3 className="font-bold text-lg text-stone-900">Agendar Cita</h3><button onClick={() => setIsNewApptModalOpen(false)}><X size={20}/></button></div>
               <form onSubmit={handleCreateAppointment} className="space-y-4">
-                <input type="text" required placeholder="Nombre Paciente" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
+                <input type="text" required placeholder="Nombre Paciente" value={apptPatientName} onChange={e => setApptPatientName(e.target.value)} className="w-full p-3 rounded-xl border bg-stone-50 text-sm" />
                 <div className="grid grid-cols-2 gap-3">
                   <input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
                   <input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="p-3 rounded-xl border bg-stone-50 text-sm" />
                 </div>
-                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">{savingAppt ? 'Guardandoपुरम...' : 'Confirmar Cita'}</button>
+                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm">{savingAppt ? 'Guardando...' : 'Confirmar Cita'}</button>
               </form>
             </motion.div>
           </div>
