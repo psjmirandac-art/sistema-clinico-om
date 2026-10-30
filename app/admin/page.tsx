@@ -168,7 +168,7 @@ export default function AdminSuitePage() {
   // --- REPORTES (FILTROS) ---
   const [reportPeriod, setReportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
 
-  // --- MODAL NUEVA CITA (Inicializado vacío para evitar error de prerender en Next.js) ---
+  // --- MODAL NUEVA CITA ---
   const [apptPatientName, setApptPatientName] = useState('');
   const [apptPatientEmail, setApptPatientEmail] = useState('');
   const [apptDate, setApptDate] = useState('');
@@ -381,7 +381,7 @@ export default function AdminSuitePage() {
     showToast('Cita agendada y sincronizada con el calendario.');
   };
 
-  // --- INSCRIBIR PACIENTE ---
+  // --- INSCRIBIR Y ELIMINAR PACIENTES ---
   const handleCreatePatient = (e: React.FormEvent) => {
     e.preventDefault();
     const newPatient = {
@@ -398,6 +398,22 @@ export default function AdminSuitePage() {
     setNewPatientPhone('');
     setNewPatientRut('');
     showToast(`Paciente ${newPatient.patient_name} inscrito en el directorio clínico.`);
+  };
+
+  const handleDeletePatient = (e: React.MouseEvent, p: any) => {
+    e.stopPropagation(); // Evita que se seleccione la tarjeta al hacer clic en el basurero
+    if (window.confirm(`¿Estás seguro de eliminar a ${p.patient_name} y su historial clínico? Esta acción no se puede deshacer.`)) {
+      setPatientsList(prev => prev.filter(item => item !== p));
+      
+      // Si el paciente eliminado es el que está seleccionado actualmente, limpiamos el Workspace
+      if (selectedPatient === p) {
+        setSelectedPatient(null);
+        setRawNotes('');
+        setAiStructuredNotes('');
+        setCertificateText('');
+      }
+      showToast(`Paciente ${p.patient_name} eliminado correctamente.`);
+    }
   };
 
   // --- DICTADO POR VOZ E IA GROQ ---
@@ -650,7 +666,7 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR COMPLETO CON LAS 16 OPCIONES HABILITADAS */}
+      {/* SIDEBAR COMPLETO */}
       <aside className="w-[265px] bg-white border-r border-stone-200/80 flex flex-col z-20 shrink-0">
         <div className="h-18 flex items-center px-6 border-b border-stone-100 shrink-0 py-4">
           <div className="h-9 w-9 bg-[#2C4A3B] text-white rounded-xl flex items-center justify-center mr-3 shadow-xs">
@@ -898,7 +914,7 @@ export default function AdminSuitePage() {
             )}
 
             {/* ==========================================
-                3. TAB: PACIENTES Y FICHAS IA (CON HISTORIAL + CERTIFICADOS + VISOR ARCHIVOS)
+                3. TAB: PACIENTES Y FICHAS IA (CON ELIMINACIÓN)
                ========================================== */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -929,20 +945,33 @@ export default function AdminSuitePage() {
                     />
                   </div>
 
+                  {/* LISTA DE PACIENTES CON BOTÓN DELETE ON-HOVER */}
                   <div className="space-y-2 max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
                     {filteredPatients.map((p, idx) => (
-                      <button 
-                        key={idx} 
-                        onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); setCertificateText(''); }}
-                        className={`w-full text-left p-3.5 rounded-2xl border transition-all ${
-                          selectedPatient?.patient_name === p.patient_name 
-                            ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' 
-                            : 'border-stone-100 hover:bg-stone-50'
-                        }`}
-                      >
-                        <p className="font-bold text-sm text-stone-900">{p.patient_name}</p>
-                        <p className="text-xs text-stone-400 truncate">{p.patient_email || 'Sin correo'}</p>
-                      </button>
+                      <div key={idx} className="relative group">
+                        <button 
+                          onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); setCertificateText(''); }}
+                          className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${
+                            selectedPatient?.patient_name === p.patient_name 
+                              ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' 
+                              : 'border-stone-100 hover:bg-stone-50'
+                          }`}
+                        >
+                          <div className="pr-8 truncate">
+                            <p className="font-bold text-sm text-stone-900 truncate">{p.patient_name}</p>
+                            <p className="text-xs text-stone-400 truncate mt-0.5">{p.patient_email || 'Sin correo'}</p>
+                          </div>
+                        </button>
+                        
+                        {/* Botón de Eliminación (Solo visible al hacer hover) */}
+                        <button
+                          onClick={(e) => handleDeletePatient(e, p)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          title="Eliminar paciente"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
