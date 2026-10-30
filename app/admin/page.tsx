@@ -15,8 +15,8 @@ import {
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 type TabType = 
@@ -168,10 +168,10 @@ export default function AdminSuitePage() {
   // --- REPORTES (FILTROS) ---
   const [reportPeriod, setReportPeriod] = useState<'mes' | 'trimestre' | 'anio'>('mes');
 
-  // --- MODAL NUEVA CITA ---
+  // --- MODAL NUEVA CITA (Inicializado vacío para evitar error de prerender en Next.js) ---
   const [apptPatientName, setApptPatientName] = useState('');
   const [apptPatientEmail, setApptPatientEmail] = useState('');
-  const [apptDate, setApptDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [apptDate, setApptDate] = useState('');
   const [apptTime, setApptTime] = useState('10:00');
   const [apptModality, setApptModality] = useState<'online' | 'presencial'>('presencial');
   const [apptTherapist, setApptTherapist] = useState('');
@@ -179,13 +179,16 @@ export default function AdminSuitePage() {
   const [apptPaymentStatus, setApptPaymentStatus] = useState<'pagado' | 'pendiente'>('pagado');
   const [savingAppt, setSavingAppt] = useState(false);
 
-  // 1. Inicialización de Sesión y Datos
+  // 1. Inicialización de Sesión, Fecha Cliente y Datos
   useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    setApptDate(todayStr);
+
     async function initAuth() {
       const { data: { session: activeSession } } = await supabase.auth.getSession();
       setSession(activeSession);
       if (activeSession?.user) {
-        await fetchDoctorProfile(activeSession.user);
+        await fetchDoctorProfile(activeSession.user, todayStr);
       }
       setAuthLoading(false);
     }
@@ -193,14 +196,14 @@ export default function AdminSuitePage() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession);
-      if (newSession?.user) await fetchDoctorProfile(newSession.user);
+      if (newSession?.user) await fetchDoctorProfile(newSession.user, todayStr);
       else setProfile(null);
     });
 
     return () => authListener.subscription.unsubscribe();
   }, []);
 
-  async function fetchDoctorProfile(user: any) {
+  async function fetchDoctorProfile(user: any, todayStr: string) {
     const { data: prof } = await supabase.from('professionals').select('*').eq('email', user.email).maybeSingle();
     const activeCenterId = prof?.center_id || center?.id;
     const doctorName = prof?.name || user.email?.split('@')[0] || 'Jaime Miranda';
@@ -213,11 +216,12 @@ export default function AdminSuitePage() {
       center_id: activeCenterId
     });
 
-    await fetchClinicalData(activeCenterId, doctorName, user.email);
+    await fetchClinicalData(activeCenterId, doctorName, user.email, todayStr);
   }
 
-  async function fetchClinicalData(centerId?: string, defaultDocName?: string, defaultEmail?: string) {
+  async function fetchClinicalData(centerId?: string, defaultDocName?: string, defaultEmail?: string, todayStr?: string) {
     try {
+      const fallbackDate = todayStr || '2026-10-30';
       let apptQuery = supabase.from('appointments').select('*').order('date', { ascending: true });
       let servQuery = supabase.from('services').select('*').order('created_at', { ascending: false });
       let profQuery = supabase.from('professionals').select('*').order('name', { ascending: true });
@@ -233,15 +237,15 @@ export default function AdminSuitePage() {
       const [{ data: appts }, { data: servs }, { data: profs }] = await Promise.all([apptQuery, servQuery, profQuery]);
 
       const seedAppts = appts && appts.length > 0 ? appts : [
-        { id: 'demo-1', patient_name: 'Camila Rojas', patient_email: 'camila@email.com', date: new Date().toISOString().split('T')[0], time: '10:00', modality: 'presencial', box_number: 1, professional_name: defaultDocName || 'Jaime Miranda', status: 'pagado', price: 35000 },
-        { id: 'demo-2', patient_name: 'Diego Muñoz', patient_email: 'diego@email.com', date: new Date().toISOString().split('T')[0], time: '11:00', modality: 'online', box_number: null, professional_name: defaultDocName || 'Jaime Miranda', status: 'pendiente', meet_link: 'https://meet.google.com/new', price: 35000 },
-        { id: 'demo-3', patient_name: 'Valentina Soto', patient_email: 'valentina@email.com', date: new Date().toISOString().split('T')[0], time: '16:00', modality: 'presencial', box_number: 2, professional_name: 'Dra. Sofía Vega', status: 'pagado', price: 45000 }
+        { id: 'demo-1', patient_name: 'Camila Rojas', patient_email: 'camila@email.com', date: fallbackDate, time: '10:00', modality: 'presencial', box_number: 1, professional_name: defaultDocName || 'Jaime Miranda', status: 'pagado', price: 35000 },
+        { id: 'demo-2', patient_name: 'Diego Muñoz', patient_email: 'diego@email.com', date: fallbackDate, time: '11:00', modality: 'online', box_number: null, professional_name: defaultDocName || 'Jaime Miranda', status: 'pendiente', meet_link: 'https://meet.google.com/new', price: 35000 },
+        { id: 'demo-3', patient_name: 'Valentina Soto', patient_email: 'valentina@email.com', date: fallbackDate, time: '16:00', modality: 'presencial', box_number: 2, professional_name: 'Dra. Sofía Vega', status: 'pagado', price: 45000 }
       ];
       setAppointments(seedAppts);
 
       const uniquePats = Array.from(new Map(seedAppts.map((a: any) => [a.patient_email || a.patient_name, a])).values());
       setPatientsList(uniquePats);
-      if (uniquePats.length > 0 && !selectedPatient) setSelectedPatient(uniquePats[0]);
+      if (uniquePats.length > 0) setSelectedPatient(uniquePats[0]);
 
       const seedProfs = profs && profs.length > 0 ? profs.map((p: any) => ({ ...p, status: p.status || 'activos' })) : [
         { id: 'p-1', name: defaultDocName || 'Jaime Miranda', email: defaultEmail || 'admin@kairos.cl', specialty: 'Psicología Clínica', role: 'admin', status: 'activos' },
@@ -428,6 +432,7 @@ export default function AdminSuitePage() {
     if (!rawNotes.trim() && mode === 'ficha') return;
     setAiLoading(true);
     const pName = selectedPatient?.patient_name || 'Paciente';
+    const currentDateFormatted = new Date().toLocaleDateString('es-CL');
 
     try {
       const res = await fetch('/api/ia', {
@@ -448,16 +453,16 @@ export default function AdminSuitePage() {
         const structured =
           `📋 EVOLUCIÓN PSICOLÓGICA ESTRUCTURADA (IA)\n` +
           `• Paciente: ${pName}\n` +
-          `• Fecha: ${new Date().toLocaleDateString('es-CL')}\n` +
+          `• Fecha: ${currentDateFormatted}\n` +
           `• Motivo y Estado Mental: Paciente lúcido, orientado. Discurso centrado en: "${rawNotes}".\n` +
           `• Intervención Clínica: Escucha activa, psicoeducación, reestructuración cognitiva y validación emocional.\n` +
           `• Acuerdos y Plan Terapéutico: Continuar seguimiento semanal y ejercicios de autorregistro.`;
         setAiStructuredNotes(structured);
       } else {
         const templates = {
-          asistencia: `CERTIFICADO DE ASISTENCIA PSICOLÓGICA\n\nSe certifica que ${pName} asistió a sesión de psicoterapia en ${center?.name || 'Kairós Clínico'} el día ${new Date().toLocaleDateString('es-CL')}.\n\nSe extiende el presente documento a petición del interesado para los fines que estime convenientes.\n\n___________________________\n${profile?.name}\nPsicólogo(a) Clínico(a)`,
+          asistencia: `CERTIFICADO DE ASISTENCIA PSICOLÓGICA\n\nSe certifica que ${pName} asistió a sesión de psicoterapia en ${center?.name || 'Kairós Clínico'} el día ${currentDateFormatted}.\n\nSe extiende el presente documento a petición del interesado para los fines que estime convenientes.\n\n___________________________\n${profile?.name}\nPsicólogo(a) Clínico(a)`,
           reposo: `CERTIFICADO DE SUGERENCIA DE REPOSO PSICOLÓGICO\n\nCertifico que ${pName} se encuentra en tratamiento psicológico activo en ${center?.name || 'Kairós Clínico'}. Basado en la evaluación clínica actual (${rawNotes || 'cuadro de estrés agudo'}), se sugiere adecuación de carga y pausa laboral/académica por 72 horas.\n\n___________________________\n${profile?.name}\nEspecialista en Salud Mental`,
-          informe: `INFORME CLÍNICO BREVE DE EVOLUCIÓN\n\nPaciente: ${pName}\nFecha: ${new Date().toLocaleDateString('es-CL')}\n\nSíntesis de evolución: El/la paciente mantiene adherencia adecuada al proceso psicoterapéutico, trabajando en regulación emocional y afrontamiento adaptativo.\n\n___________________________\n${profile?.name}\nEquipo ${center?.name || 'Kairós Clínico'}`
+          informe: `INFORME CLÍNICO BREVE DE EVOLUCIÓN\n\nPaciente: ${pName}\nFecha: ${currentDateFormatted}\n\nSíntesis de evolución: El/la paciente mantiene adherencia adecuada al proceso psicoterapéutico, trabajando en regulación emocional y afrontamiento adaptativo.\n\n___________________________\n${profile?.name}\nEquipo ${center?.name || 'Kairós Clínico'}`
         };
         setCertificateText(templates[certTemplate]);
       }
