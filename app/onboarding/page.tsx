@@ -1,342 +1,388 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Building2, User, Palette, CheckCircle, ArrowRight, 
-  ArrowLeft, Loader2, ShieldCheck, AlertCircle, DoorOpen 
+  ShieldCheck, Building2, User, Mail, Lock, 
+  ArrowRight, ArrowLeft, Loader2, AlertCircle, LogOut, CheckCircle2 
 } from 'lucide-react';
-import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
-const supabase = createClient(supabaseUrl, supabaseKey);
+export default function OnboardingCenterPage() {
+  const router = useRouter();
 
-export default function OnboardingSaaS() {
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [slugError, setSlugError] = useState('');
+  const [step, setStep] = useState<1 | 2>(1);
+  const [activeUser, setActiveUser] = useState<any>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // Modalidad: Profesional Independiente vs Centro Clínico
-  const [accountType, setAccountType] = useState<'independiente' | 'centro'>('independiente');
-  const [boxesCount, setBoxesCount] = useState<number>(1);
-
+  // Paso 1: Datos del Centro Clínico
   const [centerName, setCenterName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [primaryColor, setPrimaryColor] = useState('#2C4A3B');
-  const [accentColor, setAccentColor] = useState('#5F8575');
+  const [centerSlug, setCenterSlug] = useState('');
+  const [boxesCount, setBoxesCount] = useState(2);
 
-  const [adminName, setAdminName] = useState('');
+  // Paso 2: Datos del Director Clínico (vacíos por defecto, sin hardcodeos)
+  const [directorName, setDirectorName] = useState('');
   const [specialty, setSpecialty] = useState('Psicología Clínica');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Detecta si el usuario hizo clic en "Independiente" o "Centro" desde la portada
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 1. Detectar si ya hay una sesión activa de Supabase
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const t = params.get('type');
-      if (t === 'centro') {
-        setAccountType('centro');
-        setBoxesCount(4);
-      } else if (t === 'independiente') {
-        setAccountType('independiente');
-        setBoxesCount(1);
+    async function checkCurrentSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setActiveUser(session.user);
+        }
+      } catch (err) {
+        console.error('Error revisando sesión:', err);
+      } finally {
+        setCheckingAuth(false);
       }
     }
+    checkCurrentSession();
   }, []);
 
-  const handleSelectAccountType = (type: 'independiente' | 'centro') => {
-    setAccountType(type);
-    setBoxesCount(type === 'independiente' ? 1 : 4);
+  // Forzar cierre de sesión si se quiere crear un centro con otro correo
+  const handleForceLogout = async () => {
+    await supabase.auth.signOut();
+    setActiveUser(null);
+    setEmail('');
+    setPassword('');
+    setErrorMessage(null);
   };
 
-  const handleCenterNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setCenterName(val);
-    setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
-    setSlugError('');
-  };
-
-  const validateAndProceed = async () => {
-    if (!centerName || !slug) return;
-    setLoading(true);
-    setSlugError('');
-
-    try {
-      const { data } = await supabase
-        .from('centers')
-        .select('id')
-        .eq('slug', slug)
-        .maybeSingle();
-
-      if (data) {
-        setSlugError(`La URL /${slug} ya está en uso. Por favor elige otra.`);
-      } else {
-        if (accountType === 'independiente' && !adminName) {
-          setAdminName(centerName);
-        }
-        setStep(2);
-      }
-    } catch {
-      setStep(2);
-    } finally {
-      setLoading(false);
+  const handleNextStep = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!centerName.trim()) {
+      setErrorMessage('Ingresa el nombre de tu centro o consulta.');
+      return;
     }
+    setErrorMessage(null);
+    setStep(2);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     setLoading(true);
-    setError('');
 
     try {
-      let { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+      let userId = activeUser?.id;
 
-      if (authError && authError.message.includes('already registered')) {
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-        if (loginError) throw new Error('El correo ya existe. Ingresa la contraseña correcta para vincularlo.');
-        authData = loginData;
-      } else if (authError) {
-        throw new Error(`Auth Error: ${authError.message}`);
+      // CASO A: Registrar nuevo usuario si no hay sesión o si ingresó un correo diferente al activo
+      if (!userId || (activeUser && activeUser.email !== email)) {
+        if (!email.trim() || !password.trim()) {
+          setErrorMessage('Debes completar el correo y contraseña.');
+          setLoading(false);
+          return;
+        }
+
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password: password,
+          options: {
+            data: {
+              full_name: directorName,
+              specialty: specialty,
+            },
+          },
+        });
+
+        if (authError) {
+          if (authError.message.toLowerCase().includes('already registered')) {
+            setErrorMessage(
+              'Este correo ya tiene una cuenta en el sistema. Inicia sesión con su contraseña o pulsa "Cerrar sesión activa" para usar otro correo.'
+            );
+            setLoading(false);
+            return;
+          }
+          throw authError;
+        }
+
+        userId = authData.user?.id;
       }
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) throw new Error('Sesión no iniciada. Verifica tener desactivado "Confirm Email" en Supabase.');
+      if (!userId) {
+        throw new Error('No se pudo verificar la identidad del usuario.');
+      }
 
-      const { data: centerData, error: centerError } = await supabase
+      // 2. Crear el nuevo Centro en la tabla centers
+      const slugVal = (centerSlug || centerName)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+
+      const { data: newCenter, error: centerError } = await supabase
         .from('centers')
-        .insert([{ 
-          name: centerName, 
-          slug, 
-          primary_color: primaryColor, 
-          accent_color: accentColor,
-          boxes_count: accountType === 'independiente' ? 1 : boxesCount
-        }])
+        .insert([
+          {
+            name: centerName.trim(),
+            slug: slugVal,
+            boxes_count: boxesCount,
+          },
+        ])
         .select()
         .single();
 
-      if (centerError) throw new Error(`DB Error (Centers): ${centerError.message}`);
+      if (centerError) throw centerError;
 
-      const { error: profError } = await supabase
-        .from('professionals')
-        .insert([{ 
-          center_id: centerData.id, 
-          name: adminName || centerName, 
-          email: email,
+      // 3. Crear el registro del Director Clínico vinculado al nuevo centro
+      const { error: profError } = await supabase.from('professionals').insert([
+        {
+          name: directorName || 'Director Clínico',
+          email: (activeUser ? activeUser.email : email).trim().toLowerCase(),
           specialty: specialty,
-          role: 'admin'
-        }]);
+          role: 'admin',
+          center_id: newCenter.id,
+          status: 'activo',
+        },
+      ]);
 
-      if (profError) throw new Error(`DB Error (Profs): ${profError.message}`);
+      if (profError) throw profError;
 
-      setStep(4);
+      // Redirigir al dashboard administrativo del nuevo centro
+      router.push('/admin');
     } catch (err: any) {
-      setError(err.message);
+      console.error('Error al registrar centro:', err);
+      setErrorMessage(err.message || 'Ocurrió un error al crear el centro.');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#F9F8F6] font-sans text-stone-800 flex flex-col items-center justify-center p-4 selection:bg-[#E4ECE7]">
-      
-      <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 hover:opacity-80 transition-opacity">
-        <ShieldCheck className="text-[#2C4A3B]" size={24} />
-        <span className="font-bold tracking-tight text-stone-900">Kairós Partners</span>
-      </Link>
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
+        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
+      </div>
+    );
+  }
 
+  return (
+    <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4 font-sans text-stone-800">
       <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100 p-8 sm:p-10 relative overflow-hidden"
+        initial={{ opacity: 0, y: 15 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="w-full max-w-md bg-white rounded-[2.5rem] p-8 sm:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-100 space-y-6"
       >
-        {step < 4 && (
-          <div className="flex justify-between mb-8 gap-2">
-            {[1, 2, 3].map((s) => (
-              <div key={s} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${step >= s ? 'bg-[#2C4A3B]' : 'bg-stone-100'}`} />
-            ))}
+        {/* Barra de progreso */}
+        <div className="flex items-center gap-2">
+          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 1 ? 'bg-[#2C4A3B]' : 'bg-stone-200'}`} />
+          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step === 2 ? 'bg-[#2C4A3B]' : 'bg-stone-200'}`} />
+        </div>
+
+        {/* Icono de Seguridad */}
+        <div className="h-12 w-12 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center">
+          {step === 1 ? <Building2 size={22} /> : <ShieldCheck size={22} />}
+        </div>
+
+        {/* Aviso de sesión detectada */}
+        {activeUser && (
+          <div className="p-3.5 bg-amber-50/80 border border-amber-200/60 rounded-2xl text-xs space-y-2">
+            <p className="text-amber-900 font-medium leading-relaxed">
+              Sesión activa detectada: <strong>{activeUser.email}</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={handleForceLogout}
+              className="text-amber-800 underline font-bold flex items-center gap-1 hover:text-amber-950"
+            >
+              <LogOut size={13} /> Cerrar sesión para registrar otro correo
+            </button>
           </div>
         )}
 
         <AnimatePresence mode="wait">
+          {/* PASO 1: DATOS DEL CENTRO */}
           {step === 1 && (
-            <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+            <motion.form 
+              key="step1" 
+              initial={{ opacity: 0, x: -10 }} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: 10 }} 
+              onSubmit={handleNextStep} 
+              className="space-y-4"
+            >
               <div>
-                <h2 className="text-2xl font-bold text-stone-900">Configura tu Cuenta</h2>
-                <p className="text-sm text-stone-500 mt-1">Elige cómo trabajas para adaptar tu panel clínico.</p>
+                <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Tu Centro Clínico</h1>
+                <p className="text-xs text-stone-400 mt-0.5">Configura el espacio donde operará tu equipo y boxes.</p>
               </div>
 
-              {/* Selector Independiente vs Centro */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleSelectAccountType('independiente')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all ${
-                    accountType === 'independiente' 
-                      ? 'border-[#2C4A3B] bg-[#F4F7F5]/80 shadow-2xs' 
-                      : 'border-stone-200 hover:bg-stone-50'
-                  }`}
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Nombre del Centro / Consulta *
+                </label>
+                <input 
+                  type="text" 
+                  required 
+                  autoComplete="off"
+                  placeholder="Ej: Centro Terapéutico Los Andes" 
+                  value={centerName} 
+                  onChange={e => {
+                    setCenterName(e.target.value);
+                    setCenterSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-'));
+                  }} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Identificador URL (Slug)
+                </label>
+                <input 
+                  type="text" 
+                  autoComplete="off"
+                  placeholder="centro-los-andes" 
+                  value={centerSlug} 
+                  onChange={e => setCenterSlug(e.target.value)} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Cantidad Inicial de Boxes Físicos
+                </label>
+                <select 
+                  value={boxesCount} 
+                  onChange={e => setBoxesCount(Number(e.target.value))}
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20"
                 >
-                  <User size={18} className="text-[#2C4A3B] mb-1.5" />
-                  <p className="font-bold text-xs text-stone-900">Independiente</p>
-                  <p className="text-[10px] text-stone-500">Atiendo por mi cuenta</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSelectAccountType('centro')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all ${
-                    accountType === 'centro' 
-                      ? 'border-[#2C4A3B] bg-[#F4F7F5]/80 shadow-2xs' 
-                      : 'border-stone-200 hover:bg-stone-50'
-                  }`}
-                >
-                  <Building2 size={18} className="text-[#2C4A3B] mb-1.5" />
-                  <p className="font-bold text-xs text-stone-900">Centro Clínico</p>
-                  <p className="text-[10px] text-stone-500">Equipo y varios boxes</p>
-                </button>
+                  <option value={1}>1 Box de Atención</option>
+                  <option value={2}>2 Boxes Activos</option>
+                  <option value={3}>3 Boxes Activos</option>
+                  <option value={4}>4 Boxes Activos</option>
+                  <option value={5}>5+ Boxes (Clínica Grande)</option>
+                </select>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">
-                    {accountType === 'independiente' ? 'Tu Nombre Profesional o Consulta' : 'Nombre de la Clínica / Centro'}
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder={accountType === 'independiente' ? 'Ej: Ps. Camila Rojas' : 'Ej: Centro Clínico Vital'} 
-                    className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white focus:ring-2 focus:ring-[#5F8575]/20 outline-none transition-all" 
-                    value={centerName} 
-                    onChange={handleCenterNameChange} 
-                    autoFocus 
-                  />
+              {errorMessage && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0" />
+                  <span>{errorMessage}</span>
                 </div>
+              )}
 
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">
-                    Link de tu Agenda y Vitrina
-                  </label>
-                  <div className={`flex items-center border rounded-xl overflow-hidden bg-stone-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#5F8575]/20 transition-all ${slugError ? 'border-red-300 ring-red-100' : 'border-stone-200'}`}>
-                    <span className="px-3 text-sm text-stone-400 border-r border-stone-200 bg-stone-100">kairos.cl/</span>
-                    <input type="text" className="w-full p-3.5 text-sm bg-transparent outline-none text-stone-600 font-medium" value={slug} onChange={(e) => {setSlug(e.target.value); setSlugError('');}} />
-                  </div>
-                  {slugError && <p className="text-[11px] text-red-500 mt-1.5 pl-1 flex items-center gap-1 font-medium"><AlertCircle size={12}/> {slugError}</p>}
-                </div>
-
-                {accountType === 'centro' && (
-                  <div>
-                    <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block flex items-center gap-1">
-                      <DoorOpen size={12} /> Cantidad de Boxes Físicos del Centro
-                    </label>
-                    <input 
-                      type="number" 
-                      min={1} 
-                      max={30} 
-                      value={boxesCount} 
-                      onChange={(e) => setBoxesCount(Number(e.target.value))}
-                      className="w-full border border-stone-200 p-3 rounded-xl text-sm bg-stone-50 outline-none"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <button onClick={validateAndProceed} disabled={!centerName || !slug || loading} className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center gap-2 disabled:opacity-70 hover:bg-[#233b2f] transition-colors">
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <>Continuar <ArrowRight size={16} /></>}
+              <button 
+                type="submit" 
+                className="w-full bg-[#2C4A3B] text-white font-bold text-xs py-4 rounded-2xl hover:bg-[#233b2f] transition-all flex items-center justify-center gap-2 shadow-xs"
+              >
+                Continuar a Director Clínico <ArrowRight size={15} />
               </button>
-            </motion.div>
+            </motion.form>
           )}
 
+          {/* PASO 2: DATOS DEL DIRECTOR CLÍNICO */}
           {step === 2 && (
-            <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+            <motion.form 
+              key="step2" 
+              initial={{ opacity: 0, x: 10 }} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: -10 }} 
+              onSubmit={handleRegister} 
+              className="space-y-4"
+              autoComplete="off"
+            >
               <div>
-                <div className="w-12 h-12 bg-[#F4F7F5] rounded-xl flex items-center justify-center text-[#2C4A3B] mb-4 border border-[#E4ECE7]"><Palette size={24} /></div>
-                <h2 className="text-2xl font-bold text-stone-900">Identidad Visual</h2>
-                <p className="text-sm text-stone-500 mt-1">Personaliza los colores que verán tus pacientes al agendar.</p>
+                <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cuenta de Director Clínico[cite: 18]</h1>
+                <p className="text-xs text-stone-400 mt-0.5">Configura tu acceso al panel maestro y fichas con IA.[cite: 18]</p>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Color Principal</label>
-                  <div className="flex gap-3 items-center">
-                    <input type="color" className="h-12 w-12 rounded-xl cursor-pointer border-0 bg-transparent p-0" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} />
-                    <input type="text" className="flex-1 border border-stone-200 p-3 rounded-xl text-sm bg-stone-50 uppercase font-mono text-stone-600" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Color Secundario (Acentos)</label>
-                  <div className="flex gap-3 items-center">
-                    <input type="color" className="h-12 w-12 rounded-xl cursor-pointer border-0 bg-transparent p-0" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} />
-                    <input type="text" className="flex-1 border border-stone-200 p-3 rounded-xl text-sm bg-stone-50 uppercase font-mono text-stone-600" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button onClick={() => setStep(1)} className="px-4 py-3 rounded-xl border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"><ArrowLeft size={18} /></button>
-                <button onClick={() => setStep(3)} className="flex-1 bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center gap-2 hover:bg-[#233b2f] transition-colors">Continuar <ArrowRight size={16} /></button>
-              </div>
-            </motion.div>
-          )}
-
-          {step === 3 && (
-            <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
               <div>
-                <div className="w-12 h-12 bg-[#F4F7F5] rounded-xl flex items-center justify-center text-[#2C4A3B] mb-4 border border-[#E4ECE7]"><User size={24} /></div>
-                <h2 className="text-2xl font-bold text-stone-900">
-                  {accountType === 'independiente' ? 'Tus Credenciales Clínicas' : 'Cuenta de Director Clínico'}
-                </h2>
-                <p className="text-sm text-stone-500 mt-1">Configura tu acceso al panel maestro y fichas con IA.</p>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Tu Nombre y Apellido *[cite: 18]
+                </label>
+                <input 
+                  type="text" 
+                  required 
+                  autoComplete="off"
+                  placeholder="Ej: Sofía Valdés" 
+                  value={directorName} 
+                  onChange={e => setDirectorName(e.target.value)} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
               </div>
 
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Tu Nombre y Apellido</label>
-                  <input type="text" required className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Especialidad</label>
-                  <input type="text" required className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={specialty} onChange={(e) => setSpecialty(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Correo de Acceso</label>
-                  <input type="email" required className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-stone-400 uppercase tracking-widest pl-1 mb-1 block">Contraseña Segura</label>
-                  <input type="password" required minLength={6} className="w-full border border-stone-200 p-3.5 rounded-xl text-sm bg-stone-50 focus:bg-white outline-none" value={password} onChange={(e) => setPassword(e.target.value)} />
-                </div>
-
-                {error && <p className="text-[11px] text-red-500 bg-red-50 p-3 rounded-lg border border-red-100 font-medium flex items-start gap-2"><AlertCircle size={14} className="shrink-0 mt-0.5"/> <span>{error}</span></p>}
-
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setStep(2)} className="px-4 py-3 rounded-xl border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"><ArrowLeft size={18} /></button>
-                  <button type="submit" disabled={loading} className="flex-1 bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center gap-2 hover:bg-[#233b2f] transition-colors disabled:opacity-70">
-                    {loading ? <Loader2 size={18} className="animate-spin" /> : (accountType === 'independiente' ? 'Crear mi Consulta' : 'Finalizar y Crear Centro')}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          )}
-
-          {step === 4 && (
-            <motion.div key="step4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 space-y-4">
-              <div className="w-20 h-20 bg-[#F4F7F5] text-[#5F8575] rounded-full flex items-center justify-center mx-auto border border-[#E4ECE7] mb-6">
-                <CheckCircle size={40} />
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Especialidad[cite: 18]
+                </label>
+                <input 
+                  type="text" 
+                  autoComplete="off"
+                  placeholder="Psicología Clínica / Psiquiatría"[cite: 18]
+                  value={specialty} 
+                  onChange={e => setSpecialty(e.target.value)} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
               </div>
-              <h2 className="text-3xl font-bold text-stone-900">¡Todo listo!</h2>
-              <p className="text-sm text-stone-500 max-w-xs mx-auto leading-relaxed">
-                Tu espacio <strong>{centerName}</strong> ha sido configurado exitosamente. Ya puedes entrar a tu panel clínico.
-              </p>
-              
-              <div className="pt-6">
-                <Link href="/admin" className="w-full bg-[#2C4A3B] text-white font-medium py-3.5 rounded-xl flex justify-center items-center hover:bg-[#233b2f] transition-colors">
-                  Ir a mi Panel de Control
-                </Link>
+
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Correo de Acceso *[cite: 18]
+                </label>
+                <input 
+                  type="email" 
+                  required 
+                  autoComplete="new-password"
+                  placeholder="nuevo.director@correo.cl" 
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
               </div>
-            </motion.div>
+
+              <div>
+                <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
+                  Contraseña Segura *[cite: 18]
+                </label>
+                <input 
+                  type="password" 
+                  required 
+                  autoComplete="new-password"
+                  placeholder="Mínimo 8 caracteres" 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                />
+              </div>
+
+              {errorMessage && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setStep(1)} 
+                  className="p-3.5 border border-stone-200 text-stone-600 rounded-xl hover:bg-stone-50 transition-colors"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 bg-[#2C4A3B] text-white font-bold text-xs py-4 rounded-2xl hover:bg-[#233b2f] transition-all flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" /> Creando Centro...
+                    </>
+                  ) : (
+                    'Finalizar y Crear Centro'[cite: 18]
+                  )}
+                </button>
+              </div>
+            </motion.form>
           )}
         </AnimatePresence>
       </motion.div>
