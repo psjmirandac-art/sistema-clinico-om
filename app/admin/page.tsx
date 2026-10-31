@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -56,13 +56,35 @@ export default function AdminSuitePage() {
 
   const [activeTab, setActiveTab] = useState<TabType>('agenda');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('mes');
+  
+  // Modales
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
+  const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
+  const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
+  
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3200);
   };
+
+  // Cierre global por tecla Escape
+  const closeAllModals = useCallback(() => {
+    setIsNewApptModalOpen(false);
+    setIsNewPatientModalOpen(false);
+    setIsNewServiceModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeAllModals();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closeAllModals]);
 
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -73,14 +95,12 @@ export default function AdminSuitePage() {
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
   
-  // Manejo blindado de fecha para SSR
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [todayString, setTodayString] = useState<string>('');
 
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [searchPatient, setSearchPatient] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
-  const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
   const [reviewsList, setReviewsList] = useState<any[]>([]);
@@ -91,7 +111,6 @@ export default function AdminSuitePage() {
   const [customBroadcastMsg, setCustomBroadcastMsg] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
-  const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newServiceDuration, setNewServiceDuration] = useState('50');
@@ -400,7 +419,6 @@ export default function AdminSuitePage() {
     );
   }
 
-  // --- HELPERS DE FECHA CLIENT-SIDE SEGUROS ---
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
   const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -1201,8 +1219,17 @@ export default function AdminSuitePage() {
       {/* MODAL NUEVO PACIENTE */}
       <AnimatePresence>
         {isNewPatientModalOpen && (
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
+          <div 
+            onClick={() => setIsNewPatientModalOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          >
+            <motion.div 
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5"
+            >
               <div className="flex justify-between items-center">
                 <h3 className="font-bold text-lg text-stone-900">Inscribir Nuevo Paciente</h3>
                 <button onClick={() => setIsNewPatientModalOpen(false)}><X size={20}/></button>
@@ -1219,8 +1246,17 @@ export default function AdminSuitePage() {
       {/* MODAL NUEVO SERVICIO */}
       <AnimatePresence>
         {isNewServiceModalOpen && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5">
+          <div 
+            onClick={() => setIsNewServiceModalOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          >
+            <motion.div 
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5"
+            >
               <div className="flex justify-between items-center border-b border-stone-100 pb-4">
                 <h3 className="font-bold text-lg text-stone-900">Crear Nuevo Servicio</h3>
                 <button onClick={() => setIsNewServiceModalOpen(false)} className="text-stone-400 hover:text-stone-700"><X size={20}/></button>
@@ -1253,18 +1289,32 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL DE ADMISIÓN DE PACIENTE */}
+      {/* MODAL DE ADMISIÓN DE PACIENTE (CIERRE POR ESC O CLICK AFUERA) */}
       <AnimatePresence>
         {isNewApptModalOpen && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-2xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
-              
+          <div 
+            onClick={() => setIsNewApptModalOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div 
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-[2rem] max-w-2xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
               <div className="flex justify-between items-center border-b border-stone-100 pb-4">
                 <div>
                   <h3 className="font-bold text-xl text-stone-900">Admisión de Nuevo Paciente y Cita</h3>
                   <p className="text-xs text-stone-400 mt-0.5">Completa los datos clínicos requeridos para la ficha y agendamiento.</p>
                 </div>
-                <button onClick={() => setIsNewApptModalOpen(false)} className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-50"><X size={20}/></button>
+                <button 
+                  onClick={() => setIsNewApptModalOpen(false)} 
+                  className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-50"
+                  title="Cerrar (Esc)"
+                >
+                  <X size={20}/>
+                </button>
               </div>
 
               <form onSubmit={handleCreateAppointment} className="space-y-6">
