@@ -1,17 +1,16 @@
 import type { Metadata, Viewport } from 'next';
-import { Plus_Jakarta_Sans } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import './globals.css';
 import { TenantProvider } from '@/providers/TenantProvider';
 
-const plusJakarta = Plus_Jakarta_Sans({
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-plus-jakarta',
   display: 'swap',
-  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-inter',
 });
 
 export const viewport: Viewport = {
-  themeColor: '#2C4A3B',
+  themeColor: '#F9F8F6',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -20,28 +19,24 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.kairosclinico.cl'),
   title: {
-    default: 'Kairós Clínico | Suite de Gestión en Salud Mental',
+    default: 'Kairós Clínico | Suite de Gestión y Agendamiento en Salud Mental',
     template: '%s | Kairós Clínico',
   },
   description:
-    'Plataforma integral y confidencial de agendamiento, fichas clínicas con IA y administración para profesionales de la salud mental.',
+    'Plataforma integral de gestión clínica, agenda y boxes para profesionales e instituciones de salud mental.',
   applicationName: 'Kairós Clínico',
-  authors: [{ name: 'Kairós Clínico' }],
+  authors: [{ name: 'Kairós Clínico SpA' }],
   keywords: [
-    'salud mental',
-    'agenda psicológica',
-    'fichas clínicas',
-    'psicoterapia',
-    'gestión de boxes',
-    'chile',
+    'Salud Mental',
+    'Psicología',
+    'Psiquiatría',
+    'Ficha Clínica',
+    'Agendamiento Médico',
+    'Chile',
   ],
-  alternates: {
-    canonical: 'https://www.kairosclinico.cl',
-  },
   openGraph: {
-    title: 'Kairós Clínico | Suite de Gestión en Salud Mental',
-    description:
-      'Agendamiento profesional, asignación dinámica de salas y resúmenes clínicos estructurados con IA.',
+    title: 'Kairós Clínico | Salud Mental',
+    description: 'Gestión clínica y agendamiento confidencial.',
     url: 'https://www.kairosclinico.cl',
     siteName: 'Kairós Clínico',
     locale: 'es_CL',
@@ -51,6 +46,10 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  verification: {
+    // 🔑 Aquí pegas el código que te entregue Google Search Console (ver paso a paso abajo)
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || <meta name="google-site-verification" content="MNXfBwnUPhzNZFeIaqVabUDrRtZ7oR34psCaWjBmHXs" />,
+  },
 };
 
 export default function RootLayout({
@@ -59,11 +58,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={`${plusJakarta.variable} font-sans`}>
-      <head>
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-      </head>
-      <body className="bg-[#F9F8F6] text-stone-800 antialiased selection:bg-[#2C4A3B] selection:text-white">
+    <html lang="es" className={`${inter.variable} antialiased scroll-smooth`}>
+      <body className="min-h-screen bg-[#F9F8F6] text-stone-800 selection:bg-[#2C4A3B] selection:text-white">
         <TenantProvider>
           {children}
         </TenantProvider>
