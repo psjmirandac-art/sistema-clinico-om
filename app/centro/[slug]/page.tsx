@@ -12,8 +12,8 @@ type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-// Componente de Carga (Skeleton) con estética de lujo
-fn LoadingPortal() {
+// Componente de Carga (Skeleton) corregido con sintaxis estándar function
+function LoadingPortal() {
   return (
     <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center space-y-4">
       <Loader2 className="animate-spin text-[#2C4A3B]" size={36} />
@@ -121,7 +121,6 @@ async function CenterContent({ params }: PageProps) {
   );
 }
 
-// Componente principal envuelto en Suspense para satisfacer el requisito de compilación de Next.js
 export default function CenterPatientPortal({ params }: PageProps) {
   return (
     <Suspense fallback={<LoadingPortal />}>
