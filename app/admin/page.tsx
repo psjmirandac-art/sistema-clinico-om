@@ -12,6 +12,8 @@ import {
   RefreshCw, Download, Store, CheckCircle2, UserCircle, ChevronLeft, 
   ChevronRight, Clock, Building2, ChevronDown, ArrowUpRight, UserCheck, Minus, UserPlus
 } from 'lucide-react';
+
+// EL MÓDULO HIJO IMPORTADO
 import DocumentosTab from '@/components/admin/DocumentosTab';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -1207,7 +1209,10 @@ export default function AdminSuitePage() {
 
             {/* TAB DOCUMENTOS */}
             {activeTab === 'documentos' && (
-              <DocumentosTab centerName={activeCenter?.name || 'la sede'} />
+              <DocumentosTab 
+                centerName={activeCenter?.name || 'la sede'} 
+                centerId={activeCenter?.id} 
+              />
             )}
 
             {/* OTRAS PESTAÑAS (PLACEHOLDERS DE CONFIGURACIÓN) */}
