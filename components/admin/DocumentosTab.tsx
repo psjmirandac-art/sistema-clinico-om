@@ -5,19 +5,17 @@ import { FileText, Download, Plus, File, Trash2, Search, FileBadge, FileHeart, S
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// Tipo que refleja la metadata de un archivo en Supabase Storage
+// ⚠️ CORRECCIÓN: Interfaz alineada exactamente con FileObject de Supabase Storage
 interface ClinicalDoc {
   id: string;
   name: string;
-  type: string;
   created_at: string;
   metadata: {
     size: number;
-    mimetype?: string;
+    mimetype: string;
   };
 }
 
-// ⚠️ CORRECCIÓN DE TIPADO AQUÍ: centerId?: string (con signo de interrogación)
 export default function DocumentosTab({ centerName, centerId }: { centerName: string; centerId?: string }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [documents, setDocuments] = useState<ClinicalDoc[]>([]);
@@ -37,7 +35,6 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
     if (!centerId) return;
     setIsLoading(true);
     try {
-      // Listamos los archivos dentro de la carpeta correspondiente a este centerId
       const { data, error } = await supabase
         .storage
         .from('clinical_documents')
@@ -49,8 +46,19 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
 
       if (error) throw error;
       
-      // Filtramos el archivo '.emptyFolderPlaceholder' que Supabase crea a veces
-      const validDocs = (data || []).filter(doc => doc.name !== '.emptyFolderPlaceholder') as ClinicalDoc[];
+      // Mapeo seguro validando que la metadata exista (Supabase devuelve FileObject[])
+      const validDocs = (data || [])
+        .filter(doc => doc.name !== '.emptyFolderPlaceholder')
+        .map(doc => ({
+          id: doc.id || doc.name,
+          name: doc.name,
+          created_at: doc.created_at || new Date().toISOString(),
+          metadata: {
+            size: doc.metadata?.size || 0,
+            mimetype: doc.metadata?.mimetype || 'application/octet-stream',
+          }
+        })) as ClinicalDoc[];
+
       setDocuments(validDocs);
     } catch (error) {
       console.error('Error al cargar documentos:', error);
@@ -78,7 +86,6 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
     setUploadError(null);
 
     try {
-      // Limpiamos el nombre del archivo para evitar caracteres raros
       const cleanFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
       const filePath = `${centerId}/${Date.now()}_${cleanFileName}`;
 
@@ -91,7 +98,6 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
 
       if (uploadError) throw uploadError;
 
-      // Recargar la lista después de subir
       await fetchDocuments();
       setIsUploadModalOpen(false);
       
@@ -100,11 +106,11 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
       setUploadError("Ocurrió un error al subir el archivo.");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = ''; // Reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Manejar descarga segura (URLs firmadas temporalmente)
+  // Manejar descarga segura
   const handleDownload = async (doc: ClinicalDoc) => {
     if (!centerId) return;
     
@@ -113,11 +119,10 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
     try {
       const { data, error } = await supabase.storage
         .from('clinical_documents')
-        .createSignedUrl(`${centerId}/${doc.name}`, 60); // URL válida por 60 segundos
+        .createSignedUrl(`${centerId}/${doc.name}`, 60);
 
       if (error) throw error;
 
-      // Forzar la descarga en el navegador
       const link = document.createElement('a');
       link.href = data.signedUrl;
       link.download = doc.name;
@@ -146,7 +151,6 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
 
       if (error) throw error;
 
-      // Actualizar estado local
       setDocuments(prev => prev.filter(d => d.name !== doc.name));
       
     } catch (error) {
@@ -170,15 +174,15 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
     return new Date(isoString).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  const getIconForType = (mimeType: string | undefined, fileName: string) => {
+  const getIconForType = (mimeType: string, fileName: string) => {
     const lowerName = fileName.toLowerCase();
     if (lowerName.includes('consentimiento')) return <ShieldCheck size={18} className="text-[#2C4A3B]" />;
     if (lowerName.includes('certificado')) return <FileBadge size={18} className="text-amber-600" />;
     if (lowerName.includes('test') || lowerName.includes('escala')) return <FileHeart size={18} className="text-emerald-600" />;
     
-    if (mimeType?.includes('pdf')) return <FileText size={18} className="text-red-500" />;
-    if (mimeType?.includes('word') || lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) return <FileText size={18} className="text-blue-500" />;
-    if (mimeType?.includes('image')) return <File size={18} className="text-purple-500" />;
+    if (mimeType.includes('pdf')) return <FileText size={18} className="text-red-500" />;
+    if (mimeType.includes('word') || lowerName.endsWith('.docx') || lowerName.endsWith('.doc')) return <FileText size={18} className="text-blue-500" />;
+    if (mimeType.includes('image')) return <File size={18} className="text-purple-500" />;
     
     return <File size={18} className="text-stone-400" />;
   };
@@ -230,14 +234,12 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
             </div>
           ) : (
             filteredDocs.map((doc) => {
-              // Extraer un nombre más limpio (quitando el timestamp que le pondremos al subir)
               const displayName = doc.name.replace(/^\d+_/, ''); 
               const isProcessing = processingDocs[doc.name];
 
               return (
                 <div key={doc.id} className="bg-white rounded-3xl p-5 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 hover:shadow-sm transition-all group relative overflow-hidden">
                   
-                  {/* Overlay de procesamiento */}
                   {isProcessing && (
                     <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center">
                       <Loader2 className="animate-spin text-[#2C4A3B]" size={24} />
@@ -246,7 +248,7 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
 
                   <div className="flex items-start justify-between gap-3">
                     <div className="h-10 w-10 shrink-0 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] flex items-center justify-center">
-                      {getIconForType(doc.metadata?.mimetype, doc.name)}
+                      {getIconForType(doc.metadata.mimetype, doc.name)}
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
@@ -271,9 +273,9 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
                   <div>
                     <h3 className="font-bold text-stone-900 text-sm truncate" title={displayName}>{displayName}</h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-bold text-stone-500 uppercase truncate max-w-[80px]">{(doc.metadata?.mimetype || 'Archivo').split('/')[1] || 'Archivo'}</span>
+                      <span className="text-[10px] font-bold text-stone-500 uppercase truncate max-w-[80px]">{doc.metadata.mimetype.split('/')[1] || 'Archivo'}</span>
                       <span className="text-[10px] text-stone-400">•</span>
-                      <span className="text-[10px] text-stone-400">{formatFileSize(doc.metadata?.size)}</span>
+                      <span className="text-[10px] text-stone-400">{formatFileSize(doc.metadata.size)}</span>
                     </div>
                   </div>
                   
@@ -330,7 +332,6 @@ export default function DocumentosTab({ centerName, centerId }: { centerName: st
                       <p className="text-sm font-semibold text-stone-700">Haz clic para seleccionar un archivo</p>
                       <p className="text-xs text-stone-500 mt-1">Los documentos se encriptan en tránsito.</p>
                     </div>
-                    {/* Input file oculto */}
                     <input 
                       type="file" 
                       ref={fileInputRef}
