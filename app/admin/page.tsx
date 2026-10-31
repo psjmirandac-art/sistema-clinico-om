@@ -4,13 +4,13 @@ import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Home, Calendar, Users, Briefcase, LogOut, ShieldCheck, 
+  Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
   Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
   X, Loader2, Lock, DoorOpen, UserPlus, Check, 
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, Send, DollarSign, ArrowUpRight, Star
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, Send, DollarSign, ArrowUpRight
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -25,7 +25,7 @@ type TabType =
   | 'pacientes' 
   | 'comunicaciones' 
   | 'finanzas' 
-  | 'resenas' 
+  | 'resenas'
   | 'reportes' 
   | 'documentos' 
   | 'vitrina' 
@@ -76,8 +76,8 @@ export default function AdminSuitePage() {
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
-  // --- ESTADOS VACÍOS REALES PARA EVALUACIONES / RESEÑAS ---
-  const [reviewsList] = useState<any[]>([]);
+  // --- EVALUACIONES REALES (INICIAN VACÍAS) ---
+  const [reviewsList, setReviewsList] = useState<any[]>([]);
 
   // --- ESTADOS COMUNICACIONES IA ---
   const [waBotActive, setWaBotActive] = useState(true);
@@ -168,14 +168,18 @@ export default function AdminSuitePage() {
       const servQuery = supabase.from('services').select('*').eq('center_id', centerId).order('created_at', { ascending: false });
       const profQuery = supabase.from('professionals').select('*').eq('center_id', centerId).order('name', { ascending: true });
       const centerQuery = supabase.from('centers').select('boxes_count').eq('id', centerId).maybeSingle();
+      const revQuery = supabase.from('reviews').select('*').eq('center_id', centerId).order('created_at', { ascending: false });
 
-      const [{ data: appts }, { data: servs }, { data: profs }, { data: centerInfo }] = await Promise.all([apptQuery, servQuery, profQuery, centerQuery]);
+      const [{ data: appts }, { data: servs }, { data: profs }, { data: centerInfo }, { data: revs }] = await Promise.all([
+        apptQuery, servQuery, profQuery, centerQuery, revQuery
+      ]);
 
       if (centerInfo?.boxes_count) setBoxesCount(centerInfo.boxes_count);
 
       setAppointments(appts || []);
       setTherapists(profs || []);
       setServices(servs || []);
+      setReviewsList(revs || []);
 
       const uniquePats = Array.from(new Map((appts || []).map((a: any) => [a.patient_email || a.patient_name, a])).values());
       setPatientsList(uniquePats);
@@ -351,16 +355,14 @@ export default function AdminSuitePage() {
     setIsRecording(true);
   };
 
-  const handleProcessWithAI = async (mode: 'ficha' | 'certificado') => {
-    if (!rawNotes.trim() && mode === 'ficha') return;
+  const handleProcessWithAI = async (mode: 'ficha') => {
+    if (!rawNotes.trim()) return;
     setAiLoading(true);
     const pName = selectedPatient?.patient_name || 'Paciente';
     const currentDateFormatted = new Date().toLocaleDateString('es-CL');
 
     setTimeout(() => {
-      if (mode === 'ficha') {
-        setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Resumen: ${rawNotes}`);
-      }
+      setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Resumen: ${rawNotes}`);
       setAiLoading(false);
     }, 600);
   };
@@ -401,6 +403,10 @@ export default function AdminSuitePage() {
   const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
   const dynamicGross = (paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0)) * multiplier;
   const dynamicNet = Math.round(dynamicGross * 0.88);
+
+  const averageRating = reviewsList.length > 0 
+    ? (reviewsList.reduce((acc, r) => acc + Number(r.rating || 5), 0) / reviewsList.length).toFixed(1)
+    : '5.0';
 
   if (authLoading || !currentMonthDate) return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="animate-spin text-[#2C4A3B]" size={32} /></div>;
 
@@ -467,6 +473,7 @@ export default function AdminSuitePage() {
             <NavButton tab="pacientes" icon={Users} label="Pacientes y Fichas IA" />
             <NavButton tab="comunicaciones" icon={Megaphone} label="Comunicaciones" badge="IA" />
             <NavButton tab="finanzas" icon={Wallet} label="Finanzas" />
+            <NavButton tab="resenas" icon={Star} label="Evaluaciones" />
             <NavButton tab="reportes" icon={BarChart3} label="Reportes" badge="PRO" />
           </nav>
           <div className="h-px bg-stone-100 mx-2" />
@@ -552,6 +559,64 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
+            {/* TAB EVALUACIONES / RESEÑAS (COMPLETAMENTE LIMPIO Y DINÁMICO) */}
+            {activeTab === 'resenas' && (
+              <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Satisfacción y Feedback</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Evaluaciones de Pacientes</h2>
+                    <p className="text-sm text-stone-500 mt-1">Calificaciones recopiladas de forma automatizada por WhatsApp tras las consultas.</p>
+                  </div>
+                  <div className="flex items-center gap-4 bg-[#F4F7F5] border border-[#E4ECE7] px-5 py-3 rounded-2xl">
+                    <Star className="text-amber-500 fill-amber-500" size={22} />
+                    <div>
+                      <p className="text-lg font-bold text-stone-900 leading-none">{averageRating} / 5.0</p>
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
+                        {reviewsList.length > 0 ? `${reviewsList.length} evaluaciones` : 'Sin evaluaciones'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {reviewsList.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-stone-100 p-16 flex flex-col items-center justify-center text-center shadow-xs">
+                    <div className="h-16 w-16 bg-[#F4F7F5] rounded-2xl flex items-center justify-center text-[#2C4A3B] mb-4 border border-[#E4ECE7]">
+                      <Star size={28} className="text-[#2C4A3B]" />
+                    </div>
+                    <h3 className="text-lg font-bold text-stone-900">Aún no hay evaluaciones registradas</h3>
+                    <p className="text-sm text-stone-500 max-w-md mt-2 leading-relaxed">
+                      Cuando tus pacientes asistan a sus citas, el Asistente WhatsApp IA les enviará una encuesta de satisfacción y sus comentarios aparecerán aquí en tiempo real.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    {reviewsList.map((rev) => (
+                      <div key={rev.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs space-y-4 flex flex-col justify-between hover:border-stone-200 transition-all">
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-stone-900 text-sm">{rev.patient_name || 'Paciente'}</h3>
+                            <span className="text-[11px] text-stone-400">{rev.date || 'Reciente'}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Star key={i} size={14} className={i < rev.rating ? 'text-amber-500 fill-amber-500' : 'text-stone-200'} />
+                            ))}
+                          </div>
+                          <p className="text-xs text-stone-600 italic leading-relaxed">"{rev.comment}"</p>
+                        </div>
+                        <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[11px]">
+                          <span className="text-stone-400">Profesional:</span>
+                          <span className="font-bold text-[#2C4A3B]">{rev.therapist_name || profile?.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* TAB FINANZAS */}
             {activeTab === 'finanzas' && (
               <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -570,7 +635,7 @@ export default function AdminSuitePage() {
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta</p>
                     <p className="text-3xl font-bold text-stone-900">${dynamicGross.toLocaleString('es-CL')}</p>
                     <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold pt-1">
-                      <ArrowUpRight size={14} /> <span>+12% vs mes anterior</span>
+                      <ArrowUpRight size={14} /> <span>Calculado en tiempo real</span>
                     </div>
                   </div>
 
@@ -583,12 +648,13 @@ export default function AdminSuitePage() {
                   <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
                     <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Sesiones Pagadas</p>
                     <p className="text-3xl font-bold text-stone-900">{paidAppointments.length} <span className="text-sm font-normal text-stone-400">citas</span></p>
-                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con pasarela</span>
+                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con base de datos</span>
                   </div>
                 </div>
               </motion.div>
             )}
 
+            {/* TAB COMUNICACIONES */}
             {activeTab === 'comunicaciones' && (
               <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -637,9 +703,26 @@ export default function AdminSuitePage() {
                     <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
                   </div>
                 </div>
+
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs space-y-5">
+                  <h3 className="font-bold text-base text-stone-900">Difusión Masiva o Anuncio a Pacientes</h3>
+                  <form onSubmit={handleSendBroadcast} className="space-y-4">
+                    <textarea 
+                      rows={3} 
+                      value={customBroadcastMsg} 
+                      onChange={e => setCustomBroadcastMsg(e.target.value)} 
+                      placeholder="Escribe un comunicado oficial para todos los pacientes activos (ej: Aviso por feriado o cambio de horario general)..." 
+                      className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-xs outline-none focus:bg-white" 
+                    />
+                    <button type="submit" disabled={sendingBroadcast || !customBroadcastMsg.trim()} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] transition-all disabled:opacity-50">
+                      {sendingBroadcast ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Enviar Difusión por WhatsApp
+                    </button>
+                  </form>
+                </div>
               </motion.div>
             )}
 
+            {/* TAB SERVICIOS */}
             {activeTab === 'servicios' && (
               <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -652,9 +735,39 @@ export default function AdminSuitePage() {
                     <Plus size={16} /> Nuevo Servicio
                   </button>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {services.length === 0 ? (
+                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
+                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
+                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados en el catálogo.</p>
+                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
+                    </div>
+                  ) : (
+                    services.map((srv) => (
+                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
+                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                          </div>
+                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
+                        </div>
+                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium">
+                            <Clock size={14} className="text-[#2C4A3B]" />
+                            <span>{srv.duration || 50} min</span>
+                          </div>
+                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </motion.div>
             )}
 
+            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
@@ -740,6 +853,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
+            {/* TAB PACIENTES Y FICHAS IA */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
