@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, ShieldCheck, CheckCircle2, User, 
   Mail, Phone, FileText, ArrowRight, ArrowLeft, Loader2,
-  Sparkles, Check, ChevronLeft, ChevronRight
+  Sparkles, Check, ChevronLeft, ChevronRight, Video, MapPin
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { env } from '@/lib/env';
@@ -15,7 +16,10 @@ const AVAILABLE_HOURS = [
   '15:00', '16:00', '17:00', '18:00', '19:00'
 ];
 
-export default function BookingClient({ serviceId }: { serviceId: string }) {
+export default function BookingClient() {
+  const params = useParams();
+  const serviceId = (params?.serviceId as string) || '';
+
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loadingService, setLoadingService] = useState(true);
   const [service, setService] = useState<any>(null);
@@ -25,7 +29,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [currentMonthDate, setCurrentMonthDate] = useState<Date | null>(null);
 
-  // Formulario de Admisión Paciente
+  // Formulario de Admisión
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [documentRut, setDocumentRut] = useState('');
@@ -47,29 +51,34 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
     async function loadService() {
       try {
         setLoadingService(true);
-        const { data, error } = await supabase
-          .from('services')
-          .select('*')
-          .eq('id', serviceId)
-          .maybeSingle();
+        if (serviceId) {
+          const { data, error } = await supabase
+            .from('services')
+            .select('*')
+            .eq('id', serviceId)
+            .maybeSingle();
 
-        if (!error && data) {
-          setService(data);
-        } else {
-          setService({
-            id: serviceId,
-            name: 'Psicoterapia Individual Adultos',
-            price: 35000,
-            duration: 50,
-            description: 'Espacio clínico de escucha activa, diagnóstico y acompañamiento terapéutico confidencial.',
-          });
+          if (!error && data) {
+            setService(data);
+            return;
+          }
         }
+
+        // Fallback clínico si el servicio aún no tiene ID en BD
+        setService({
+          id: serviceId || 'default',
+          name: 'Psicoterapia Individual Adultos',
+          price: 35000,
+          duration: 50,
+          description: 'Espacio clínico de contención, diagnóstico y acompañamiento terapéutico confidencial.',
+        });
       } catch (err) {
         console.error('Error cargando servicio:', err);
       } finally {
         setLoadingService(false);
       }
     }
+
     loadService();
   }, [serviceId]);
 
@@ -108,7 +117,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
       setBookingSuccess(true);
     } catch (err) {
       console.error('Error al registrar cita:', err);
-      setBookingSuccess(true); // Fallback optimista para UX
+      setBookingSuccess(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -171,7 +180,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
           ))}
         </div>
 
-        {/* Tarjeta Principal Glassmorphic */}
+        {/* Tarjeta Principal */}
         <div className="bg-white/80 backdrop-blur-md rounded-[2.5rem] border border-stone-200/70 p-6 sm:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
           <AnimatePresence mode="wait">
             
@@ -226,8 +235,10 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                           : 'border-stone-200 bg-white hover:bg-stone-50'
                       }`}
                     >
-                      <p className="font-bold text-sm text-stone-900">Presencial en Centro</p>
-                      <p className="text-xs text-stone-500 mt-1">Atención directa en boxes clínicos climatizados.</p>
+                      <div className="flex items-center gap-2 font-bold text-sm text-stone-900">
+                        <MapPin size={16} className="text-[#2C4A3B]" /> Presencial en Centro
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">Atención directa en boxes clínicos equipados.</p>
                     </button>
                     <button
                       type="button"
@@ -238,8 +249,10 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                           : 'border-stone-200 bg-white hover:bg-stone-50'
                       }`}
                     >
-                      <p className="font-bold text-sm text-stone-900">Online vía Google Meet</p>
-                      <p className="text-xs text-stone-500 mt-1">Enlace seguro enviado automáticamente por WhatsApp y correo.</p>
+                      <div className="flex items-center gap-2 font-bold text-sm text-stone-900">
+                        <Video size={16} className="text-[#2C4A3B]" /> Online (Google Meet)
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">Enlace seguro enviado por WhatsApp y correo.</p>
                     </button>
                   </div>
                 </div>
@@ -255,7 +268,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
               </motion.div>
             )}
 
-            {/* PASO 2: SELECCIÓN DE DÍA Y HORA */}
+            {/* PASO 2: SELECCIÓN DE FECHA Y HORA */}
             {step === 2 && (
               <motion.div
                 key="step2"
@@ -265,7 +278,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                 className="space-y-8"
               >
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  {/* Mini Calendario Terapéutico */}
+                  {/* Calendario */}
                   <div className="lg:col-span-7 space-y-4">
                     <div className="flex items-center justify-between border-b border-stone-100 pb-3">
                       <h3 className="font-bold text-base text-stone-900 capitalize">
@@ -292,7 +305,6 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
 
                       {Array.from({ length: daysInMonth }).map((_, i) => {
                         const dayNum = i + 1;
-                        const dateObj = new Date(currentYear, currentMonth, dayNum);
                         const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
                         const isSelected = selectedDate === dateStr;
 
@@ -317,7 +329,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                     </div>
                   </div>
 
-                  {/* Franjas Horarias Disponibles */}
+                  {/* Franjas Horarias */}
                   <div className="lg:col-span-5 space-y-3">
                     <h3 className="font-bold text-sm text-stone-900 uppercase tracking-wider">
                       Horas Disponibles
@@ -400,7 +412,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[11px] font-bold text-stone-600 block mb-1">RUT / Documento de Identidad *</label>
+                      <label className="text-[11px] font-bold text-stone-600 block mb-1">RUT / Documento *</label>
                       <input
                         type="text"
                         required
@@ -438,7 +450,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] font-bold text-stone-600 block mb-1">Teléfono (WhatsApp de Recordatorio) *</label>
+                      <label className="text-[11px] font-bold text-stone-600 block mb-1">Teléfono (WhatsApp) *</label>
                       <input
                         type="tel"
                         required
@@ -451,7 +463,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-stone-600 block mb-1">Motivo de Consulta (Opcional y Confidencial)</label>
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1">Motivo de Consulta (Confidencial)</label>
                     <textarea
                       rows={2}
                       placeholder="Breve mención de los temas o síntomas que deseas abordar..."
@@ -511,7 +523,7 @@ export default function BookingClient({ serviceId }: { serviceId: string }) {
                     href="/"
                     className="inline-block bg-[#2C4A3B] text-white px-8 py-3.5 rounded-2xl font-bold text-xs hover:bg-[#233b2f] transition-all"
                   >
-                    Volver a Inicio
+                    Volver al Inicio
                   </a>
                 </div>
               </motion.div>

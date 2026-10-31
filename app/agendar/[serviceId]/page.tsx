@@ -7,13 +7,7 @@ export const metadata = {
   description: 'Agenda tu consulta de salud mental de forma confidencial, rápida y segura.',
 };
 
-export default async function BookingPage({
-  params,
-}: {
-  params: Promise<{ serviceId: string }>;
-}) {
-  const resolvedParams = await params;
-
+export default function BookingPage() {
   return (
     <Suspense
       fallback={
@@ -22,7 +16,7 @@ export default async function BookingPage({
         </div>
       }
     >
-      <BookingClient serviceId={resolvedParams.serviceId} />
+      <BookingClient />
     </Suspense>
   );
 }
