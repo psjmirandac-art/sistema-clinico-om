@@ -47,8 +47,8 @@ export const metadata: Metadata = {
     follow: true,
   },
   verification: {
-    // 🔑 Aquí pegas el código que te entregue Google Search Console (ver paso a paso abajo)
-    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || <meta name="google-site-verification" content="MNXfBwnUPhzNZFeIaqVabUDrRtZ7oR34psCaWjBmHXs" />,
+    // 🔑 Pega aquí la clave completa que empieza por MNXfBwnUPhzN...
+    google: 'MNXfBwnUPhzN_TU_CODIGO_COMPLETO_AQUI',
   },
 };
 
