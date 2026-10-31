@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShieldCheck, Building2, User, Mail, Lock, 
-  ArrowRight, ArrowLeft, Loader2, AlertCircle, LogOut, CheckCircle2 
+  ArrowRight, ArrowLeft, Loader2, AlertCircle, LogOut 
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -21,7 +21,7 @@ export default function OnboardingCenterPage() {
   const [centerSlug, setCenterSlug] = useState('');
   const [boxesCount, setBoxesCount] = useState(2);
 
-  // Paso 2: Datos del Director Clínico (vacíos por defecto, sin hardcodeos)
+  // Paso 2: Datos del Director Clínico
   const [directorName, setDirectorName] = useState('');
   const [specialty, setSpecialty] = useState('Psicología Clínica');
   const [email, setEmail] = useState('');
@@ -30,7 +30,7 @@ export default function OnboardingCenterPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // 1. Detectar si ya hay una sesión activa de Supabase
+  // Detectar sesión previa en el navegador
   useEffect(() => {
     async function checkCurrentSession() {
       try {
@@ -47,7 +47,6 @@ export default function OnboardingCenterPage() {
     checkCurrentSession();
   }, []);
 
-  // Forzar cierre de sesión si se quiere crear un centro con otro correo
   const handleForceLogout = async () => {
     await supabase.auth.signOut();
     setActiveUser(null);
@@ -74,7 +73,7 @@ export default function OnboardingCenterPage() {
     try {
       let userId = activeUser?.id;
 
-      // CASO A: Registrar nuevo usuario si no hay sesión o si ingresó un correo diferente al activo
+      // Registrar nuevo usuario si no hay sesión o si se ingresó un correo diferente al activo
       if (!userId || (activeUser && activeUser.email !== email)) {
         if (!email.trim() || !password.trim()) {
           setErrorMessage('Debes completar el correo y contraseña.');
@@ -111,7 +110,7 @@ export default function OnboardingCenterPage() {
         throw new Error('No se pudo verificar la identidad del usuario.');
       }
 
-      // 2. Crear el nuevo Centro en la tabla centers
+      // Crear nuevo Centro en la tabla centers
       const slugVal = (centerSlug || centerName)
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '-')
@@ -131,7 +130,7 @@ export default function OnboardingCenterPage() {
 
       if (centerError) throw centerError;
 
-      // 3. Crear el registro del Director Clínico vinculado al nuevo centro
+      // Crear el registro del Director Clínico vinculado al nuevo centro
       const { error: profError } = await supabase.from('professionals').insert([
         {
           name: directorName || 'Director Clínico',
@@ -145,7 +144,6 @@ export default function OnboardingCenterPage() {
 
       if (profError) throw profError;
 
-      // Redirigir al dashboard administrativo del nuevo centro
       router.push('/admin');
     } catch (err: any) {
       console.error('Error al registrar centro:', err);
@@ -158,7 +156,7 @@ export default function OnboardingCenterPage() {
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
-        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
+        <Loader2 className="animate-spin text-[#2C4A3B]" size="{32}"/>
       </div>
     );
   }
@@ -178,7 +176,7 @@ export default function OnboardingCenterPage() {
 
         {/* Icono de Seguridad */}
         <div className="h-12 w-12 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center">
-          {step === 1 ? <Building2 size={22} /> : <ShieldCheck size={22} />}
+          {step === 1 ? <Building2 size="{22}"/> : <ShieldCheck size="{22}"/>}
         </div>
 
         {/* Aviso de sesión detectada */}
@@ -192,7 +190,7 @@ export default function OnboardingCenterPage() {
               onClick={handleForceLogout}
               className="text-amber-800 underline font-bold flex items-center gap-1 hover:text-amber-950"
             >
-              <LogOut size={13} /> Cerrar sesión para registrar otro correo
+              <LogOut size="{13}"/> Cerrar sesión para registrar otro correo
             </button>
           </div>
         )}
@@ -252,7 +250,7 @@ export default function OnboardingCenterPage() {
                 <select 
                   value={boxesCount} 
                   onChange={e => setBoxesCount(Number(e.target.value))}
-                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20"
+                  className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
                 >
                   <option value={1}>1 Box de Atención</option>
                   <option value={2}>2 Boxes Activos</option>
@@ -264,7 +262,7 @@ export default function OnboardingCenterPage() {
 
               {errorMessage && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs flex items-center gap-2">
-                  <AlertCircle size={15} className="shrink-0" />
+                  <AlertCircle className="shrink-0" size="{15}"/>
                   <span>{errorMessage}</span>
                 </div>
               )}
@@ -273,7 +271,7 @@ export default function OnboardingCenterPage() {
                 type="submit" 
                 className="w-full bg-[#2C4A3B] text-white font-bold text-xs py-4 rounded-2xl hover:bg-[#233b2f] transition-all flex items-center justify-center gap-2 shadow-xs"
               >
-                Continuar a Director Clínico <ArrowRight size={15} />
+                Continuar a Director Clínico <ArrowRight size="{15}"/>
               </button>
             </motion.form>
           )}
@@ -290,13 +288,13 @@ export default function OnboardingCenterPage() {
               autoComplete="off"
             >
               <div>
-                <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cuenta de Director Clínico[cite: 18]</h1>
-                <p className="text-xs text-stone-400 mt-0.5">Configura tu acceso al panel maestro y fichas con IA.[cite: 18]</p>
+                <h1 className="text-2xl font-bold text-stone-900 tracking-tight">Cuenta de Director Clínico</h1>
+                <p className="text-xs text-stone-400 mt-0.5">Configura tu acceso al panel maestro y fichas con IA.</p>
               </div>
 
               <div>
                 <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
-                  Tu Nombre y Apellido *[cite: 18]
+                  Tu Nombre y Apellido *
                 </label>
                 <input 
                   type="text" 
@@ -311,12 +309,12 @@ export default function OnboardingCenterPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
-                  Especialidad[cite: 18]
+                  Especialidad
                 </label>
                 <input 
                   type="text" 
                   autoComplete="off"
-                  placeholder="Psicología Clínica / Psiquiatría"[cite: 18]
+                  placeholder="Psicología Clínica / Psiquiatría" 
                   value={specialty} 
                   onChange={e => setSpecialty(e.target.value)} 
                   className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
@@ -325,7 +323,7 @@ export default function OnboardingCenterPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
-                  Correo de Acceso *[cite: 18]
+                  Correo de Acceso *
                 </label>
                 <input 
                   type="email" 
@@ -340,7 +338,7 @@ export default function OnboardingCenterPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
-                  Contraseña Segura *[cite: 18]
+                  Contraseña Segura *
                 </label>
                 <input 
                   type="password" 
@@ -355,7 +353,7 @@ export default function OnboardingCenterPage() {
 
               {errorMessage && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs flex items-center gap-2">
-                  <AlertCircle size={15} className="shrink-0" />
+                  <AlertCircle className="shrink-0" size="{15}"/>
                   <span>{errorMessage}</span>
                 </div>
               )}
@@ -366,7 +364,7 @@ export default function OnboardingCenterPage() {
                   onClick={() => setStep(1)} 
                   className="p-3.5 border border-stone-200 text-stone-600 rounded-xl hover:bg-stone-50 transition-colors"
                 >
-                  <ArrowLeft size={16} />
+                  <ArrowLeft size="{16}"/>
                 </button>
                 <button 
                   type="submit" 
@@ -375,10 +373,10 @@ export default function OnboardingCenterPage() {
                 >
                   {loading ? (
                     <>
-                      <Loader2 size={15} className="animate-spin" /> Creando Centro...
+                      <Loader2 className="animate-spin" size="{15}"/> Creando Centro...
                     </>
                   ) : (
-                    'Finalizar y Crear Centro'[cite: 18]
+                    'Finalizar y Crear Centro'
                   )}
                 </button>
               </div>
