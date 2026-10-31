@@ -1,116 +1,88 @@
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import { unstable_noStore as noStore } from 'next/cache';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
 
+// Inicializamos Resend (necesitarás RESEND_API_KEY en tu .env de Vercel)
+const resend = new Resend(process.env.RESEND_API_KEY || 're_placeholder');
+
+// ⚠️ Usamos SUPABASE_SERVICE_ROLE_KEY porque un Cron Job opera en el backend 
+// y necesita bypass de las reglas RLS (Row Level Security) para leer todas las citas.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
 export async function GET(request: Request) {
+  // 1. Opt-out explícito de caché: Evita el error de prerenderizado en el Build de Vercel
+  noStore();
+
+  // 2. Seguridad: Validar que la petición venga exclusivamente de Vercel Cron
+  // En Vercel, debes configurar la variable de entorno CRON_SECRET
+  const authHeader = request.headers.get('authorization');
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Acceso denegado' }, { status: 401 });
+  }
+
   try {
-    // 1. Blindaje del Cron: Solo Vercel (o tú con la llave) puede ejecutar esto
-    const authHeader = request.headers.get('authorization');
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      console.warn('Intento de ejecución de cron no autorizado');
-      return new Response('Unauthorized', { status: 401 });
-    }
-
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    
-    // 2. Usar Service Role Key para saltar el RLS de forma segura en backend
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    );
-
-    // 3. Manejo de fechas asegurando UTC pero apuntando a "mañana"
-    const today = new Date();
-    const tomorrow = new Date(today);
+    // 3. Calcular la fecha de mañana para buscar citas (YYYY-MM-DD)
+    const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    const startOfTomorrow = new Date(tomorrow.setUTCHours(0, 0, 0, 0)).toISOString();
-    const endOfTomorrow = new Date(tomorrow.setUTCHours(23, 59, 59, 999)).toISOString();
+    const targetDate = tomorrow.toISOString().split('T')[0];
 
-    // 4. Traer solo las citas validadas
+    // 4. Buscar citas confirmadas para mañana
     const { data: appointments, error } = await supabase
       .from('appointments')
-      .select('*, professionals(name)')
-      .gte('start_time', startOfTomorrow)
-      .lte('start_time', endOfTomorrow)
-      .eq('consent_accepted', true); 
+      .select('id, patient_name, patient_email, time, professional_name, modality, centers(name)')
+      .eq('date', targetDate)
+      .eq('status', 'confirmada');
 
     if (error) throw error;
+
     if (!appointments || appointments.length === 0) {
-      return NextResponse.json({ message: 'Sin citas agendadas para mañana' });
+      return NextResponse.json({ success: true, message: 'No hay citas para recordar mañana.' });
     }
 
-    const emailsToSend = [];
+    // 5. Procesar envío de correos en paralelo
+    const emailsToSend = appointments.map((appt) => {
+      // Manejo seguro del nombre del centro en consultas unidas (joins)
+      const centerData = Array.isArray(appt.centers) ? appt.centers[0] : appt.centers;
+      const clinicName = centerData?.name || 'nuestro centro clínico';
 
-    for (const appt of appointments) {
-      if (!appt.patient_email) continue;
-
-      // 5. Forzar zona horaria de Chile sin importar el servidor de Vercel
-      const dateObj = new Date(appt.start_time);
-      const formattedTime = dateObj.toLocaleTimeString('es-CL', {
-        timeZone: 'America/Santiago',
-        hour: '2-digit', 
-        minute: '2-digit'
-      });
-
-      const isOnline = appt.modality === 'Online';
-      const locationText = isOnline && appt.meet_link
-        ? `<a href="${appt.meet_link}" style="color: #5F8575; text-decoration: underline; font-weight: 600;">Enlace de Videollamada (Google Meet)</a>` 
-        : 'Presencial (En Clínica)';
-
-      // 6. UI/UX Premium incrustado en el correo
-      const htmlTemplate = `
-        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #F9F8F6; padding: 40px 20px; color: #1c1917;">
-          <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; padding: 40px; box-shadow: 0 8px 30px rgba(0,0,0,0.04); border: 1px solid #f5f5f4;">
-            
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h1 style="color: #2C4A3B; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px;">Centro OM</h1>
-              <p style="color: #78716c; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px;">Portal Clínico</p>
-            </div>
-            
-            <p style="font-size: 15px; color: #44403c; line-height: 1.6;">Hola <strong>${appt.patient_name}</strong>,</p>
-            <p style="font-size: 15px; color: #44403c; line-height: 1.6;">Este es un recordatorio de tu sesión programada para mañana. Hemos preparado todo para tu atención.</p>
-            
-            <div style="background-color: #F4F7F5; border: 1px solid #E4ECE7; border-radius: 16px; padding: 24px; margin: 30px 0;">
-              <p style="margin: 0 0 12px 0; font-size: 14px; color: #2C4A3B;">
-                <span style="color: #5F8575; margin-right: 8px;">📅</span> <strong>Mañana</strong> a las <strong>${formattedTime} hrs</strong>
-              </p>
-              <p style="margin: 0 0 12px 0; font-size: 14px; color: #2C4A3B;">
-                <span style="color: #5F8575; margin-right: 8px;">👤</span> Especialista: <strong>${appt.professionals?.name || 'Tu terapeuta'}</strong>
-              </p>
-              <p style="margin: 0; font-size: 14px; color: #2C4A3B;">
-                <span style="color: #5F8575; margin-right: 8px;">📍</span> ${locationText}
-              </p>
-            </div>
-            
-            <p style="font-size: 13px; color: #78716c; line-height: 1.5; margin-top: 30px;">
-              Si necesitas reagendar, por favor contáctanos con anticipación para liberar la hora a otro paciente que lo necesite.
-            </p>
-            
-            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #f5f5f4; text-align: center;">
-              <p style="font-size: 11px; color: #a8a29e;">Nos vemos pronto.<br/>El equipo de Centro OM.</p>
-            </div>
-          </div>
-        </div>
-      `;
-
-      emailsToSend.push({
-        from: 'Centro OM <onboarding@resend.dev>', // Cámbialo a tu dominio verificado cuando pases a prod
+      return resend.emails.send({
+        from: 'Kairós Clínico <recordatorios@kairosclinico.cl>', // Ajusta a tu dominio verificado en Resend
         to: appt.patient_email,
-        subject: `Recordatorio: Tu sesión clínica mañana a las ${formattedTime}`,
-        html: htmlTemplate,
+        subject: `Recordatorio de tu sesión mañana a las ${appt.time}`,
+        html: `
+          <div style="font-family: 'Inter', sans-serif; max-w: 600px; margin: 0 auto; padding: 24px; border: 1px solid #E5E7EB; border-radius: 16px; background-color: #F9F8F6;">
+            <h2 style="color: #1F2937; margin-bottom: 16px;">Hola ${appt.patient_name},</h2>
+            <p style="color: #4B5563; line-height: 1.6; font-size: 15px;">
+              Te escribimos para recordarte que tienes una sesión agendada para mañana a las <strong>${appt.time} hrs</strong> con <strong>${appt.professional_name}</strong>.
+            </p>
+            <div style="background-color: #FFFFFF; border-radius: 12px; padding: 16px; margin: 24px 0; border: 1px solid #E5E7EB;">
+              <p style="margin: 0; color: #374151; font-size: 14px;"><strong>Modalidad:</strong> ${appt.modality === 'online' ? 'Videollamada' : 'Presencial'}</p>
+              <p style="margin: 8px 0 0 0; color: #374151; font-size: 14px;"><strong>Clínica:</strong> ${clinicName}</p>
+            </div>
+            <p style="color: #6B7280; font-size: 13px; line-height: 1.5;">
+              Si necesitas reagendar, por favor contáctanos con al menos 24 horas de anticipación.<br>
+              ¡Te esperamos!
+            </p>
+          </div>
+        `,
       });
-    }
+    });
 
-    // 7. Batch send: Enviamos todos los correos en UNA SOLA petición HTTP a Resend
-    if (emailsToSend.length > 0) {
-        await resend.batch.send(emailsToSend);
-    }
+    const results = await Promise.allSettled(emailsToSend);
+    
+    // Contar cuántos fallaron vs tuvieron éxito para monitoreo
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
 
-    return NextResponse.json({ success: true, correosEnviados: emailsToSend.length });
+    return NextResponse.json({ 
+      success: true, 
+      message: `Proceso completado. ${successCount} correos enviados de ${appointments.length} citas.` 
+    });
+
   } catch (error: any) {
-    console.error('Error crítico en el Cron Job:', error?.message);
-    return NextResponse.json({ error: 'Fallo interno al procesar los recordatorios' }, { status: 500 });
+    console.error('Error en Cron Job:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
