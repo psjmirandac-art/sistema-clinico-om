@@ -20,13 +20,14 @@ export default function LoginPage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Redireccionar si ya existe sesión activa
+  // Redireccionar si ya existe sesión activa o procesar hash de OAuth
   useEffect(() => {
     async function checkExistingAuth() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          await routeUserByRole(session.user.id);
+          await routeUserByRole(session.user.email);
+          return;
         }
       } catch (err) {
         console.error('Error revisando autenticación:', err);
@@ -34,21 +35,40 @@ export default function LoginPage() {
         setCheckingSession(false);
       }
     }
+
     checkExistingAuth();
-  }, []);
+
+    // Listener para capturar el retorno inmediato de OAuth
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await routeUserByRole(session.user.email);
+      }
+    });
+
+    return () => authListener.subscription.unsubscribe();
+  }, [router]);
 
   // Determinar si va a /admin o a /onboarding según pertenencia a un centro
-  const routeUserByRole = async (userId: string) => {
-    const { data: professional, error } = await supabase
-      .from('professionals')
-      .select('center_id, role')
-      .eq('email', (await supabase.auth.getUser()).data.user?.email)
-      .maybeSingle();
-
-    if (professional?.center_id) {
+  const routeUserByRole = async (userEmail?: string) => {
+    if (!userEmail) {
       router.push('/admin');
-    } else {
-      router.push('/onboarding');
+      return;
+    }
+
+    try {
+      const { data: professional } = await supabase
+        .from('professionals')
+        .select('center_id, role')
+        .eq('email', userEmail.trim().toLowerCase())
+        .maybeSingle();
+
+      if (professional?.center_id) {
+        router.push('/admin');
+      } else {
+        router.push('/onboarding');
+      }
+    } catch {
+      router.push('/admin');
     }
   };
 
@@ -57,14 +77,15 @@ export default function LoginPage() {
       setGoogleLoading(true);
       setErrorMessage(null);
 
-      const redirectUrl = typeof window !== 'undefined'
-        ? `${window.location.origin}/auth/callback?next=/admin`
-        : 'https://www.kairosclinico.cl/auth/callback?next=/admin';
+      // Garantizar que la redirección apunte a producción
+      const origin = typeof window !== 'undefined' && window.location.origin.includes('kairosclinico.cl')
+        ? window.location.origin
+        : 'https://www.kairosclinico.cl';
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: redirectUrl,
+          redirectTo: `${origin}/login`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -98,7 +119,7 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        await routeUserByRole(data.user.id);
+        await routeUserByRole(data.user.email);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al iniciar sesión.');
@@ -122,7 +143,7 @@ export default function LoginPage() {
         transition={{ duration: 0.35, ease: 'easeOut' }}
         className="w-full max-w-md bg-white rounded-3xl p-7 sm:p-9 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-stone-200/80 space-y-6"
       >
-        {/* Cabecera de Marca */}
+        {/* Cabecera */}
         <div className="flex items-center gap-3.5">
           <div className="h-11 w-11 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center shrink-0">
             <ShieldCheck size={22} />
@@ -165,7 +186,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Formulario de Email y Clave */}
+        {/* Formulario Tradicional */}
         <form onSubmit={handleEmailLogin} className="space-y-3.5" autoComplete="on">
           <div>
             <label className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block mb-1">
@@ -227,7 +248,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Pie de navegación a registro */}
+        {/* Footer */}
         <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
           <span>¿Eres un centro nuevo?</span>
           <Link
