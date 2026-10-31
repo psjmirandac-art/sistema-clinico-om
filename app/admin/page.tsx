@@ -4,13 +4,13 @@ import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
+  Home, Calendar, Users, Briefcase, LogOut, ShieldCheck, 
   Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
   X, Loader2, Lock, DoorOpen, UserPlus, Check, 
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, MessageSquare, Send, DollarSign, ArrowUpRight
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, Send, DollarSign, ArrowUpRight, Star
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -76,12 +76,8 @@ export default function AdminSuitePage() {
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
-  // --- ESTADOS RESEÑAS / EVALUACIONES ---
-  const [reviewsList] = useState<any[]>([
-    { id: '1', patient: 'Valentina R.', rating: 5, comment: 'Excelente atención y espacio muy acogedor. Me ha ayudado muchísimo en mi proceso.', date: 'Hace 2 días', therapist: 'Dr. Jaime Miranda' },
-    { id: '2', patient: 'Matías S.', rating: 5, comment: 'Puntualidad impecable y profesionalismo absoluto. Totalmente recomendado.', date: 'Hace 5 días', therapist: 'Dra. Sofía Valdés' },
-    { id: '3', patient: 'Camila P.', rating: 4, comment: 'Muy buena experiencia con el agendamiento online y los recordatorios por WhatsApp.', date: 'Hace 1 semana', therapist: 'Dr. Jaime Miranda' }
-  ]);
+  // --- ESTADOS VACÍOS REALES PARA EVALUACIONES / RESEÑAS ---
+  const [reviewsList] = useState<any[]>([]);
 
   // --- ESTADOS COMUNICACIONES IA ---
   const [waBotActive, setWaBotActive] = useState(true);
@@ -116,7 +112,6 @@ export default function AdminSuitePage() {
 
   const [rawNotes, setRawNotes] = useState('');
   const [aiStructuredNotes, setAiStructuredNotes] = useState('');
-  const [certificateText, setCertificateText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -178,18 +173,11 @@ export default function AdminSuitePage() {
 
       if (centerInfo?.boxes_count) setBoxesCount(centerInfo.boxes_count);
 
-      const fetchedAppts = appts || [];
-      const fetchedProfs = profs || [];
-      const fetchedServs = servs || [
-        { id: '1', name: 'Psicoterapia Individual Adultos', price: 35000, duration: 50, description: 'Sesión clínica orientada a bienestar emocional y desarrollo personal.' },
-        { id: '2', name: 'Psicoterapia de Pareja', price: 45000, duration: 60, description: 'Espacio terapéutico de mediación y comunicación vincular.' }
-      ];
+      setAppointments(appts || []);
+      setTherapists(profs || []);
+      setServices(servs || []);
 
-      setAppointments(fetchedAppts);
-      setTherapists(fetchedProfs);
-      setServices(fetchedServs);
-
-      const uniquePats = Array.from(new Map(fetchedAppts.map((a: any) => [a.patient_email || a.patient_name, a])).values());
+      const uniquePats = Array.from(new Map((appts || []).map((a: any) => [a.patient_email || a.patient_name, a])).values());
       setPatientsList(uniquePats);
       if (uniquePats.length > 0) setSelectedPatient(uniquePats[0]);
 
@@ -372,8 +360,6 @@ export default function AdminSuitePage() {
     setTimeout(() => {
       if (mode === 'ficha') {
         setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Resumen: ${rawNotes}`);
-      } else {
-        setCertificateText(`CERTIFICADO DE ATENCIÓN\nSe certifica que ${pName} asistió a sesión el día ${currentDateFormatted}.\n___________________________\n${profile?.name}`);
       }
       setAiLoading(false);
     }, 600);
@@ -481,7 +467,6 @@ export default function AdminSuitePage() {
             <NavButton tab="pacientes" icon={Users} label="Pacientes y Fichas IA" />
             <NavButton tab="comunicaciones" icon={Megaphone} label="Comunicaciones" badge="IA" />
             <NavButton tab="finanzas" icon={Wallet} label="Finanzas" />
-            <NavButton tab="resenas" icon={Star} label="Evaluaciones" />
             <NavButton tab="reportes" icon={BarChart3} label="Reportes" badge="PRO" />
           </nav>
           <div className="h-px bg-stone-100 mx-2" />
@@ -601,35 +586,6 @@ export default function AdminSuitePage() {
                     <span className="text-xs text-stone-500 block pt-1">Sincronizado con pasarela</span>
                   </div>
                 </div>
-
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-4">
-                  <h3 className="font-bold text-base text-stone-900">Historial de Transacciones Recientes</h3>
-                  <div className="space-y-3">
-                    {appointments.length === 0 ? (
-                      <p className="text-xs text-stone-400 py-6 text-center">No hay transacciones registradas en este período.</p>
-                    ) : (
-                      appointments.map((appt) => (
-                        <div key={appt.id} className="p-4 rounded-2xl bg-stone-50/70 border border-stone-100 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                              <DollarSign size={18} />
-                            </div>
-                            <div>
-                              <p className="font-bold text-xs text-stone-900">{appt.patient_name}</p>
-                              <p className="text-[11px] text-stone-400">{appt.date} • {appt.professional_name}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-xs text-stone-900">${Number(appt.price || 35000).toLocaleString('es-CL')}</p>
-                            <span className={`text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                              {appt.status || 'pagado'}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
               </motion.div>
             )}
 
@@ -681,22 +637,6 @@ export default function AdminSuitePage() {
                     <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
                   </div>
                 </div>
-
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs space-y-5">
-                  <h3 className="font-bold text-base text-stone-900">Difusión Masiva o Anuncio a Pacientes</h3>
-                  <form onSubmit={handleSendBroadcast} className="space-y-4">
-                    <textarea 
-                      rows={3} 
-                      value={customBroadcastMsg} 
-                      onChange={e => setCustomBroadcastMsg(e.target.value)} 
-                      placeholder="Escribe un comunicado oficial para todos los pacientes activos (ej: Aviso por feriado o cambio de horario general)..." 
-                      className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-xs outline-none focus:bg-white" 
-                    />
-                    <button type="submit" disabled={sendingBroadcast || !customBroadcastMsg.trim()} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] transition-all disabled:opacity-50">
-                      {sendingBroadcast ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Enviar Difusión por WhatsApp
-                    </button>
-                  </form>
-                </div>
               </motion.div>
             )}
 
@@ -711,35 +651,6 @@ export default function AdminSuitePage() {
                   <button onClick={() => setIsNewServiceModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
                     <Plus size={16} /> Nuevo Servicio
                   </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {services.length === 0 ? (
-                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
-                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
-                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados en el catálogo.</p>
-                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
-                    </div>
-                  ) : (
-                    services.map((srv) => (
-                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
-                        <div>
-                          <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
-                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                          </div>
-                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
-                        </div>
-                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium">
-                            <Clock size={14} className="text-[#2C4A3B]" />
-                            <span>{srv.duration || 50} min</span>
-                          </div>
-                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
               </motion.div>
             )}
@@ -849,7 +760,7 @@ export default function AdminSuitePage() {
                     ) : (
                       filteredPatients.map((p, idx) => (
                         <div key={idx} className="relative group">
-                          <button onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); setCertificateText(''); }} className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${selectedPatient?.patient_name === p.patient_name ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' : 'border-stone-100 hover:bg-stone-50'}`}>
+                          <button onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); }} className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${selectedPatient?.patient_name === p.patient_name ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' : 'border-stone-100 hover:bg-stone-50'}`}>
                             <div className="pr-8 truncate">
                               <p className="font-bold text-sm text-stone-900 truncate">{p.patient_name}</p>
                               <p className="text-xs text-stone-400 truncate mt-0.5">{p.patient_email || 'Sin correo'}</p>
@@ -902,48 +813,6 @@ export default function AdminSuitePage() {
                       </div>
                     </>
                   )}
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'resenas' && (
-              <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Satisfacción y Feedback</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Evaluaciones de Pacientes</h2>
-                    <p className="text-sm text-stone-500 mt-1">Reseñas y calificaciones del centro clínico recopiladas post-atención.</p>
-                  </div>
-                  <div className="flex items-center gap-4 bg-[#F4F7F5] border border-[#E4ECE7] px-5 py-3 rounded-2xl">
-                    <Star className="text-amber-500 fill-amber-500" size={22} />
-                    <div>
-                      <p className="text-lg font-bold text-stone-900 leading-none">4.8 / 5.0</p>
-                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Satisfacción General</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  {reviewsList.map((rev) => (
-                    <div key={rev.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="font-bold text-stone-900 text-sm">{rev.patient}</h3>
-                          <span className="text-[11px] text-stone-400">{rev.date}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <Star key={i} size={14} className={i < rev.rating ? 'text-amber-500 fill-amber-500' : 'text-stone-200'} />
-                          ))}
-                        </div>
-                        <p className="text-xs text-stone-600 italic leading-relaxed">"{rev.comment}"</p>
-                      </div>
-                      <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[11px]">
-                        <span className="text-stone-400">Terapeuta:</span>
-                        <span className="font-bold text-[#2C4A3B]">{rev.therapist}</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </motion.div>
             )}
