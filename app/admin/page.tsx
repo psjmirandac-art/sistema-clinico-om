@@ -25,7 +25,7 @@ type TabType =
   | 'pacientes' 
   | 'comunicaciones' 
   | 'finanzas' 
-  | 'resenas'
+  | 'resenas' 
   | 'reportes' 
   | 'documentos' 
   | 'vitrina' 
@@ -37,6 +37,13 @@ type TabType =
   | 'ayuda' 
   | 'configuracion';
 
+type CalendarViewMode = 'mes' | 'semana' | 'dia';
+
+const TIME_SLOTS = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'
+];
+
 export default function AdminSuitePage() {
   const { center } = useTenant();
 
@@ -47,7 +54,8 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('inicio');
+  const [activeTab, setActiveTab] = useState<TabType>('agenda');
+  const [calendarView, setCalendarView] = useState<CalendarViewMode>('mes');
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -64,10 +72,10 @@ export default function AdminSuitePage() {
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
-  const [currentMonthDate, setCurrentMonthDate] = useState<Date | null>(null);
+  const [currentDate, setCurrentDate] = useState<Date | null>(null);
 
   useEffect(() => {
-    setCurrentMonthDate(new Date());
+    setCurrentDate(new Date());
   }, []);
 
   const [patientsList, setPatientsList] = useState<any[]>([]);
@@ -76,17 +84,14 @@ export default function AdminSuitePage() {
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
 
-  // --- EVALUACIONES REALES (INICIAN VACÍAS) ---
   const [reviewsList, setReviewsList] = useState<any[]>([]);
 
-  // --- ESTADOS COMUNICACIONES IA ---
   const [waBotActive, setWaBotActive] = useState(true);
   const [waAutoRemind, setWaAutoRemind] = useState(true);
   const [waAutoReschedule, setWaAutoReschedule] = useState(true);
   const [customBroadcastMsg, setCustomBroadcastMsg] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
-  // --- ESTADOS PARA NUEVO SERVICIO ---
   const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
@@ -94,7 +99,6 @@ export default function AdminSuitePage() {
   const [newServiceDescription, setNewServiceDescription] = useState('');
   const [savingService, setSavingService] = useState(false);
 
-  // --- CAMPOS DE ADMISIÓN DE PACIENTE ---
   const [pFirstName, setPFirstName] = useState('');
   const [pLastName, setPLastName] = useState('');
   const [pGender, setPGender] = useState('');
@@ -386,8 +390,43 @@ export default function AdminSuitePage() {
     showToast('Reporte exportado con éxito.');
   };
 
-  const currentYear = currentMonthDate ? currentMonthDate.getFullYear() : 2026;
-  const currentMonth = currentMonthDate ? currentMonthDate.getMonth() : 9;
+  // --- HELPERS SEGUROS PARA CÁLCULO DE FECHAS ---
+  const activeDate = currentDate || new Date();
+  const currentYear = activeDate.getFullYear();
+  const currentMonth = activeDate.getMonth();
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const dayNamesShort = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  // Navegación adaptable según la vista activa
+  const handlePrevDate = () => {
+    if (calendarView === 'mes') {
+      setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
+    } else if (calendarView === 'semana') {
+      const d = new Date(activeDate);
+      d.setDate(d.getDate() - 7);
+      setCurrentDate(d);
+    } else {
+      const d = new Date(activeDate);
+      d.setDate(d.getDate() - 1);
+      setCurrentDate(d);
+    }
+  };
+
+  const handleNextDate = () => {
+    if (calendarView === 'mes') {
+      setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
+    } else if (calendarView === 'semana') {
+      const d = new Date(activeDate);
+      d.setDate(d.getDate() + 7);
+      setCurrentDate(d);
+    } else {
+      const d = new Date(activeDate);
+      d.setDate(d.getDate() + 1);
+      setCurrentDate(d);
+    }
+  };
+
+  // Cálculos para vista Mes
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
@@ -395,10 +434,36 @@ export default function AdminSuitePage() {
   };
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
-  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-  const handlePrevMonth = () => setCurrentMonthDate(new Date(currentYear, currentMonth - 1, 1));
-  const handleNextMonth = () => setCurrentMonthDate(new Date(currentYear, currentMonth + 1, 1));
+  // Cálculos para vista Semana
+  const getStartOfWeek = (d: Date) => {
+    const date = new Date(d);
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(date.setDate(diff));
+  };
+  const startOfWeek = getStartOfWeek(activeDate);
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(startOfWeek);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const formatDateYMD = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const activeDateStr = formatDateYMD(activeDate);
+
+  const openApptAtSlot = (date: string, time: string) => {
+    setApptDate(date);
+    setApptTime(time);
+    setIsNewApptModalOpen(true);
+  };
 
   const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
   const dynamicGross = (paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0)) * multiplier;
@@ -408,7 +473,13 @@ export default function AdminSuitePage() {
     ? (reviewsList.reduce((acc, r) => acc + Number(r.rating || 5), 0) / reviewsList.length).toFixed(1)
     : '5.0';
 
-  if (authLoading || !currentMonthDate) return <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center"><Loader2 className="animate-spin text-[#2C4A3B]" size={32} /></div>;
+  if (authLoading || !currentDate) {
+    return (
+      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
+        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -559,7 +630,496 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB EVALUACIONES / RESEÑAS (COMPLETAMENTE LIMPIO Y DINÁMICO) */}
+            {/* TAB AGENDA (VISTAS: DÍA / SEMANA / MES CON HORARIOS) */}
+            {activeTab === 'agenda' && (
+              <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto space-y-6">
+                
+                {/* Header de la Agenda */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
+                  <div>
+                    <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
+                    <p className="text-sm text-stone-500">Gestiona horarios, boxes y sesiones clínicas con vista granular.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={handleGoogleSync} 
+                      disabled={isSyncingCalendar}
+                      className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all"
+                    >
+                      {isSyncingCalendar ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                      {calendarLinked ? 'Google Calendar Sincronizado' : 'Vincular Google Calendar'}
+                    </button>
+                    <button 
+                      onClick={() => setIsNewApptModalOpen(true)}
+                      className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f] shadow-xs"
+                    >
+                      <Plus size={15} /> Nueva Cita
+                    </button>
+                  </div>
+                </div>
+
+                {/* Barra de Controles y Selector de Modo */}
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-stone-100 pb-4">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-bold text-stone-900 capitalize">
+                        {calendarView === 'mes' && `${monthNames[currentMonth]} ${currentYear}`}
+                        {calendarView === 'semana' && `Semana del ${weekDays[0].getDate()} al ${weekDays[6].getDate()} de ${monthNames[weekDays[0].getMonth()]}`}
+                        {calendarView === 'dia' && `${activeDate.getDate()} de ${monthNames[currentMonth]} ${currentYear}`}
+                      </h3>
+                      <button 
+                        onClick={() => setCurrentDate(new Date())}
+                        className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]"
+                      >
+                        Hoy
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      {/* Segmented Control Día / Semana / Mes */}
+                      <div className="bg-stone-100 p-1 rounded-2xl flex items-center">
+                        {(['dia', 'semana', 'mes'] as CalendarViewMode[]).map((mode) => (
+                          <button
+                            key={mode}
+                            onClick={() => setCalendarView(mode)}
+                            className={`px-4 py-1.5 rounded-xl text-xs font-bold capitalize transition-all ${
+                              calendarView === mode 
+                                ? 'bg-white text-stone-900 shadow-xs' 
+                                : 'text-stone-500 hover:text-stone-800'
+                            }`}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={handlePrevDate} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
+                          <ChevronLeft size={18} />
+                        </button>
+                        <button onClick={handleNextDate} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600">
+                          <ChevronRight size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 1. VISTA MES */}
+                  {calendarView === 'mes' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                        {dayNamesShort.map(d => <span key={d}>{d}</span>)}
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-2">
+                        {Array.from({ length: firstDay }).map((_, index) => (
+                          <div key={`empty-${index}`} className="h-28 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
+                        ))}
+
+                        {Array.from({ length: daysInMonth }).map((_, index) => {
+                          const dayNum = index + 1;
+                          const dateObj = new Date(currentYear, currentMonth, dayNum);
+                          const dateStr = formatDateYMD(dateObj);
+                          const dayAppointments = appointments.filter(a => a.date === dateStr);
+                          const isSelected = selectedDateFilter === dateStr;
+                          const isToday = todayStr === dateStr;
+
+                          return (
+                            <div 
+                              key={dateStr}
+                              onClick={() => {
+                                setSelectedDateFilter(dateStr);
+                                setCurrentDate(dateObj);
+                              }}
+                              className={`h-28 rounded-2xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group relative ${
+                                isSelected ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' : isToday ? 'border-[#2C4A3B]/60 bg-white' : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center">
+                                <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>{dayNum}</span>
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    openApptAtSlot(dateStr, '10:00'); 
+                                  }} 
+                                  className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"
+                                  title="Agendar cita en este día"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              </div>
+                              <div className="space-y-1 overflow-y-hidden flex-1 mt-1">
+                                {dayAppointments.slice(0, 2).map((appt, i) => (
+                                  <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs flex items-center justify-between">
+                                    <span>{appt.time} • {appt.patient_name}</span>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${appt.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
+                                  </div>
+                                ))}
+                                {dayAppointments.length > 2 && <div className="text-[9px] text-stone-400 font-bold pl-0.5">+{dayAppointments.length - 2} más</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. VISTA SEMANA CON HORAS */}
+                  {calendarView === 'semana' && (
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[800px]">
+                        {/* Cabecera de días de la semana */}
+                        <div className="grid grid-cols-8 border-b border-stone-100 pb-3 text-center">
+                          <div className="text-[11px] font-bold text-stone-400 uppercase tracking-widest flex items-center justify-center">Hora</div>
+                          {weekDays.map((d, i) => {
+                            const dateStr = formatDateYMD(d);
+                            const isToday = todayStr === dateStr;
+                            return (
+                              <div key={i} className="flex flex-col items-center">
+                                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{dayNamesShort[i]}</span>
+                                <span className={`text-xs font-bold mt-1 h-7 w-7 rounded-full flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-800'}`}>
+                                  {d.getDate()}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Franjas Horarias */}
+                        <div className="divide-y divide-stone-100">
+                          {TIME_SLOTS.map((hour) => (
+                            <div key={hour} className="grid grid-cols-8 min-h-[64px] group">
+                              <div className="text-[11px] font-semibold text-stone-400 py-3 text-center border-r border-stone-100/60 bg-stone-50/30">
+                                {hour}
+                              </div>
+
+                              {weekDays.map((d, idx) => {
+                                const dateStr = formatDateYMD(d);
+                                const apptInSlot = appointments.find(a => a.date === dateStr && a.time.startsWith(hour.slice(0, 2)));
+
+                                return (
+                                  <div 
+                                    key={idx}
+                                    onClick={() => !apptInSlot && openApptAtSlot(dateStr, hour)}
+                                    className="border-r border-stone-100/60 p-1 relative hover:bg-[#F4F7F5]/40 transition-colors cursor-pointer"
+                                  >
+                                    {apptInSlot ? (
+                                      <div className="h-full bg-white border border-[#2C4A3B]/30 rounded-xl p-2 shadow-xs flex flex-col justify-between">
+                                        <div>
+                                          <div className="flex justify-between items-center text-[10px] font-bold text-[#2C4A3B]">
+                                            <span>{apptInSlot.time}</span>
+                                            <span className={`h-1.5 w-1.5 rounded-full ${apptInSlot.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
+                                          </div>
+                                          <p className="text-xs font-bold text-stone-900 truncate mt-0.5">{apptInSlot.patient_name}</p>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[9px] text-stone-400 font-semibold">
+                                          <span>Box {apptInSlot.box_number || 1}</span>
+                                          <span className="capitalize">{apptInSlot.modality}</span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
+                                        <Plus size={14} className="text-stone-300" />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. VISTA DÍA CON AGENDA DETALLADA */}
+                  {calendarView === 'dia' && (
+                    <div className="space-y-3 max-w-4xl mx-auto">
+                      {TIME_SLOTS.map((hour) => {
+                        const apptsInHour = appointments.filter(a => a.date === activeDateStr && a.time.startsWith(hour.slice(0, 2)));
+
+                        return (
+                          <div key={hour} className="flex gap-4 items-start border-b border-stone-100 pb-3">
+                            <div className="w-16 text-right pt-2">
+                              <span className="text-xs font-bold text-stone-400">{hour}</span>
+                            </div>
+
+                            <div className="flex-1">
+                              {apptsInHour.length === 0 ? (
+                                <button
+                                  onClick={() => openApptAtSlot(activeDateStr, hour)}
+                                  className="w-full text-left py-3 px-4 rounded-2xl border border-dashed border-stone-200 text-xs font-semibold text-stone-400 hover:border-[#2C4A3B] hover:text-[#2C4A3B] hover:bg-[#F4F7F5] transition-all flex items-center gap-2"
+                                >
+                                  <Plus size={14} /> Espacio disponible a las {hour} • Clic para agendar
+                                </button>
+                              ) : (
+                                <div className="space-y-2">
+                                  {apptsInHour.map((appt) => (
+                                    <div key={appt.id} className="bg-white border border-stone-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-[#F4F7F5] text-[#2C4A3B] flex items-center justify-center font-bold text-xs">
+                                          {appt.time}
+                                        </div>
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <h4 className="font-bold text-sm text-stone-900">{appt.patient_name}</h4>
+                                            <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded font-bold ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                              {appt.status}
+                                            </span>
+                                          </div>
+                                          <p className="text-xs text-stone-500 mt-0.5">
+                                            Terapeuta: <strong>{appt.professional_name}</strong> {appt.patient_phone && `• ${appt.patient_phone}`}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 bg-stone-50 border border-stone-200 px-3 py-1.5 rounded-xl">
+                                          <MapPin size={13} className="text-[#2C4A3B]" />
+                                          <select 
+                                            value={appt.box_number || 1} 
+                                            onChange={(e) => handleChangeAppointmentBox(appt.id, Number(e.target.value))} 
+                                            className="text-xs font-bold text-stone-900 bg-transparent outline-none cursor-pointer"
+                                          >
+                                            {Array.from({ length: boxesCount }, (_, i) => i + 1).map(n => <option key={n} value={n}>Box {n}</option>)}
+                                          </select>
+                                        </div>
+                                        <button 
+                                          onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} 
+                                          className="text-xs font-semibold px-3.5 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]"
+                                        >
+                                          Ficha IA
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB SERVICIOS */}
+            {activeTab === 'servicios' && (
+              <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Catálogo Clínico</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Servicios y Terapias</h2>
+                    <p className="text-sm text-stone-500 mt-1">Administra los tipos de sesiones, duraciones y aranceles ofrecidos por tu centro.</p>
+                  </div>
+                  <button onClick={() => setIsNewServiceModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
+                    <Plus size={16} /> Nuevo Servicio
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {services.length === 0 ? (
+                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
+                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
+                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados en el catálogo.</p>
+                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
+                    </div>
+                  ) : (
+                    services.map((srv) => (
+                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
+                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                          </div>
+                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
+                        </div>
+                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium">
+                            <Clock size={14} className="text-[#2C4A3B]" />
+                            <span>{srv.duration || 50} min</span>
+                          </div>
+                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB PACIENTES Y FICHAS IA */}
+            {activeTab === 'pacientes' && (
+              <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-stone-900 text-lg">Pacientes ({filteredPatients.length})</h3>
+                      <p className="text-xs text-stone-400">Directorio clínico del centro</p>
+                    </div>
+                    <button onClick={() => setIsNewPatientModalOpen(true)} className="bg-[#2C4A3B] text-white px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><UserPlus size={14} /> Inscribir</button>
+                  </div>
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3.5 top-3 text-stone-400" />
+                    <input type="text" placeholder="Buscar por nombre o correo..." value={searchPatient} onChange={e => setSearchPatient(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs outline-none focus:bg-white" />
+                  </div>
+                  <div className="space-y-2 max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
+                    {filteredPatients.length === 0 ? (
+                      <div className="text-center py-10 text-stone-400 space-y-2"><UserCircle size={32} className="mx-auto opacity-50" /><p className="text-xs">No hay pacientes en la base de datos.</p></div>
+                    ) : (
+                      filteredPatients.map((p, idx) => (
+                        <div key={idx} className="relative group">
+                          <button onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); }} className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${selectedPatient?.patient_name === p.patient_name ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' : 'border-stone-100 hover:bg-stone-50'}`}>
+                            <div className="pr-8 truncate">
+                              <p className="font-bold text-sm text-stone-900 truncate">{p.patient_name}</p>
+                              <p className="text-xs text-stone-400 truncate mt-0.5">{p.patient_email || 'Sin correo'}</p>
+                            </div>
+                          </button>
+                          <button onClick={(e) => handleDeletePatient(e, p)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2 space-y-6">
+                  {!selectedPatient ? (
+                    <div className="bg-white rounded-3xl border border-stone-100 p-16 flex flex-col items-center justify-center text-center shadow-xs">
+                      <div className="h-16 w-16 bg-stone-50 rounded-2xl flex items-center justify-center border border-stone-100 mb-4"><Sparkles size={28} className="text-stone-300" /></div>
+                      <h3 className="text-lg font-bold text-stone-900">Workspace Clínico Vacío</h3>
+                      <p className="text-sm text-stone-500 max-w-sm mt-2">Selecciona un paciente del directorio o inscribe uno nuevo para comenzar a dictar su sesión con IA.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
+                        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-100 pb-4">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Ficha Activa</span>
+                            <h3 className="text-2xl font-bold text-stone-900 mt-0.5">{selectedPatient.patient_name}</h3>
+                          </div>
+                          <button onClick={toggleRecording} className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}>
+                            {isRecording ? <><MicOff size={15} /> Detener Grabación</> : <><Mic size={15} /> Grabar / Dictar Sesión</>}
+                          </button>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-2">Apuntes clínicos</label>
+                          <textarea rows={4} value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="Habla con el micrófono encendido..." className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-sm outline-none focus:bg-white" />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button onClick={() => handleProcessWithAI('ficha')} disabled={aiLoading || !rawNotes.trim()} className="bg-[#2C4A3B] text-white px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] disabled:opacity-50">
+                            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Resumir (IA)
+                          </button>
+                        </div>
+                        {aiStructuredNotes && (
+                          <div className="p-5 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-[#2C4A3B] uppercase tracking-wider">Evolución Estructurada</h4>
+                              <button onClick={handleSaveToPatientHistory} className="bg-[#2C4A3B] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><Check size={13} /> Guardar</button>
+                            </div>
+                            <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">{aiStructuredNotes}</pre>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB COMUNICACIONES */}
+            {activeTab === 'comunicaciones' && (
+              <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Automatización IA</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Asistente de WhatsApp y Notificaciones</h2>
+                    <p className="text-sm text-stone-500 mt-1">El bot gestiona confirmaciones automáticas, recordatorios 24h antes y re-agendamientos sin intervención humana.</p>
+                  </div>
+                  <div className="bg-[#F4F7F5] border border-[#E4ECE7] px-4 py-2.5 rounded-2xl flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-[#2C4A3B]">Conectado a Meta Cloud API</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Bot Conversacional IA</h3>
+                        <input type="checkbox" checked={waBotActive} onChange={() => setWaBotActive(!waBotActive)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Responde dudas frecuentes de aranceles, ubicación y horarios de atención 24/7.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Estado: Operativo</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Recordatorios Automáticos</h3>
+                        <input type="checkbox" checked={waAutoRemind} onChange={() => setWaAutoRemind(!waAutoRemind)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Envía un WhatsApp de confirmación al paciente 24 horas y 2 horas antes de la sesión.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Configurado</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-bold text-stone-900 text-sm">Re-agendamiento por No Pago</h3>
+                        <input type="checkbox" checked={waAutoReschedule} onChange={() => setWaAutoReschedule(!waAutoReschedule)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
+                      </div>
+                      <p className="text-xs text-stone-500">Libera la hora automáticamente si la transferencia no se registra y ofrece el cupo a lista de espera.</p>
+                    </div>
+                    <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB FINANZAS */}
+            {activeTab === 'finanzas' && (
+              <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión Contable</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Finanzas y Facturación</h2>
+                    <p className="text-sm text-stone-500 mt-1">Control consolidado de ingresos, comisiones de terapeutas y transacciones clínicas.</p>
+                  </div>
+                  <button onClick={handleExportReportCSV} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
+                    <Download size={16} /> Exportar Reporte Financiero
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta</p>
+                    <p className="text-3xl font-bold text-stone-900">${dynamicGross.toLocaleString('es-CL')}</p>
+                    <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold pt-1">
+                      <ArrowUpRight size={14} /> <span>Calculado en tiempo real</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Ingresos Netos (Centro)</p>
+                    <p className="text-3xl font-bold text-[#2C4A3B]">${dynamicNet.toLocaleString('es-CL')}</p>
+                    <span className="text-xs text-stone-500 block pt-1">Comisión institucional aplicada (88%)</span>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Sesiones Pagadas</p>
+                    <p className="text-3xl font-bold text-stone-900">{paidAppointments.length} <span className="text-sm font-normal text-stone-400">citas</span></p>
+                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con base de datos</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* TAB EVALUACIONES / RESEÑAS */}
             {activeTab === 'resenas' && (
               <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -616,321 +1176,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB FINANZAS */}
-            {activeTab === 'finanzas' && (
-              <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión Contable</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Finanzas y Facturación</h2>
-                    <p className="text-sm text-stone-500 mt-1">Control consolidado de ingresos, comisiones de terapeutas y transacciones clínicas.</p>
-                  </div>
-                  <button onClick={handleExportReportCSV} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
-                    <Download size={16} /> Exportar Reporte Financiero
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta</p>
-                    <p className="text-3xl font-bold text-stone-900">${dynamicGross.toLocaleString('es-CL')}</p>
-                    <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold pt-1">
-                      <ArrowUpRight size={14} /> <span>Calculado en tiempo real</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Ingresos Netos (Centro)</p>
-                    <p className="text-3xl font-bold text-[#2C4A3B]">${dynamicNet.toLocaleString('es-CL')}</p>
-                    <span className="text-xs text-stone-500 block pt-1">Comisión institucional aplicada (88%)</span>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Sesiones Pagadas</p>
-                    <p className="text-3xl font-bold text-stone-900">{paidAppointments.length} <span className="text-sm font-normal text-stone-400">citas</span></p>
-                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con base de datos</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* TAB COMUNICACIONES */}
-            {activeTab === 'comunicaciones' && (
-              <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Automatización IA</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Asistente de WhatsApp y Notificaciones</h2>
-                    <p className="text-sm text-stone-500 mt-1">El bot gestiona confirmaciones automáticas, recordatorios 24h antes y re-agendamientos sin intervención humana.</p>
-                  </div>
-                  <div className="bg-[#F4F7F5] border border-[#E4ECE7] px-4 py-2.5 rounded-2xl flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-bold text-[#2C4A3B]">Conectado a Meta Cloud API</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-stone-900 text-sm">Bot Conversacional IA</h3>
-                        <input type="checkbox" checked={waBotActive} onChange={() => setWaBotActive(!waBotActive)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
-                      </div>
-                      <p className="text-xs text-stone-500">Responde dudas frecuentes de aranceles, ubicación y horarios de atención 24/7.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Estado: Operativo</span>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-stone-900 text-sm">Recordatorios Automáticos</h3>
-                        <input type="checkbox" checked={waAutoRemind} onChange={() => setWaAutoRemind(!waAutoRemind)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
-                      </div>
-                      <p className="text-xs text-stone-500">Envía un WhatsApp de confirmación al paciente 24 horas y 2 horas antes de la sesión.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Configurado</span>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-stone-900 text-sm">Re-agendamiento por No Pago</h3>
-                        <input type="checkbox" checked={waAutoReschedule} onChange={() => setWaAutoReschedule(!waAutoReschedule)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" />
-                      </div>
-                      <p className="text-xs text-stone-500">Libera la hora automáticamente si la transferencia no se registra y ofrece el cupo a lista de espera.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs space-y-5">
-                  <h3 className="font-bold text-base text-stone-900">Difusión Masiva o Anuncio a Pacientes</h3>
-                  <form onSubmit={handleSendBroadcast} className="space-y-4">
-                    <textarea 
-                      rows={3} 
-                      value={customBroadcastMsg} 
-                      onChange={e => setCustomBroadcastMsg(e.target.value)} 
-                      placeholder="Escribe un comunicado oficial para todos los pacientes activos (ej: Aviso por feriado o cambio de horario general)..." 
-                      className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-xs outline-none focus:bg-white" 
-                    />
-                    <button type="submit" disabled={sendingBroadcast || !customBroadcastMsg.trim()} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] transition-all disabled:opacity-50">
-                      {sendingBroadcast ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Enviar Difusión por WhatsApp
-                    </button>
-                  </form>
-                </div>
-              </motion.div>
-            )}
-
-            {/* TAB SERVICIOS */}
-            {activeTab === 'servicios' && (
-              <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Catálogo Clínico</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Servicios y Terapias</h2>
-                    <p className="text-sm text-stone-500 mt-1">Administra los tipos de sesiones, duraciones y aranceles ofrecidos por tu centro.</p>
-                  </div>
-                  <button onClick={() => setIsNewServiceModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
-                    <Plus size={16} /> Nuevo Servicio
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {services.length === 0 ? (
-                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
-                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
-                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados en el catálogo.</p>
-                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
-                    </div>
-                  ) : (
-                    services.map((srv) => (
-                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
-                        <div>
-                          <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
-                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                          </div>
-                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
-                        </div>
-                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium">
-                            <Clock size={14} className="text-[#2C4A3B]" />
-                            <span>{srv.duration || 50} min</span>
-                          </div>
-                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* TAB AGENDA */}
-            {activeTab === 'agenda' && (
-              <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
-                  <div>
-                    <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
-                    <p className="text-sm text-stone-500">Haz clic en cualquier día para agendar una cita directa o gestionar la disponibilidad.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button onClick={handleGoogleSync} disabled={isSyncingCalendar} className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all">
-                      {isSyncingCalendar ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-                      {calendarLinked ? 'Google Calendar Sincronizado' : 'Vincular Google Calendar'}
-                    </button>
-                    <button onClick={() => setIsNewApptModalOpen(true)} className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]">
-                      <Plus size={15} /> Nueva Cita
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
-                  <div className="flex items-center justify-between border-b border-stone-100 pb-4">
-                    <h3 className="text-lg font-bold text-stone-900 capitalize">
-                      {monthNames[currentMonth]} {currentYear}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {selectedDateFilter && (
-                        <button onClick={() => setSelectedDateFilter('')} className="text-xs font-semibold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]">
-                          Ver Todo el Mes
-                        </button>
-                      )}
-                      <button onClick={handlePrevMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronLeft size={18} /></button>
-                      <button onClick={handleNextMonth} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronRight size={18} /></button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                    <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-2">
-                    {Array.from({ length: firstDay }).map((_, index) => (
-                      <div key={`empty-${index}`} className="h-28 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />
-                    ))}
-
-                    {Array.from({ length: daysInMonth }).map((_, index) => {
-                      const dayNum = index + 1;
-                      const formattedDay = dayNum < 10 ? `0${dayNum}` : `${dayNum}`;
-                      const formattedMonth = (currentMonth + 1) < 10 ? `0${currentMonth + 1}` : `${currentMonth + 1}`;
-                      const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
-                      
-                      const dayAppointments = appointments.filter(a => a.date === dateStr);
-                      const isSelected = selectedDateFilter === dateStr;
-                      const isToday = new Date().toISOString().split('T')[0] === dateStr;
-
-                      return (
-                        <div 
-                          key={dateStr}
-                          onClick={() => {
-                            setSelectedDateFilter(dateStr);
-                            setApptDate(dateStr);
-                          }}
-                          className={`h-28 rounded-2xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group relative ${
-                            isSelected ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' : isToday ? 'border-[#2C4A3B]/60 bg-white' : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'
-                          }`}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>{dayNum}</span>
-                            <button onClick={(e) => { e.stopPropagation(); setApptDate(dateStr); setIsNewApptModalOpen(true); }} className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"><Plus size={14} /></button>
-                          </div>
-                          <div className="space-y-1 overflow-y-hidden flex-1 mt-1">
-                            {dayAppointments.slice(0, 2).map((appt, i) => (
-                              <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs flex items-center justify-between">
-                                <span>{appt.time} • {appt.patient_name}</span>
-                                <span className={`h-1.5 w-1.5 rounded-full ${appt.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
-                              </div>
-                            ))}
-                            {dayAppointments.length > 2 && <div className="text-[9px] text-stone-400 font-bold pl-0.5">+{dayAppointments.length - 2} más</div>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* TAB PACIENTES Y FICHAS IA */}
-            {activeTab === 'pacientes' && (
-              <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-stone-900 text-lg">Pacientes ({filteredPatients.length})</h3>
-                      <p className="text-xs text-stone-400">Directorio clínico del centro</p>
-                    </div>
-                    <button onClick={() => setIsNewPatientModalOpen(true)} className="bg-[#2C4A3B] text-white px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><UserPlus size={14} /> Inscribir</button>
-                  </div>
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3.5 top-3 text-stone-400" />
-                    <input type="text" placeholder="Buscar por nombre o correo..." value={searchPatient} onChange={e => setSearchPatient(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs outline-none focus:bg-white" />
-                  </div>
-                  <div className="space-y-2 max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
-                    {filteredPatients.length === 0 ? (
-                      <div className="text-center py-10 text-stone-400 space-y-2"><UserCircle size={32} className="mx-auto opacity-50" /><p className="text-xs">No hay pacientes en la base de datos.</p></div>
-                    ) : (
-                      filteredPatients.map((p, idx) => (
-                        <div key={idx} className="relative group">
-                          <button onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); }} className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${selectedPatient?.patient_name === p.patient_name ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' : 'border-stone-100 hover:bg-stone-50'}`}>
-                            <div className="pr-8 truncate">
-                              <p className="font-bold text-sm text-stone-900 truncate">{p.patient_name}</p>
-                              <p className="text-xs text-stone-400 truncate mt-0.5">{p.patient_email || 'Sin correo'}</p>
-                            </div>
-                          </button>
-                          <button onClick={(e) => handleDeletePatient(e, p)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="lg:col-span-2 space-y-6">
-                  {!selectedPatient ? (
-                    <div className="bg-white rounded-3xl border border-stone-100 p-16 flex flex-col items-center justify-center text-center shadow-xs">
-                      <div className="h-16 w-16 bg-stone-50 rounded-2xl flex items-center justify-center border border-stone-100 mb-4"><Sparkles size={28} className="text-stone-300" /></div>
-                      <h3 className="text-lg font-bold text-stone-900">Workspace Clínico Vacio</h3>
-                      <p className="text-sm text-stone-500 max-w-sm mt-2">Selecciona un paciente del directorio o inscribe uno nuevo para comenzar a dictar su sesión con IA.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
-                        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-100 pb-4">
-                          <div>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Ficha Activa</span>
-                            <h3 className="text-2xl font-bold text-stone-900 mt-0.5">{selectedPatient.patient_name}</h3>
-                          </div>
-                          <button onClick={toggleRecording} className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}>
-                            {isRecording ? <><MicOff size={15} /> Detener Grabación</> : <><Mic size={15} /> Grabar / Dictar Sesión</>}
-                          </button>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-2">Apuntes clínicos</label>
-                          <textarea rows={4} value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="Habla con el micrófono encendido..." className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-sm outline-none focus:bg-white" />
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                          <button onClick={() => handleProcessWithAI('ficha')} disabled={aiLoading || !rawNotes.trim()} className="bg-[#2C4A3B] text-white px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] disabled:opacity-50">
-                            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Resumir (IA)
-                          </button>
-                        </div>
-                        {aiStructuredNotes && (
-                          <div className="p-5 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] space-y-3">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-xs font-bold text-[#2C4A3B] uppercase tracking-wider">Evolución Estructurada</h4>
-                              <button onClick={handleSaveToPatientHistory} className="bg-[#2C4A3B] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><Check size={13} /> Guardar</button>
-                            </div>
-                            <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">{aiStructuredNotes}</pre>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
+            {/* TAB REPORTES */}
             {activeTab === 'reportes' && (
               <motion.div key="reportes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-8">
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1016,7 +1262,7 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL DE ADMISIÓN DE PACIENTE ( FORMULARIO COMPLETO ) */}
+      {/* MODAL DE ADMISIÓN DE PACIENTE */}
       <AnimatePresence>
         {isNewApptModalOpen && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
