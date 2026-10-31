@@ -1,24 +1,32 @@
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { ShieldCheck, Calendar, UserCheck, MapPin, ChevronRight } from 'lucide-react';
+import { ShieldCheck, Calendar, UserCheck, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
-// Usamos el cliente estándar para Server Components
+// ⚠️ DIRECTIVA CRÍTICA: Fuerza a Next.js a renderizar esta página en el servidor en tiempo real
+export const dynamic = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Next.js pasa el subdominio extraído a través de params.slug
-export default async function CenterPatientPortal({ params }: { params: { slug: string } }) {
-  
+// Tipado asíncrono para parámetros dinámicos (Next.js 15 ready)
+type PageProps = {
+  params: Promise<{ slug: string }>;
+};
+
+export default async function CenterPatientPortal({ params }: PageProps) {
+  // Desestructuración asíncrona segura del parámetro
+  const { slug } = await params;
+
   // 1. Buscamos si existe un centro con ese slug (subdominio)
   const { data: center } = await supabase
     .from('centers')
     .select('id, name, slug')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .single();
 
-  // Si alguien escribe un subdominio falso, arrojamos error 404
+  // Si alguien escribe un subdominio falso, arrojamos error 404 nativo
   if (!center) {
     notFound();
   }
