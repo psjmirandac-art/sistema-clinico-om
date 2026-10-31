@@ -1,28 +1,29 @@
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { ShieldCheck, Calendar, UserCheck, MapPin } from 'lucide-react';
+import { ShieldCheck, Calendar, UserCheck, MapPin, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-// Usamos el cliente estándar para Server Components
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Tipado asíncrono para parámetros dinámicos (Next.js 15 ready)
 type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-// ⚠️ Usamos generateMetadata para asegurar compatibilidad SEO y evitar errores de prerender
-export async function generateMetadata({ params }: PageProps) {
-  const { slug } = await params;
-  return {
-    title: `Portal de Pacientes | ${slug}`,
-  };
+// Componente de Carga (Skeleton) con estética de lujo
+fn LoadingPortal() {
+  return (
+    <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center space-y-4">
+      <Loader2 className="animate-spin text-[#2C4A3B]" size={36} />
+      <p className="text-xs font-semibold text-stone-500 tracking-wider uppercase">Preparando espacio clínico...</p>
+    </div>
+  );
 }
 
-export default async function CenterPatientPortal({ params }: PageProps) {
-  // Desestructuración asíncrona segura del parámetro
+// Componente interno que consume los params de forma segura dentro de Suspense
+async function CenterContent({ params }: PageProps) {
   const { slug } = await params;
 
   // Buscamos si existe un centro con ese slug (subdominio)
@@ -32,7 +33,6 @@ export default async function CenterPatientPortal({ params }: PageProps) {
     .eq('slug', slug)
     .single();
 
-  // Si no hay centro o hay error, 404 seguro
   if (centerError || !center) {
     notFound();
   }
@@ -118,5 +118,14 @@ export default async function CenterPatientPortal({ params }: PageProps) {
 
       </main>
     </div>
+  );
+}
+
+// Componente principal envuelto en Suspense para satisfacer el requisito de compilación de Next.js
+export default function CenterPatientPortal({ params }: PageProps) {
+  return (
+    <Suspense fallback={<LoadingPortal />}>
+      <CenterContent params={params} />
+    </Suspense>
   );
 }
