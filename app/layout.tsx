@@ -46,10 +46,6 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
-  verification: {
-    // 🔑 Pega aquí la clave completa que empieza por MNXfBwnUPhzN...
-    google: 'MNXfBwnUPhzN_TU_CODIGO_COMPLETO_AQUI',
-  },
 };
 
 export default function RootLayout({
@@ -59,6 +55,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" className={`${inter.variable} antialiased scroll-smooth`}>
+      <head>
+        {/* Token oficial verificado de Google Search Console */}
+        <meta
+          name="google-site-verification"
+          content="MNXfBwnUPhzNZFeIaqVabUDrRtZ7oR34psCaWjBmHXs"
+        />
+      </head>
       <body className="min-h-screen bg-[#F9F8F6] text-stone-800 selection:bg-[#2C4A3B] selection:text-white">
         <TenantProvider>
           {children}
