@@ -1,5 +1,4 @@
 import { notFound } from 'next/navigation';
-import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { ShieldCheck, Calendar, UserCheck, MapPin } from 'lucide-react';
 import Link from 'next/link';
@@ -14,26 +13,31 @@ type PageProps = {
   params: Promise<{ slug: string }>;
 };
 
-export default async function CenterPatientPortal({ params }: PageProps) {
-  // 1. Opt-out explícito de la caché: Fuerza renderizado en servidor sin chocar con Turbopack
-  noStore();
+// ⚠️ Usamos generateMetadata para asegurar compatibilidad SEO y evitar errores de prerender
+export async function generateMetadata({ params }: PageProps) {
+  const { slug } = await params;
+  return {
+    title: `Portal de Pacientes | ${slug}`,
+  };
+}
 
-  // 2. Desestructuración asíncrona segura del parámetro
+export default async function CenterPatientPortal({ params }: PageProps) {
+  // Desestructuración asíncrona segura del parámetro
   const { slug } = await params;
 
-  // 3. Buscamos si existe un centro con ese slug (subdominio)
-  const { data: center } = await supabase
+  // Buscamos si existe un centro con ese slug (subdominio)
+  const { data: center, error: centerError } = await supabase
     .from('centers')
     .select('id, name, slug')
     .eq('slug', slug)
     .single();
 
-  // Si alguien escribe un subdominio falso, arrojamos error 404 nativo
-  if (!center) {
+  // Si no hay centro o hay error, 404 seguro
+  if (centerError || !center) {
     notFound();
   }
 
-  // 4. Traemos a los profesionales activos de este centro específico
+  // Traemos a los profesionales activos de este centro específico
   const { data: professionals } = await supabase
     .from('professionals')
     .select('id, name, specialty, role')
