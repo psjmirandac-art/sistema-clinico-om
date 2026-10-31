@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
-// Interfaces del Dominio Clínico
 interface Center {
   id: string;
   name: string;
@@ -57,6 +56,9 @@ export default function AdminDashboardPage() {
   const [activeCenter, setActiveCenter] = useState<Center | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
 
+  // Fecha cliente diferida para evitar choque de prerender con Next.js
+  const [todayDate, setTodayDate] = useState<string>('');
+
   // Navegación por Módulos
   const [activeTab, setActiveTab] = useState<'boxes' | 'team' | 'appointments' | 'settings'>('boxes');
 
@@ -77,6 +79,11 @@ export default function AdminDashboardPage() {
   // Filtros de Citas
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+
+  // Sincronizar fecha local en el cliente de forma segura
+  useEffect(() => {
+    setTodayDate(new Date().toISOString().split('T')[0]);
+  }, []);
 
   // 1. Cargar Sesión y Sedes Disponibles
   useEffect(() => {
@@ -256,11 +263,12 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Métricas Computadas
+  // Métricas Computadas Seguras (Sin new Date() en el render sincrónico)
   const metrics = useMemo(() => {
     const totalBoxes = activeCenter?.boxes_count || 1;
-    const today = new Date().toISOString().split('T')[0];
-    const todayAppointments = appointments.filter((a) => a.appointment_date === today);
+    const todayAppointments = todayDate
+      ? appointments.filter((a) => a.appointment_date === todayDate)
+      : [];
     const occupiedBoxesCount = new Set(todayAppointments.map((a) => a.box_number)).size;
     const occupancyRate = Math.min(Math.round((occupiedBoxesCount / totalBoxes) * 100), 100);
 
@@ -270,7 +278,7 @@ export default function AdminDashboardPage() {
       occupancyRate,
       activeTeamCount: professionals.length,
     };
-  }, [activeCenter, appointments, professionals]);
+  }, [activeCenter, appointments, professionals, todayDate]);
 
   // Citas Filtradas
   const filteredAppointments = useMemo(() => {
@@ -278,7 +286,7 @@ export default function AdminDashboardPage() {
       const matchesSearch =
         appt.patient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         appt.patient_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        appt.professionals?.name.toLowerCase().includes(searchTerm.toLowerCase());
+        (appt.professionals?.name && appt.professionals.name.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesStatus = statusFilter === 'todos' || appt.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -440,7 +448,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Barra de Pestañas de Navegación */}
+        {/* Pestañas de Navegación */}
         <div className="flex items-center gap-2 border-b border-stone-200 pb-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('boxes')}
