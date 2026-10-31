@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import { TenantProvider } from '@/providers/TenantProvider';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -63,9 +62,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-[#F9F8F6] text-stone-800 selection:bg-[#2C4A3B] selection:text-white">
-        <TenantProvider>
-          {children}
-        </TenantProvider>
+        {children}
       </body>
     </html>
   );
