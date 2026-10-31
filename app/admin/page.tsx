@@ -10,7 +10,8 @@ import {
   MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, 
-  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, Send, DollarSign, ArrowUpRight
+  CheckCircle2, UserCircle, ChevronLeft, ChevronRight, Clock, Send, DollarSign, ArrowUpRight,
+  UserCheck, Building2, Minus
 } from 'lucide-react';
 import { useTenant } from '@/providers/TenantProvider';
 
@@ -54,13 +55,14 @@ export default function AdminSuitePage() {
   const [authError, setAuthError] = useState('');
   const [profile, setProfile] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>('agenda');
+  const [activeTab, setActiveTab] = useState<TabType>('equipo');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('mes');
   
   // Modales
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
+  const [isNewTherapistModalOpen, setIsNewTherapistModalOpen] = useState(false);
   
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -69,18 +71,17 @@ export default function AdminSuitePage() {
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  // Cierre global por tecla Escape
+  // Cierre global por Escape
   const closeAllModals = useCallback(() => {
     setIsNewApptModalOpen(false);
     setIsNewPatientModalOpen(false);
     setIsNewServiceModalOpen(false);
+    setIsNewTherapistModalOpen(false);
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        closeAllModals();
-      }
+      if (e.key === 'Escape') closeAllModals();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -89,7 +90,7 @@ export default function AdminSuitePage() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [therapists, setTherapists] = useState<any[]>([]);
-  const [boxesCount, setBoxesCount] = useState<number>(1);
+  const [boxesCount, setBoxesCount] = useState<number>(2);
 
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
@@ -105,18 +106,29 @@ export default function AdminSuitePage() {
 
   const [reviewsList, setReviewsList] = useState<any[]>([]);
 
+  // Estados Formulario Terapeuta
+  const [newTherapistName, setNewTherapistName] = useState('');
+  const [newTherapistEmail, setNewTherapistEmail] = useState('');
+  const [newTherapistSpecialty, setNewTherapistSpecialty] = useState('Psicología Clínica Adultos');
+  const [newTherapistPhone, setNewTherapistPhone] = useState('+569');
+  const [newTherapistRole, setNewTherapistRole] = useState('therapist');
+  const [savingTherapist, setSavingTherapist] = useState(false);
+
+  // Estados Comunicaciones IA
   const [waBotActive, setWaBotActive] = useState(true);
   const [waAutoRemind, setWaAutoRemind] = useState(true);
   const [waAutoReschedule, setWaAutoReschedule] = useState(true);
   const [customBroadcastMsg, setCustomBroadcastMsg] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
+  // Estados Nuevo Servicio
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newServiceDuration, setNewServiceDuration] = useState('50');
   const [newServiceDescription, setNewServiceDescription] = useState('');
   const [savingService, setSavingService] = useState(false);
 
+  // Admisión de Pacientes
   const [pFirstName, setPFirstName] = useState('');
   const [pLastName, setPLastName] = useState('');
   const [pGender, setPGender] = useState('');
@@ -254,6 +266,51 @@ export default function AdminSuitePage() {
     setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, box_number: newBox } : a));
     await supabase.from('appointments').update({ box_number: newBox }).eq('id', apptId);
     showToast(`Box actualizado a Box ${newBox}.`);
+  };
+
+  // Control Dinámico de Boxes Físicos
+  const handleUpdateBoxesCount = async (delta: number) => {
+    const updatedCount = Math.max(1, boxesCount + delta);
+    setBoxesCount(updatedCount);
+    if (profile?.center_id) {
+      await supabase.from('centers').update({ boxes_count: updatedCount }).eq('id', profile.center_id);
+    }
+    showToast(`Dotación actualizada a ${updatedCount} Boxes activos.`);
+  };
+
+  // Creación de Nuevo Profesional en el Equipo
+  const handleCreateTherapist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingTherapist(true);
+
+    const payload = {
+      name: newTherapistName,
+      email: newTherapistEmail,
+      specialty: newTherapistSpecialty,
+      phone: newTherapistPhone,
+      role: newTherapistRole,
+      status: 'activo',
+      center_id: profile?.center_id
+    };
+
+    const { data, error } = await supabase.from('professionals').insert([payload]).select().single();
+    const created = (!error && data) ? data : { id: `prof-${Date.now()}`, ...payload };
+
+    setTherapists(prev => [...prev, created]);
+    setIsNewTherapistModalOpen(false);
+    setNewTherapistName('');
+    setNewTherapistEmail('');
+    setNewTherapistPhone('+569');
+    setSavingTherapist(false);
+    showToast('Profesional incorporado al equipo clínico.');
+  };
+
+  const handleDeleteTherapist = async (id: string, name: string) => {
+    if (window.confirm(`¿Estás seguro de desvincular a ${name} del equipo?`)) {
+      setTherapists(prev => prev.filter(t => t.id !== id));
+      await supabase.from('professionals').delete().eq('id', id);
+      showToast('Profesional desvinculado.');
+    }
   };
 
   const handleCreateService = async (e: React.FormEvent) => {
@@ -410,7 +467,6 @@ export default function AdminSuitePage() {
     showToast('Reporte exportado con éxito.');
   };
 
-  // --- SAFE GUARDS PARA SSR ---
   if (authLoading || !currentDate) {
     return (
       <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
@@ -531,6 +587,10 @@ export default function AdminSuitePage() {
   );
 
   const filteredPatients = patientsList.filter(p => (p.patient_name || '').toLowerCase().includes(searchPatient.toLowerCase()));
+  const activePatientHistory = selectedPatient ? (clinicalRecords[selectedPatient.patient_email || selectedPatient.patient_name] || []) : [];
+
+  // Calcular ocupación de Boxes hoy
+  const todayAppts = appointments.filter(a => a.date === todayString && a.modality !== 'online');
 
   return (
     <div className="flex h-screen bg-[#F9F8F6] font-sans text-stone-800 overflow-hidden">
@@ -605,13 +665,173 @@ export default function AdminSuitePage() {
         <div className="flex-1 overflow-y-auto p-6 lg:p-8 bg-[#F9F8F6] custom-scrollbar">
           <AnimatePresence mode="wait">
 
+            {/* TAB EQUIPO Y BOXES (NUEVO MÓDULO ACTIVO) */}
+            {activeTab === 'equipo' && (
+              <motion.div key="equipo" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-8">
+                
+                {/* Header del Módulo */}
+                <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión de Infraestructura y Especialistas</span>
+                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Equipo Clínico y Salas</h2>
+                    <p className="text-sm text-stone-500 mt-1">Control de boxes de atención presencial, terapeutas activos y asignación de espacios.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button 
+                      onClick={() => setIsNewTherapistModalOpen(true)}
+                      className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs"
+                    >
+                      <UserPlus size={16} /> Incorporar Profesional
+                    </button>
+                  </div>
+                </div>
+
+                {/* SECCIÓN 1: BOXES FÍSICOS (SALAS) */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-base text-stone-900">Salas de Consulta (Boxes Activos)</h3>
+                      <p className="text-xs text-stone-400">Espacios físicos disponibles para sesiones presenciales.</p>
+                    </div>
+
+                    {/* Selector de cantidad de boxes */}
+                    <div className="flex items-center gap-2 bg-white border border-stone-200/80 p-1.5 rounded-2xl shadow-2xs">
+                      <button 
+                        onClick={() => handleUpdateBoxesCount(-1)} 
+                        disabled={boxesCount <= 1}
+                        className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Reducir Box"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <span className="text-xs font-bold px-2 text-stone-800">{boxesCount} Boxes</span>
+                      <button 
+                        onClick={() => handleUpdateBoxesCount(1)}
+                        className="p-1.5 rounded-xl hover:bg-stone-100 text-[#2C4A3B]"
+                        title="Añadir Box"
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Array.from({ length: boxesCount }, (_, i) => {
+                      const boxNum = i + 1;
+                      const apptsInBox = todayAppts.filter(a => Number(a.box_number || 1) === boxNum);
+                      const isOccupied = apptsInBox.length > 0;
+
+                      return (
+                        <div key={boxNum} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-3">
+                              <div className="h-11 w-11 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center font-bold text-sm">
+                                B{boxNum}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-sm text-stone-900">Box de Consulta {boxNum}</h4>
+                                <span className="text-[11px] text-stone-400">Atención Individual / Parejas</span>
+                              </div>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                              isOccupied ? 'bg-amber-50 text-amber-700 border border-amber-200/60' : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                            }`}>
+                              {isOccupied ? `${apptsInBox.length} Cita(s) Hoy` : 'Disponible'}
+                            </span>
+                          </div>
+
+                          <div className="pt-3 border-t border-stone-100 text-xs">
+                            {isOccupied ? (
+                              <div className="space-y-1.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Próxima sesión hoy:</span>
+                                <div className="p-2.5 rounded-xl bg-stone-50 border border-stone-100 text-[11px]">
+                                  <span className="font-bold text-stone-900 block">{apptsInBox[0].time} hrs • {apptsInBox[0].patient_name}</span>
+                                  <span className="text-stone-500">Terapeuta: {apptsInBox[0].professional_name}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-stone-400 italic text-[11px] py-1">Sin sesiones asignadas en este box para hoy.</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* SECCIÓN 2: DIRECTORIO DEL EQUIPO PROFESIONAL */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-base text-stone-900">Profesionales Acreditados ({therapists.length})</h3>
+                      <p className="text-xs text-stone-400">Terapeutas y especialistas con agenda activa en el centro.</p>
+                    </div>
+                  </div>
+
+                  {therapists.length === 0 ? (
+                    <div className="bg-white rounded-3xl border border-stone-100 p-12 text-center shadow-xs space-y-3">
+                      <div className="h-16 w-16 bg-[#F4F7F5] rounded-2xl flex items-center justify-center text-[#2C4A3B] mx-auto border border-[#E4ECE7]">
+                        <UserCheck size={28} />
+                      </div>
+                      <h4 className="font-bold text-stone-900 text-base">Directorio de Profesionales Vacío</h4>
+                      <p className="text-xs text-stone-500 max-w-sm mx-auto">
+                        Aún no hay terapeutas registrados en tu centro. Haz clic en "Incorporar Profesional" para añadir psicólogos o psiquiatras.
+                      </p>
+                      <button 
+                        onClick={() => setIsNewTherapistModalOpen(true)}
+                        className="bg-[#2C4A3B] text-white px-5 py-2.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-[#233b2f]"
+                      >
+                        <UserPlus size={14} /> Incorporar Primer Terapeuta
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {therapists.map((therapist) => (
+                        <div key={therapist.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-3">
+                              <div className="h-11 w-11 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center font-bold text-sm">
+                                {therapist.name.charAt(0)}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-sm text-stone-900">{therapist.name}</h4>
+                                <span className="text-[11px] font-semibold text-[#2C4A3B] block">{therapist.specialty || 'Psicoterapia'}</span>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteTherapist(therapist.id, therapist.name)}
+                              className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"
+                              title="Desvincular"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5 pt-3 border-t border-stone-100 text-[11px] text-stone-500">
+                            <p className="truncate">📧 {therapist.email}</p>
+                            {therapist.phone && <p>📱 {therapist.phone}</p>}
+                            <div className="pt-1 flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Rol:</span>
+                              <span className="font-bold text-stone-800 capitalize">{therapist.role || 'Terapeuta'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </motion.div>
+            )}
+
+            {/* TAB INICIO */}
             {activeTab === 'inicio' && (
               <motion.div key="inicio" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Panel de Control Clínico</span>
                     <h2 className="text-3xl font-bold text-stone-900 mt-1">Hola, {profile?.name}</h2>
-                    <p className="text-stone-500 text-sm mt-1">Tienes <strong className="text-stone-900">{appointments.length} sesiones</strong> en agenda, <strong className="text-stone-900">{therapists.filter(t => t.status === 'activos').length} profesionales</strong> activos y <strong className="text-stone-900">{boxesCount} boxes</strong> habilitados.</p>
+                    <p className="text-stone-500 text-sm mt-1">Tienes <strong className="text-stone-900">{appointments.length} sesiones</strong> en agenda, <strong className="text-stone-900">{therapists.length} profesionales</strong> activos y <strong className="text-stone-900">{boxesCount} boxes</strong> habilitados.</p>
                   </div>
                   <div className="flex flex-wrap gap-3">
                     <button onClick={() => setActiveTab('agenda')} className="bg-stone-100 text-stone-800 font-semibold text-xs px-5 py-3 rounded-2xl hover:bg-stone-200 flex items-center gap-2"><Calendar size={16} /> Ver Calendario</button>
@@ -644,10 +864,9 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA (VISTAS: DÍA / SEMANA / MES CON LÍNEAS HORARIAS) */}
+            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto space-y-6">
-                
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
@@ -694,9 +913,7 @@ export default function AdminSuitePage() {
                             key={mode}
                             onClick={() => setCalendarView(mode)}
                             className={`px-4 py-1.5 rounded-xl text-xs font-bold capitalize transition-all ${
-                              calendarView === mode 
-                                ? 'bg-white text-stone-900 shadow-xs' 
-                                : 'text-stone-500 hover:text-stone-800'
+                              calendarView === mode ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
                             }`}
                           >
                             {mode}
@@ -715,7 +932,6 @@ export default function AdminSuitePage() {
                     </div>
                   </div>
 
-                  {/* 1. VISTA MES */}
                   {calendarView === 'mes' && (
                     <div className="space-y-4">
                       <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
@@ -754,7 +970,6 @@ export default function AdminSuitePage() {
                                     openApptAtSlot(dateStr, '10:00'); 
                                   }} 
                                   className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"
-                                  title="Agendar cita en este día"
                                 >
                                   <Plus size={14} />
                                 </button>
@@ -775,7 +990,6 @@ export default function AdminSuitePage() {
                     </div>
                   )}
 
-                  {/* 2. VISTA SEMANA CON HORAS */}
                   {calendarView === 'semana' && (
                     <div className="overflow-x-auto">
                       <div className="min-w-[800px]">
@@ -841,7 +1055,6 @@ export default function AdminSuitePage() {
                     </div>
                   )}
 
-                  {/* 3. VISTA DÍA */}
                   {calendarView === 'dia' && (
                     <div className="space-y-3 max-w-4xl mx-auto">
                       {TIME_SLOTS.map((hour) => {
@@ -1128,7 +1341,7 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB EVALUACIONES / RESEÑAS */}
+            {/* TAB EVALUACIONES */}
             {activeTab === 'resenas' && (
               <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1204,7 +1417,8 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {['equipo', 'vitrina', 'documentos'].includes(activeTab) && (
+            {/* PLACEHOLDERS RESTANTES */}
+            {['vitrina', 'documentos'].includes(activeTab) && (
                <motion.div key="placeholder" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="h-full flex flex-col items-center justify-center text-center">
                  <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4"><ShieldCheck size={40} /></div>
                  <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab}</h2>
@@ -1215,6 +1429,105 @@ export default function AdminSuitePage() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* MODAL INCORPORAR TERAPEUTA / PROFESIONAL */}
+      <AnimatePresence>
+        {isNewTherapistModalOpen && (
+          <div 
+            onClick={() => setIsNewTherapistModalOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          >
+            <motion.div 
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5"
+            >
+              <div className="flex justify-between items-center border-b border-stone-100 pb-4">
+                <div>
+                  <h3 className="font-bold text-lg text-stone-900">Incorporar Profesional</h3>
+                  <p className="text-xs text-stone-400">Añade un terapeuta al directorio del centro.</p>
+                </div>
+                <button onClick={() => setIsNewTherapistModalOpen(false)} className="text-stone-400 hover:text-stone-700"><X size={20}/></button>
+              </div>
+
+              <form onSubmit={handleCreateTherapist} className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-stone-600 block mb-1">Nombre Completo *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="Ej: Dra. Sofía Valdés" 
+                    value={newTherapistName} 
+                    onChange={e => setNewTherapistName(e.target.value)} 
+                    className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-stone-600 block mb-1">Especialidad Clínica *</label>
+                  <select 
+                    value={newTherapistSpecialty} 
+                    onChange={e => setNewTherapistSpecialty(e.target.value)}
+                    className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20"
+                  >
+                    <option value="Psicología Clínica Adultos">Psicología Clínica Adultos</option>
+                    <option value="Psicoterapia Infanto-Juvenil">Psicoterapia Infanto-Juvenil</option>
+                    <option value="Terapia Familiar y de Pareja">Terapia Familiar y de Pareja</option>
+                    <option value="Psiquiatría Adultos">Psiquiatría Adultos</option>
+                    <option value="Neuropsicología">Neuropsicología</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1">Email Profesional *</label>
+                    <input 
+                      type="email" 
+                      required 
+                      placeholder="terapeuta@kairos.cl" 
+                      value={newTherapistEmail} 
+                      onChange={e => setNewTherapistEmail(e.target.value)} 
+                      className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-stone-600 block mb-1">Teléfono</label>
+                    <input 
+                      type="tel" 
+                      placeholder="+56912345678" 
+                      value={newTherapistPhone} 
+                      onChange={e => setNewTherapistPhone(e.target.value)} 
+                      className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-stone-600 block mb-1">Rol de Acceso</label>
+                  <select 
+                    value={newTherapistRole} 
+                    onChange={e => setNewTherapistRole(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white"
+                  >
+                    <option value="therapist">Terapeuta (Agenda y Fichas)</option>
+                    <option value="admin">Administrador Clínico (Suite Completa)</option>
+                  </select>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={savingTherapist} 
+                  className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#233b2f] transition-all flex items-center justify-center gap-2"
+                >
+                  {savingTherapist ? <><Loader2 size={15} className="animate-spin" /> Guardando...</> : 'Vincular al Centro'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* MODAL NUEVO PACIENTE */}
       <AnimatePresence>
@@ -1289,7 +1602,7 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL DE ADMISIÓN DE PACIENTE (CIERRE POR ESC O CLICK AFUERA) */}
+      {/* MODAL DE ADMISIÓN DE PACIENTE */}
       <AnimatePresence>
         {isNewApptModalOpen && (
           <div 
