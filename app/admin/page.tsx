@@ -72,11 +72,10 @@ export default function AdminSuitePage() {
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarLinked, setCalendarLinked] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
+  
+  // Manejo blindado de fecha para SSR
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setCurrentDate(new Date());
-  }, []);
+  const [todayString, setTodayString] = useState<string>('');
 
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [searchPatient, setSearchPatient] = useState('');
@@ -126,8 +125,11 @@ export default function AdminSuitePage() {
   const multiplier = reportPeriod === 'mes' ? 1 : reportPeriod === 'trimestre' ? 3 : 12;
 
   useEffect(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    setApptDate(todayStr);
+    const now = new Date();
+    setCurrentDate(now);
+    const ymd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    setTodayString(ymd);
+    setApptDate(ymd);
 
     async function initAuth() {
       const { data: { session: activeSession } } = await supabase.auth.getSession();
@@ -363,10 +365,9 @@ export default function AdminSuitePage() {
     if (!rawNotes.trim()) return;
     setAiLoading(true);
     const pName = selectedPatient?.patient_name || 'Paciente';
-    const currentDateFormatted = new Date().toLocaleDateString('es-CL');
 
     setTimeout(() => {
-      setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${currentDateFormatted}\n• Resumen: ${rawNotes}`);
+      setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${todayString}\n• Resumen: ${rawNotes}`);
       setAiLoading(false);
     }, 600);
   };
@@ -374,7 +375,7 @@ export default function AdminSuitePage() {
   const handleSaveToPatientHistory = () => {
     if (!selectedPatient || !aiStructuredNotes) return;
     const key = selectedPatient.patient_email || selectedPatient.patient_name;
-    const newEntry = { id: `rec-${Date.now()}`, date: new Date().toISOString().split('T')[0], therapist: profile?.name || 'Especialista', summary: aiStructuredNotes };
+    const newEntry = { id: `rec-${Date.now()}`, date: todayString, therapist: profile?.name || 'Especialista', summary: aiStructuredNotes };
     setClinicalRecords(prev => ({ ...prev, [key]: [newEntry, ...(prev[key] || [])] }));
     setRawNotes('');
     showToast('Evolución guardada en la ficha.');
@@ -390,23 +391,37 @@ export default function AdminSuitePage() {
     showToast('Reporte exportado con éxito.');
   };
 
-  // --- HELPERS SEGUROS PARA CÁLCULO DE FECHAS ---
-  const activeDate = currentDate || new Date();
-  const currentYear = activeDate.getFullYear();
-  const currentMonth = activeDate.getMonth();
+  // --- SAFE GUARDS PARA SSR ---
+  if (authLoading || !currentDate) {
+    return (
+      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
+        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
+      </div>
+    );
+  }
+
+  // --- HELPERS DE FECHA CLIENT-SIDE SEGUROS ---
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
   const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const dayNamesShort = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-  // Navegación adaptable según la vista activa
+  const formatDateYMD = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
   const handlePrevDate = () => {
     if (calendarView === 'mes') {
       setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
     } else if (calendarView === 'semana') {
-      const d = new Date(activeDate);
+      const d = new Date(currentDate);
       d.setDate(d.getDate() - 7);
       setCurrentDate(d);
     } else {
-      const d = new Date(activeDate);
+      const d = new Date(currentDate);
       d.setDate(d.getDate() - 1);
       setCurrentDate(d);
     }
@@ -416,17 +431,16 @@ export default function AdminSuitePage() {
     if (calendarView === 'mes') {
       setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
     } else if (calendarView === 'semana') {
-      const d = new Date(activeDate);
+      const d = new Date(currentDate);
       d.setDate(d.getDate() + 7);
       setCurrentDate(d);
     } else {
-      const d = new Date(activeDate);
+      const d = new Date(currentDate);
       d.setDate(d.getDate() + 1);
       setCurrentDate(d);
     }
   };
 
-  // Cálculos para vista Mes
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => {
     let day = new Date(year, month, 1).getDay();
@@ -435,29 +449,20 @@ export default function AdminSuitePage() {
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // Cálculos para vista Semana
   const getStartOfWeek = (d: Date) => {
     const date = new Date(d);
     const day = date.getDay();
     const diff = date.getDate() - day + (day === 0 ? -6 : 1);
     return new Date(date.setDate(diff));
   };
-  const startOfWeek = getStartOfWeek(activeDate);
+  const startOfWeek = getStartOfWeek(currentDate);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(startOfWeek);
     d.setDate(d.getDate() + i);
     return d;
   });
 
-  const formatDateYMD = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const activeDateStr = formatDateYMD(activeDate);
+  const activeDateStr = formatDateYMD(currentDate);
 
   const openApptAtSlot = (date: string, time: string) => {
     setApptDate(date);
@@ -472,14 +477,6 @@ export default function AdminSuitePage() {
   const averageRating = reviewsList.length > 0 
     ? (reviewsList.reduce((acc, r) => acc + Number(r.rating || 5), 0) / reviewsList.length).toFixed(1)
     : '5.0';
-
-  if (authLoading || !currentDate) {
-    return (
-      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
-        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
-      </div>
-    );
-  }
 
   if (!session) {
     return (
@@ -516,7 +513,6 @@ export default function AdminSuitePage() {
   );
 
   const filteredPatients = patientsList.filter(p => (p.patient_name || '').toLowerCase().includes(searchPatient.toLowerCase()));
-  const activePatientHistory = selectedPatient ? (clinicalRecords[selectedPatient.patient_email || selectedPatient.patient_name] || []) : [];
 
   return (
     <div className="flex h-screen bg-[#F9F8F6] font-sans text-stone-800 overflow-hidden">
@@ -630,11 +626,10 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA (VISTAS: DÍA / SEMANA / MES CON HORARIOS) */}
+            {/* TAB AGENDA (VISTAS: DÍA / SEMANA / MES CON LÍNEAS HORARIAS) */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-7xl mx-auto space-y-6">
                 
-                {/* Header de la Agenda */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
                   <div>
                     <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
@@ -658,14 +653,13 @@ export default function AdminSuitePage() {
                   </div>
                 </div>
 
-                {/* Barra de Controles y Selector de Modo */}
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-stone-100 pb-4">
                     <div className="flex items-center gap-3">
                       <h3 className="text-lg font-bold text-stone-900 capitalize">
                         {calendarView === 'mes' && `${monthNames[currentMonth]} ${currentYear}`}
                         {calendarView === 'semana' && `Semana del ${weekDays[0].getDate()} al ${weekDays[6].getDate()} de ${monthNames[weekDays[0].getMonth()]}`}
-                        {calendarView === 'dia' && `${activeDate.getDate()} de ${monthNames[currentMonth]} ${currentYear}`}
+                        {calendarView === 'dia' && `${currentDate.getDate()} de ${monthNames[currentMonth]} ${currentYear}`}
                       </h3>
                       <button 
                         onClick={() => setCurrentDate(new Date())}
@@ -676,7 +670,6 @@ export default function AdminSuitePage() {
                     </div>
 
                     <div className="flex items-center gap-4">
-                      {/* Segmented Control Día / Semana / Mes */}
                       <div className="bg-stone-100 p-1 rounded-2xl flex items-center">
                         {(['dia', 'semana', 'mes'] as CalendarViewMode[]).map((mode) => (
                           <button
@@ -722,7 +715,7 @@ export default function AdminSuitePage() {
                           const dateStr = formatDateYMD(dateObj);
                           const dayAppointments = appointments.filter(a => a.date === dateStr);
                           const isSelected = selectedDateFilter === dateStr;
-                          const isToday = todayStr === dateStr;
+                          const isToday = todayString === dateStr;
 
                           return (
                             <div 
@@ -768,12 +761,11 @@ export default function AdminSuitePage() {
                   {calendarView === 'semana' && (
                     <div className="overflow-x-auto">
                       <div className="min-w-[800px]">
-                        {/* Cabecera de días de la semana */}
                         <div className="grid grid-cols-8 border-b border-stone-100 pb-3 text-center">
                           <div className="text-[11px] font-bold text-stone-400 uppercase tracking-widest flex items-center justify-center">Hora</div>
                           {weekDays.map((d, i) => {
                             const dateStr = formatDateYMD(d);
-                            const isToday = todayStr === dateStr;
+                            const isToday = todayString === dateStr;
                             return (
                               <div key={i} className="flex flex-col items-center">
                                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{dayNamesShort[i]}</span>
@@ -785,7 +777,6 @@ export default function AdminSuitePage() {
                           })}
                         </div>
 
-                        {/* Franjas Horarias */}
                         <div className="divide-y divide-stone-100">
                           {TIME_SLOTS.map((hour) => (
                             <div key={hour} className="grid grid-cols-8 min-h-[64px] group">
@@ -832,7 +823,7 @@ export default function AdminSuitePage() {
                     </div>
                   )}
 
-                  {/* 3. VISTA DÍA CON AGENDA DETALLADA */}
+                  {/* 3. VISTA DÍA */}
                   {calendarView === 'dia' && (
                     <div className="space-y-3 max-w-4xl mx-auto">
                       {TIME_SLOTS.map((hour) => {
