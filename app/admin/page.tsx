@@ -12,6 +12,7 @@ import {
   RefreshCw, Download, Store, CheckCircle2, UserCircle, ChevronLeft, 
   ChevronRight, Clock, Building2, ChevronDown, ArrowUpRight, UserCheck, Minus, UserPlus
 } from 'lucide-react';
+import DocumentosTab from '@/components/admin/DocumentosTab';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
@@ -40,7 +41,6 @@ const TIME_SLOTS = [
 export default function AdminSuitePage() {
   const router = useRouter();
 
-  // Estados Multi-Tenant y Sesión
   const [session, setSession] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -48,18 +48,15 @@ export default function AdminSuitePage() {
   const [activeCenter, setActiveCenter] = useState<Center | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
 
-  // Estados de Interfaz
   const [activeTab, setActiveTab] = useState<TabType>('inicio');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('mes');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
-  // Modales
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
   const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
   const [isNewTherapistModalOpen, setIsNewTherapistModalOpen] = useState(false);
 
-  // Datos Operativos del Centro
   const [appointments, setAppointments] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [therapists, setTherapists] = useState<any[]>([]);
@@ -67,12 +64,10 @@ export default function AdminSuitePage() {
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [boxesCount, setBoxesCount] = useState<number>(2);
 
-  // Fechas (Diferidas para evitar error de Prerender en Next.js)
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [todayString, setTodayString] = useState<string>('');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
   
-  // Variables Formularios (Resumidas)
   const [searchPatient, setSearchPatient] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [newPatientName, setNewPatientName] = useState('');
@@ -134,7 +129,6 @@ export default function AdminSuitePage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeAllModals]);
 
-  // INICIALIZACIÓN SEGURA (Sin errores de prerender)
   useEffect(() => {
     const now = new Date();
     setCurrentDate(now);
@@ -154,7 +148,6 @@ export default function AdminSuitePage() {
 
         const email = activeSession.user.email?.trim().toLowerCase();
         
-        // Cargar todos los centros del usuario
         const { data: profs, error } = await supabase
           .from('professionals')
           .select(`id, name, email, role, center_id, centers (id, name, slug, boxes_count)`)
@@ -180,7 +173,6 @@ export default function AdminSuitePage() {
           localStorage.setItem('kairos_active_center_id', defaultCenter.id);
         }
 
-        // Fijar Perfil
         const currentProf = profs.find(p => p.center_id === defaultCenter?.id) || profs[0];
         setProfile({
           id: currentProf.id,
@@ -200,7 +192,6 @@ export default function AdminSuitePage() {
     initAuthAndCenters();
   }, [router]);
 
-  // Cargar datos operativos cada vez que se cambia de Centro
   useEffect(() => {
     async function fetchClinicalData(centerId: string) {
       try {
@@ -467,7 +458,6 @@ export default function AdminSuitePage() {
     );
   }
 
-  // Utilidades Calendario
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
   const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -521,7 +511,6 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR NAVEGACIÓN */}
       <aside className="w-[265px] bg-white border-r border-stone-200/80 flex flex-col z-20 shrink-0 hidden md:flex">
         <div className="h-18 flex items-center px-6 border-b border-stone-100 shrink-0 py-4">
           <div className="h-9 w-9 bg-[#2C4A3B] text-white rounded-xl flex items-center justify-center mr-3 shadow-xs"><ShieldCheck size={20} /></div>
@@ -559,13 +548,9 @@ export default function AdminSuitePage() {
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        
-        {/* TOP NAVBAR (MULTI-TENANT) */}
         <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-stone-200/80 px-4 sm:px-8 py-3.5 transition-all flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* Selector Desplegable de Sedes */}
             <div className="relative">
               <button
                 type="button"
@@ -629,11 +614,9 @@ export default function AdminSuitePage() {
           </div>
         </header>
 
-        {/* CONTENIDO SCROLLABLE DE LAS PESTAÑAS */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-[#F9F8F6] custom-scrollbar">
           <AnimatePresence mode="wait">
 
-            {/* TAB INICIO */}
             {activeTab === 'inicio' && (
               <motion.div key="inicio" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -673,7 +656,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB AGENDA */}
             {activeTab === 'agenda' && (
               <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs">
@@ -847,7 +829,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB EQUIPO Y BOXES */}
             {activeTab === 'equipo' && (
               <motion.div key="equipo" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-8">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -960,7 +941,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB SERVICIOS */}
             {activeTab === 'servicios' && (
               <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1001,7 +981,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB PACIENTES Y FICHAS IA */}
             {activeTab === 'pacientes' && (
               <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs xl:col-span-1">
@@ -1096,7 +1075,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB COMUNICACIONES */}
             {activeTab === 'comunicaciones' && (
               <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1136,7 +1114,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB FINANZAS */}
             {activeTab === 'finanzas' && (
               <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1169,7 +1146,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB EVALUACIONES */}
             {activeTab === 'resenas' && (
               <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1211,7 +1187,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {/* TAB REPORTES */}
             {activeTab === 'reportes' && (
               <motion.div key="reportes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-8">
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1230,8 +1205,13 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
+            {/* TAB DOCUMENTOS */}
+            {activeTab === 'documentos' && (
+              <DocumentosTab centerName={activeCenter?.name || 'la sede'} />
+            )}
+
             {/* OTRAS PESTAÑAS (PLACEHOLDERS DE CONFIGURACIÓN) */}
-            {['documentos', 'vitrina', 'conexiones', 'sala_online', 'gana_meses', 'suscripcion', 'ayuda', 'configuracion'].includes(activeTab) && (
+            {['vitrina', 'conexiones', 'sala_online', 'gana_meses', 'suscripcion', 'ayuda', 'configuracion'].includes(activeTab) && (
               <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full flex flex-col items-center justify-center text-center max-w-[90rem] mx-auto py-20">
                 <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4 shadow-sm border border-stone-200/50"><Settings size={40} /></div>
                 <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab.replace('_', ' ')}</h2>
@@ -1244,8 +1224,6 @@ export default function AdminSuitePage() {
       </main>
 
       {/* --- INICIO DE MODALES --- */}
-
-      {/* MODAL NUEVA CITA Y PACIENTE */}
       <AnimatePresence>
         {isNewApptModalOpen && (
           <div onClick={() => setIsNewApptModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -1290,7 +1268,6 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL NUEVO PACIENTE EXPRESS */}
       <AnimatePresence>
         {isNewPatientModalOpen && (
           <div onClick={() => setIsNewPatientModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1305,7 +1282,6 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL NUEVO SERVICIO */}
       <AnimatePresence>
         {isNewServiceModalOpen && (
           <div onClick={() => setIsNewServiceModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1325,7 +1301,6 @@ export default function AdminSuitePage() {
         )}
       </AnimatePresence>
 
-      {/* MODAL INCORPORAR TERAPEUTA */}
       <AnimatePresence>
         {isNewTherapistModalOpen && (
           <div onClick={() => setIsNewTherapistModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
