@@ -1,11 +1,10 @@
 import { notFound } from 'next/navigation';
+import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { ShieldCheck, Calendar, UserCheck, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
-// ⚠️ DIRECTIVA CRÍTICA: Fuerza a Next.js a renderizar esta página en el servidor en tiempo real
-export const dynamic = 'force-dynamic';
-
+// Usamos el cliente estándar para Server Components
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -16,10 +15,13 @@ type PageProps = {
 };
 
 export default async function CenterPatientPortal({ params }: PageProps) {
-  // Desestructuración asíncrona segura del parámetro
+  // 1. Opt-out explícito de la caché: Fuerza renderizado en servidor sin chocar con Turbopack
+  noStore();
+
+  // 2. Desestructuración asíncrona segura del parámetro
   const { slug } = await params;
 
-  // 1. Buscamos si existe un centro con ese slug (subdominio)
+  // 3. Buscamos si existe un centro con ese slug (subdominio)
   const { data: center } = await supabase
     .from('centers')
     .select('id, name, slug')
@@ -31,7 +33,7 @@ export default async function CenterPatientPortal({ params }: PageProps) {
     notFound();
   }
 
-  // 2. Traemos a los profesionales activos de este centro específico
+  // 4. Traemos a los profesionales activos de este centro específico
   const { data: professionals } = await supabase
     .from('professionals')
     .select('id, name, specialty, role')
