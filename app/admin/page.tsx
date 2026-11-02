@@ -13,8 +13,9 @@ import {
   ChevronRight, Clock, Building2, ChevronDown, ArrowUpRight, UserCheck, Minus, UserPlus
 } from 'lucide-react';
 
+// Módulos Hijos importados
 import DocumentosTab from '@/components/admin/DocumentosTab';
-import ComunicacionesTab from '@/components/admin/ComunicacionesTab'; // <-- IMPORT NUEVO
+import ComunicacionesTab from '@/components/admin/ComunicacionesTab';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
@@ -87,6 +88,7 @@ export default function AdminSuitePage() {
   const [newServiceDescription, setNewServiceDescription] = useState('');
   const [savingService, setSavingService] = useState(false);
 
+  // Estados del formulario de nueva cita
   const [pFirstName, setPFirstName] = useState('');
   const [pLastName, setPLastName] = useState('');
   const [pDocument, setPDocument] = useState('');
@@ -317,6 +319,7 @@ export default function AdminSuitePage() {
     }
   };
 
+  // ⚠️ NUEVA FUNCIÓN CON INTEGRACIÓN DE NOTIFICACIONES ASÍNCRONAS
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCenter?.id) return;
@@ -338,18 +341,41 @@ export default function AdminSuitePage() {
       price: 35000, 
     };
 
-    const { data, error } = await supabase.from('appointments').insert([payload]).select().single();
-    const created = (!error && data) ? data : { ...payload, id: `local-${Date.now()}` };
+    try {
+      // 1. Guardar en Base de Datos Supabase
+      const { data, error } = await supabase.from('appointments').insert([payload]).select().single();
+      const created = (!error && data) ? data : { ...payload, id: `local-${Date.now()}` };
 
-    setAppointments(prev => [...prev, created]);
-    if (!patientsList.some(p => p.patient_email === pEmail)) {
-      setPatientsList(prev => [{ patient_name: fullName, patient_email: pEmail, patient_phone: pPhone }, ...prev]);
+      setAppointments(prev => [...prev, created]);
+      if (!patientsList.some(p => p.patient_email === pEmail)) {
+        setPatientsList(prev => [{ patient_name: fullName, patient_email: pEmail, patient_phone: pPhone }, ...prev]);
+      }
+
+      // 2. Disparar Notificación Asíncrona (Fire and forget, no bloquea la UI)
+      fetch('/api/notificaciones/confirmacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName: fullName,
+          patientEmail: pEmail,
+          patientPhone: pPhone,
+          date: apptDate,
+          time: apptTime,
+          professionalName: profile?.name || 'Terapéuta',
+          centerName: activeCenter.name
+        })
+      }).catch(err => console.error("Error disparando notificación:", err));
+
+      // 3. Limpieza UI y feedback instantáneo
+      setIsNewApptModalOpen(false);
+      setPFirstName(''); setPLastName(''); setPDocument(''); setPEmail(''); setPPhone('');
+      showToast('Paciente y cita agendados con éxito. Notificación enviada.');
+    } catch (err) {
+      console.error(err);
+      alert("Error al agendar la cita.");
+    } finally {
+      setSavingAppt(false);
     }
-
-    setIsNewApptModalOpen(false);
-    setPFirstName(''); setPLastName(''); setPDocument(''); setPEmail(''); setPPhone('');
-    setSavingAppt(false);
-    showToast('Paciente y cita agendados con éxito.');
   };
 
   const handleCreatePatient = (e: React.FormEvent) => {
