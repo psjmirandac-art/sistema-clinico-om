@@ -3,33 +3,35 @@ import { unstable_noStore as noStore } from 'next/cache';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializamos Resend (necesitarás RESEND_API_KEY en tu .env de Vercel)
-const resend = new Resend(process.env.RESEND_API_KEY || 're_placeholder');
-
-// ⚠️ Usamos SUPABASE_SERVICE_ROLE_KEY porque un Cron Job opera en el backend 
-// y necesita bypass de las reglas RLS (Row Level Security) para leer todas las citas.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
 export async function GET(request: Request) {
-  // 1. Opt-out explícito de caché: Evita el error de prerenderizado en el Build de Vercel
+  // 1. Opt-out explícito de caché para que siempre evalúe en tiempo real
   noStore();
 
   // 2. Seguridad: Validar que la petición venga exclusivamente de Vercel Cron
-  // En Vercel, debes configurar la variable de entorno CRON_SECRET
   const authHeader = request.headers.get('authorization');
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Acceso denegado' }, { status: 401 });
   }
 
+  // 3. Inicialización en RUNTIME (Sortea el error de build de Vercel)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('Faltan variables de entorno de Supabase.');
+    return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const resend = new Resend(process.env.RESEND_API_KEY || 're_placeholder');
+
   try {
-    // 3. Calcular la fecha de mañana para buscar citas (YYYY-MM-DD)
+    // 4. Calcular la fecha de mañana para buscar citas (YYYY-MM-DD)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const targetDate = tomorrow.toISOString().split('T')[0];
 
-    // 4. Buscar citas confirmadas para mañana
+    // 5. Buscar citas confirmadas para mañana (bypass RLS gracias a service_key)
     const { data: appointments, error } = await supabase
       .from('appointments')
       .select('id, patient_name, patient_email, time, professional_name, modality, centers(name)')
@@ -42,14 +44,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, message: 'No hay citas para recordar mañana.' });
     }
 
-    // 5. Procesar envío de correos en paralelo
+    // 6. Procesar envío de correos en paralelo
     const emailsToSend = appointments.map((appt) => {
-      // Manejo seguro del nombre del centro en consultas unidas (joins)
+      // Manejo seguro del nombre del centro
       const centerData = Array.isArray(appt.centers) ? appt.centers[0] : appt.centers;
       const clinicName = centerData?.name || 'nuestro centro clínico';
 
       return resend.emails.send({
-        from: 'Kairós Clínico <recordatorios@kairosclinico.cl>', // Ajusta a tu dominio verificado en Resend
+        from: 'Kairós Clínico <recordatorios@kairosclinico.cl>', 
         to: appt.patient_email,
         subject: `Recordatorio de tu sesión mañana a las ${appt.time}`,
         html: `
@@ -73,7 +75,7 @@ export async function GET(request: Request) {
 
     const results = await Promise.allSettled(emailsToSend);
     
-    // Contar cuántos fallaron vs tuvieron éxito para monitoreo
+    // Contar cuántos fallaron vs tuvieron éxito para monitoreo en logs
     const successCount = results.filter(r => r.status === 'fulfilled').length;
 
     return NextResponse.json({ 
