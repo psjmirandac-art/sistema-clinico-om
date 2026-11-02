@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
   Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
-  X, Loader2, Lock, DoorOpen, Check, MapPin, Wallet, CreditCard, 
+  X, Loader2, DoorOpen, Check, MapPin, Wallet, CreditCard, 
   Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
   RefreshCw, Download, Store, CheckCircle2, UserCircle, ChevronLeft, 
   ChevronRight, Clock, Building2, ChevronDown, ArrowUpRight, UserCheck, Minus, UserPlus
 } from 'lucide-react';
 
-// EL MÓDULO HIJO IMPORTADO
 import DocumentosTab from '@/components/admin/DocumentosTab';
+import ComunicacionesTab from '@/components/admin/ComunicacionesTab'; // <-- IMPORT NUEVO
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
@@ -81,10 +81,6 @@ export default function AdminSuitePage() {
   const [newTherapistRole, setNewTherapistRole] = useState('terapeuta');
   const [savingTherapist, setSavingTherapist] = useState(false);
 
-  const [waBotActive, setWaBotActive] = useState(true);
-  const [waAutoRemind, setWaAutoRemind] = useState(true);
-  const [waAutoReschedule, setWaAutoReschedule] = useState(true);
-
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newServiceDuration, setNewServiceDuration] = useState('50');
@@ -93,15 +89,10 @@ export default function AdminSuitePage() {
 
   const [pFirstName, setPFirstName] = useState('');
   const [pLastName, setPLastName] = useState('');
-  const [pGender, setPGender] = useState('');
   const [pDocument, setPDocument] = useState('');
-  const [pBirthDate, setPBirthDate] = useState('');
   const [pPrevision, setPPrevision] = useState('');
   const [pEmail, setPEmail] = useState('');
   const [pPhone, setPPhone] = useState('');
-  const [pAddress, setPAddress] = useState('');
-  const [pComuna, setPComuna] = useState('');
-  const [pCiudad, setPCiudad] = useState('');
   const [apptDate, setApptDate] = useState('');
   const [apptTime, setApptTime] = useState('10:00');
   const [savingAppt, setSavingAppt] = useState(false);
@@ -1077,45 +1068,6 @@ export default function AdminSuitePage() {
               </motion.div>
             )}
 
-            {activeTab === 'comunicaciones' && (
-              <motion.div key="comunicaciones" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Automatización IA</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Asistente de WhatsApp y Notificaciones</h2>
-                    <p className="text-sm text-stone-500 mt-1">El bot gestiona confirmaciones automáticas y re-agendamientos sin intervención humana.</p>
-                  </div>
-                  <div className="bg-[#F4F7F5] border border-[#E4ECE7] px-4 py-2.5 rounded-2xl flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-bold text-[#2C4A3B]">Conectado a Meta Cloud API</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center"><h3 className="font-bold text-stone-900 text-sm">Bot Conversacional IA</h3><input type="checkbox" checked={waBotActive} onChange={() => setWaBotActive(!waBotActive)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" /></div>
-                      <p className="text-xs text-stone-500">Responde dudas frecuentes de aranceles y horarios 24/7.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Estado: Operativo</span>
-                  </div>
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center"><h3 className="font-bold text-stone-900 text-sm">Recordatorios Auto</h3><input type="checkbox" checked={waAutoRemind} onChange={() => setWaAutoRemind(!waAutoRemind)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" /></div>
-                      <p className="text-xs text-stone-500">Envía un WhatsApp de confirmación 24h antes de la sesión.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl w-fit">Configurado</span>
-                  </div>
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-4 shadow-xs flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center"><h3 className="font-bold text-stone-900 text-sm">Re-agendamiento</h3><input type="checkbox" checked={waAutoReschedule} onChange={() => setWaAutoReschedule(!waAutoReschedule)} className="toggle cursor-pointer accent-[#2C4A3B] h-4 w-4" /></div>
-                      <p className="text-xs text-stone-500">Libera la hora automáticamente si la transferencia no se registra.</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl w-fit">Activo en centro</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
             {activeTab === 'finanzas' && (
               <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
                 <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
@@ -1213,6 +1165,11 @@ export default function AdminSuitePage() {
                 centerName={activeCenter?.name || 'la sede'} 
                 centerId={activeCenter?.id} 
               />
+            )}
+
+            {/* TAB COMUNICACIONES (NUEVO MOTOR) */}
+            {activeTab === 'comunicaciones' && (
+              <ComunicacionesTab centerId={activeCenter?.id} />
             )}
 
             {/* OTRAS PESTAÑAS (PLACEHOLDERS DE CONFIGURACIÓN) */}
