@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,55 +19,111 @@ import {
   ShieldCheck,
   CalendarPlus,
   RotateCcw,
+  Stethoscope,
 } from 'lucide-react';
 
-// Inicialización segura de Supabase en el cliente
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID || '';
+const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID || 'kairos-main';
 
 const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-interface Professional {
+interface ProfessionalConfig {
   id: string;
   name: string;
   specialty: string;
-  duration: string;
-  price: string;
-  avatarInitials: string;
+  rut: string;
+  email: string;
+  avatar: string;
+  workingDays: number[];
+  startHour: string;
+  endHour: string;
+  modalityMode: 'Ambas (Híbrido)' | 'Solo Online' | 'Solo Presencial';
+  presencialAddress: string;
+  onlineRoomUrl: string;
+  basePrice: number;
 }
 
-const PROFESSIONALS: Professional[] = [
+const CLINICAL_SERVICES = [
+  { name: 'Psicoterapia Individual', price: 45000, duration: '50 min' },
+  { name: 'Terapia de Pareja / Familiar', price: 60000, duration: '60 min' },
+  { name: 'Evaluación Psicodiagnóstica', price: 55000, duration: '60 min' },
+  { name: 'Consulta Psiquiátrica', price: 75000, duration: '45 min' },
+  { name: 'Psicoterapia Infanto-Juvenil', price: 48000, duration: '50 min' },
+];
+
+const ALL_HOURS = [
+  '08:00',
+  '09:00',
+  '10:00',
+  '11:00',
+  '12:00',
+  '13:00',
+  '14:00',
+  '15:00',
+  '16:00',
+  '17:00',
+  '18:00',
+  '19:00',
+  '20:00',
+];
+
+const DEFAULT_PROFESSIONALS: ProfessionalConfig[] = [
   {
     id: 'prof-1',
     name: 'Dr. Alejandro Kairós',
     specialty: 'Psicoterapia Clínica & Ansiedad',
-    duration: '50 min',
-    price: '$45.000 CLP',
-    avatarInitials: 'AK',
+    rut: '15.432.890-K',
+    email: 'alejandro@kairosclinico.cl',
+    avatar: 'AK',
+    workingDays: [1, 2, 3, 4, 5],
+    startHour: '09:00',
+    endHour: '18:00',
+    modalityMode: 'Ambas (Híbrido)',
+    presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
+    onlineRoomUrl: 'https://meet.google.com/kairos-alejandro',
+    basePrice: 45000,
   },
   {
     id: 'prof-2',
     name: 'Ps. Valentina Montt',
     specialty: 'Terapia Cognitivo-Conductual',
-    duration: '50 min',
-    price: '$40.000 CLP',
-    avatarInitials: 'VM',
+    rut: '17.890.123-4',
+    email: 'valentina@kairosclinico.cl',
+    avatar: 'VM',
+    workingDays: [1, 2, 3, 4, 5, 6],
+    startHour: '10:00',
+    endHour: '19:00',
+    modalityMode: 'Ambas (Híbrido)',
+    presencialAddress: 'Av. Alonso de Córdova 5870, Of. 702, Las Condes',
+    onlineRoomUrl: 'https://meet.google.com/kairos-valentina',
+    basePrice: 40000,
   },
   {
     id: 'prof-3',
     name: 'Ps. Martín Arriagada',
     specialty: 'Terapia Sistémica & Parejas',
-    duration: '60 min',
-    price: '$50.000 CLP',
-    avatarInitials: 'MA',
+    rut: '16.221.450-8',
+    email: 'martin@kairosclinico.cl',
+    avatar: 'MA',
+    workingDays: [2, 3, 4, 5],
+    startHour: '09:00',
+    endHour: '18:00',
+    modalityMode: 'Solo Online',
+    presencialAddress: 'Atención Exclusiva Online',
+    onlineRoomUrl: 'https://meet.google.com/kairos-martin',
+    basePrice: 50000,
   },
 ];
 
-const TIME_SLOTS = ['09:30', '11:00', '12:30', '15:00', '16:30', '18:00'];
+function formatIsoDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-// Skeleton de lujo para el streaming de Suspense en Next.js
 function BookingGlassSkeleton() {
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
@@ -79,69 +135,141 @@ function BookingGlassSkeleton() {
           <div className="h-20 w-full bg-stone-100/80 rounded-2xl" />
           <div className="h-20 w-full bg-stone-100/80 rounded-2xl" />
         </div>
-        <div className="grid grid-cols-5 gap-2.5 mb-8">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <div key={n} className="h-20 bg-stone-100 rounded-2xl" />
-          ))}
-        </div>
         <div className="h-14 w-full bg-[#2C4A3B]/20 rounded-2xl" />
       </div>
     </div>
   );
 }
 
-// Subcomponente que consume useParams() de forma segura dentro de <Suspense>
 function CentroBookingContent() {
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : 'kairos-central';
 
-  // Generar los próximos 5 días hábiles dinámicamente
-  const upcomingDays = useMemo(() => {
-    const days = [];
-    const base = new Date();
-    const formatterDay = new Intl.DateTimeFormat('es-CL', { weekday: 'short' });
-    const formatterMonth = new Intl.DateTimeFormat('es-CL', { month: 'short' });
-    const formatterFull = new Intl.DateTimeFormat('es-CL', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
+  const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(DEFAULT_PROFESSIONALS);
+  const [existingApts, setExistingApts] = useState<any[]>([]);
+  const [blockedSlots, setBlockedSlots] = useState<any[]>([]);
+  const [anchorDateIso, setAnchorDateIso] = useState<string>('2026-11-03T12:00:00');
 
-    let added = 0;
-    let offset = 1;
-    while (added < 5) {
-      const d = new Date(base);
-      d.setDate(base.getDate() + offset);
-      offset++;
-      if (d.getDay() === 0) continue; // Saltar domingos
-      const iso = d.toISOString().split('T')[0];
-      days.push({
-        iso,
-        dayName: formatterDay.format(d).replace('.', ''),
-        dayNumber: d.getDate(),
-        monthShort: formatterMonth.format(d).replace('.', ''),
-        fullLabel: formatterFull.format(d),
-      });
-      added++;
-    }
-    return days;
+  // Hidratar reloj y datos sincronizados desde /admin
+  useEffect(() => {
+    setAnchorDateIso(new Date().toISOString());
+    const savedProfs = localStorage.getItem('kairos_profs_prod');
+    const savedApts = localStorage.getItem('kairos_apts_prod');
+    const savedBlocks = localStorage.getItem('kairos_blocks_prod');
+    if (savedProfs) setProfessionals(JSON.parse(savedProfs));
+    if (savedApts) setExistingApts(JSON.parse(savedApts));
+    if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
   }, []);
 
   const [step, setStep] = useState<'schedule' | 'patient' | 'success'>('schedule');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [selectedProf, setSelectedProf] = useState<Professional>(PROFESSIONALS[0]);
-  const [modality, setModality] = useState<'Online (Videollamada)' | 'Consulta Presencial'>(
-    'Online (Videollamada)'
+  const [selectedProfId, setSelectedProfId] = useState<string>(DEFAULT_PROFESSIONALS[0].id);
+  const selectedProf = useMemo(
+    () => professionals.find((p) => p.id === selectedProfId) || professionals[0],
+    [professionals, selectedProfId]
   );
-  const [selectedDay, setSelectedDay] = useState(upcomingDays[0]);
-  const [selectedTime, setSelectedTime] = useState('11:00');
+
+  const [selectedService, setSelectedService] = useState(CLINICAL_SERVICES[0].name);
+  const [modality, setModality] = useState<'Online' | 'Presencial'>('Online');
+
+  // Ajustar modalidad automáticamente si el profesional elegido es "Solo Online" o "Solo Presencial"
+  useEffect(() => {
+    if (!selectedProf) return;
+    if (selectedProf.modalityMode === 'Solo Online') setModality('Online');
+    if (selectedProf.modalityMode === 'Solo Presencial') setModality('Presencial');
+  }, [selectedProf]);
+
+  // Generar los próximos 6 días hábiles en los que atiende el profesional seleccionado
+  const availableDays = useMemo(() => {
+    const days = [];
+    const base = new Date(anchorDateIso);
+    const shortNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const monthNames = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
+
+    let offset = 0;
+    while (days.length < 5 && offset < 25) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + offset);
+      offset++;
+      const dayOfWeek = d.getDay(); // 0 = Dom, 1 = Lun ... 6 = Sáb
+      if (dayOfWeek === 0) continue;
+      if (selectedProf && !selectedProf.workingDays.includes(dayOfWeek)) continue;
+
+      const iso = formatIsoDate(d);
+      days.push({
+        iso,
+        dayName: shortNames[dayOfWeek],
+        dayNumber: String(d.getDate()).padStart(2, '0'),
+        monthShort: monthNames[d.getMonth()],
+        fullLabel: `${shortNames[dayOfWeek]} ${d.getDate()} de ${monthNames[d.getMonth()]}`,
+      });
+    }
+    return days;
+  }, [anchorDateIso, selectedProf]);
+
+  const [selectedDayIso, setSelectedDayIso] = useState<string>('');
+
+  useEffect(() => {
+    if (availableDays.length > 0 && !availableDays.some((d) => d.iso === selectedDayIso)) {
+      setSelectedDayIso(availableDays[0].iso);
+    }
+  }, [availableDays, selectedDayIso]);
+
+  const currentDayObj = useMemo(
+    () => availableDays.find((d) => d.iso === selectedDayIso) || availableDays[0],
+    [availableDays, selectedDayIso]
+  );
+
+  // Filtrar horas del profesional ocultando las que ya están ocupadas o bloqueadas en /admin
+  const availableTimeSlots = useMemo(() => {
+    if (!selectedProf || !currentDayObj) return ['10:00', '11:00', '16:00'];
+    const rangeHours = ALL_HOURS.filter(
+      (h) => h >= selectedProf.startHour && h <= selectedProf.endHour
+    );
+    return rangeHours.filter((hour) => {
+      const isBooked = existingApts.some(
+        (a) =>
+          a.professionalId === selectedProf.id &&
+          a.isoDate === currentDayObj.iso &&
+          a.time === hour
+      );
+      const isBlocked = blockedSlots.some(
+        (b) =>
+          b.professionalId === selectedProf.id &&
+          b.isoDate === currentDayObj.iso &&
+          b.time === hour
+      );
+      return !isBooked && !isBlocked;
+    });
+  }, [selectedProf, currentDayObj, existingApts, blockedSlots]);
+
+  const [selectedTime, setSelectedTime] = useState<string>('10:00');
+
+  useEffect(() => {
+    if (availableTimeSlots.length > 0 && !availableTimeSlots.includes(selectedTime)) {
+      setSelectedTime(availableTimeSlots[0]);
+    }
+  }, [availableTimeSlots, selectedTime]);
 
   const [patientData, setPatientData] = useState({
     nombre: '',
+    rut: '',
     email: '',
     telefonoOchoDigitos: '',
-    notas: '',
   });
 
   const handlePhoneInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,51 +281,79 @@ function CentroBookingContent() {
 
   const handleConfirmarCita = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (patientData.telefonoOchoDigitos.length < 8) return;
+    if (patientData.telefonoOchoDigitos.length < 8 || !currentDayObj) return;
 
     setIsSubmitting(true);
 
     try {
-      // 1. PERSISTENCIA EN SUPABASE (Aislado por center_id / slug)
+      const svcObj =
+        CLINICAL_SERVICES.find((s) => s.name === selectedService) || CLINICAL_SERVICES[0];
+
+      const newApt = {
+        id: `apt-${Date.now()}`,
+        patientName: patientData.nombre.trim(),
+        patientRUT: patientData.rut.trim() || 'Sin RUT',
+        patientEmail: patientData.email.trim(),
+        patientPhone: fullE164Phone,
+        professionalId: selectedProf.id,
+        serviceName: selectedService,
+        modality,
+        isoDate: currentDayObj.iso,
+        time: selectedTime,
+        price: svcObj.price,
+        paymentStatus: 'Pendiente',
+        clinicalStatus: 'Confirmada',
+      };
+
+      // 1. Guardar en el store compartido con /admin para que aparezca de inmediato en la agenda
+      const updatedApts = [...existingApts, newApt];
+      setExistingApts(updatedApts);
+      localStorage.setItem('kairos_apts_prod', JSON.stringify(updatedApts));
+
+      // 2. Guardar en Supabase si está activo
       if (supabase) {
-        const { error: dbError } = await supabase.from('appointments').insert([
+        await supabase.from('appointments').insert([
           {
-            center_id: defaultCenterId || null,
+            center_id: defaultCenterId,
             center_slug: slug,
-            patient_name: patientData.nombre.trim(),
-            patient_email: patientData.email.trim(),
-            patient_phone: fullE164Phone,
+            patient_name: newApt.patientName,
+            patient_email: newApt.patientEmail,
+            patient_phone: newApt.patientPhone,
             professional_name: selectedProf.name,
-            modality,
-            date: selectedDay.iso,
-            time: selectedTime,
+            modality: newApt.modality,
+            date: newApt.isoDate,
+            time: newApt.time,
             status: 'confirmed',
           },
         ]);
-
-        if (dbError) {
-          console.warn('Aviso Supabase (continuando flujo optimista):', dbError.message);
-        }
       }
 
-      // 2. DISPARO OMNICANAL ASÍNCRONO (Fire-and-forget hacia Resend + Meta v25.0)
+      // 3. Disparar correo de confirmación en segundo plano con dirección presencial o sala online
+      const locationAddress =
+        modality === 'Presencial'
+          ? selectedProf.presencialAddress
+          : selectedProf.onlineRoomUrl;
+
+      const adminEmailCopy = localStorage.getItem('kairos_admin_email_prod') || '';
+
       fetch('/api/notificaciones/confirmacion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patientName: patientData.nombre.trim(),
-          patientEmail: patientData.email.trim(),
-          patientPhone: fullE164Phone,
-          date: selectedDay.fullLabel,
-          isoDate: selectedDay.iso,
+          patientName: newApt.patientName,
+          patientEmail: newApt.patientEmail,
+          date: currentDayObj.fullLabel,
+          isoDate: currentDayObj.iso,
           time: selectedTime,
-          modality,
+          serviceName: selectedService,
+          modality: modality === 'Presencial' ? 'Consulta Presencial' : 'Online (Videollamada)',
+          locationAddress,
           professionalName: selectedProf.name,
           centerName: 'Kairós Clínico',
+          overrideAdminEmail: adminEmailCopy,
         }),
-      }).catch((err) => console.error('Error silencioso en webhook:', err));
+      }).catch((err) => console.error('Aviso silencioso correo:', err));
 
-      // 3. TRANSICIÓN INSTANTÁNEA (UI Optimista)
       setStep('success');
     } catch (error) {
       console.error('Error al procesar la reserva:', error);
@@ -207,25 +363,28 @@ function CentroBookingContent() {
   };
 
   const googleCalendarUrl = useMemo(() => {
-    const calDate = selectedDay.iso.replace(/-/g, '');
-    const startHour = selectedTime.replace(':', '');
+    const calDate = (currentDayObj?.iso || '2026-11-03').replace(/-/g, '');
+    const startHour = (selectedTime || '10:00').replace(':', '');
     const endHourNum = parseInt(startHour.slice(0, 2), 10) + 1;
     const endHour = `${String(endHourNum).padStart(2, '0')}${startHour.slice(2, 4)}`;
+    const locationAddress =
+      modality === 'Presencial'
+        ? selectedProf?.presencialAddress
+        : selectedProf?.onlineRoomUrl;
     return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
-      `Sesión Clínica - ${selectedProf.name}`
+      `${selectedService} - ${selectedProf?.name}`
     )}&dates=${calDate}T${startHour}00/${calDate}T${endHour}00&details=${encodeURIComponent(
-      `Sesión en Kairós Clínico (${modality}) con ${selectedProf.name}.`
-    )}`;
-  }, [selectedDay, selectedTime, selectedProf, modality]);
+      `Sesión en Kairós Clínico (${modality}) con ${selectedProf?.name}. Ubicación/Acceso: ${locationAddress}`
+    )}&location=${encodeURIComponent(locationAddress || '')}`;
+  }, [currentDayObj, selectedTime, selectedProf, modality, selectedService]);
 
   const resetBooking = () => {
-    setPatientData({ nombre: '', email: '', telefonoOchoDigitos: '', notas: '' });
+    setPatientData({ nombre: '', rut: '', email: '', telefonoOchoDigitos: '' });
     setStep('schedule');
   };
 
   return (
     <>
-      {/* Header minimalista de lujo */}
       <header className="w-full max-w-4xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center font-semibold tracking-wider text-sm shadow-sm">
@@ -243,11 +402,10 @@ function CentroBookingContent() {
 
         <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/80 backdrop-blur-md border border-[#E4ECE7] text-xs text-stone-600">
           <ShieldCheck size={14} className="text-[#2C4A3B]" />
-          <span>Reserva Encriptada & Confidencial</span>
+          <span>Reserva Encriptada & Sincronizada</span>
         </div>
       </header>
 
-      {/* Contenedor Principal */}
       <section className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
         <AnimatePresence mode="wait">
           {step === 'schedule' && (
@@ -265,52 +423,49 @@ function CentroBookingContent() {
                     Paso 1 de 2 · Configuración de Sesión
                   </span>
                   <h1 className="text-2xl sm:text-3xl font-bold text-stone-900 tracking-tight">
-                    Elige tu momento y especialista
+                    Reserva tu hora clínica
                   </h1>
                 </div>
                 <Sparkles size={22} className="text-[#2C4A3B]/60 hidden sm:block" />
               </div>
 
-              {/* 1. Selector de Modalidad */}
-              <div className="mb-7">
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2.5">
-                  Modalidad de Atención
+              {/* 1. Servicio Clínico */}
+              <div className="mb-6">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+                  Servicio Clínico
                 </label>
-                <div className="grid grid-cols-2 gap-3 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
-                  {(['Online (Videollamada)', 'Consulta Presencial'] as const).map((mod) => {
-                    const active = modality === mod;
-                    return (
-                      <button
-                        key={mod}
-                        type="button"
-                        onClick={() => setModality(mod)}
-                        className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                          active
-                            ? 'bg-[#2C4A3B] text-white shadow-sm'
-                            : 'text-stone-600 hover:text-stone-900'
-                        }`}
-                      >
-                        {mod.includes('Online') ? <Video size={16} /> : <MapPin size={16} />}
-                        <span>{mod}</span>
-                      </button>
-                    );
-                  })}
+                <div className="relative">
+                  <Stethoscope
+                    size={16}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-[#2C4A3B]"
+                  />
+                  <select
+                    value={selectedService}
+                    onChange={(e) => setSelectedService(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3.5 bg-[#F9F8F6] border border-[#E4ECE7] rounded-2xl text-sm font-semibold text-stone-800 focus:outline-none focus:border-[#2C4A3B]"
+                  >
+                    {CLINICAL_SERVICES.map((svc) => (
+                      <option key={svc.name} value={svc.name}>
+                        {svc.name} · {svc.duration} (${svc.price.toLocaleString('es-CL')})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {/* 2. Selector de Profesional */}
-              <div className="mb-7">
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2.5">
+              {/* 2. Profesional Clínico */}
+              <div className="mb-6">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
                   Profesional Clínico
                 </label>
                 <div className="space-y-2.5">
-                  {PROFESSIONALS.map((prof) => {
-                    const isSelected = selectedProf.id === prof.id;
+                  {professionals.map((prof) => {
+                    const isSelected = selectedProf?.id === prof.id;
                     return (
                       <button
                         key={prof.id}
                         type="button"
-                        onClick={() => setSelectedProf(prof)}
+                        onClick={() => setSelectedProfId(prof.id)}
                         className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between ${
                           isSelected
                             ? 'bg-[#EBF3EE]/60 border-[#2C4A3B] shadow-sm'
@@ -325,7 +480,7 @@ function CentroBookingContent() {
                                 : 'bg-stone-100 text-stone-600'
                             }`}
                           >
-                            {prof.avatarInitials}
+                            {prof.avatar}
                           </div>
                           <div>
                             <p className="font-bold text-stone-900 text-sm sm:text-base">
@@ -336,9 +491,11 @@ function CentroBookingContent() {
                         </div>
                         <div className="text-right">
                           <span className="text-xs font-semibold text-[#2C4A3B] block">
-                            {prof.price}
+                            {prof.modalityMode}
                           </span>
-                          <span className="text-[11px] text-stone-400">{prof.duration}</span>
+                          <span className="text-[11px] text-stone-400">
+                            {prof.startHour} a {prof.endHour}
+                          </span>
                         </div>
                       </button>
                     );
@@ -346,19 +503,60 @@ function CentroBookingContent() {
                 </div>
               </div>
 
-              {/* 3. Selector de Día */}
-              <div className="mb-7">
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2.5">
-                  Fecha Disponible
+              {/* 3. Modalidad (Online vs Presencial con Dirección) */}
+              <div className="mb-6">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+                  Modalidad de Atención
+                </label>
+                <div className="grid grid-cols-2 gap-3 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
+                  {(['Online', 'Presencial'] as const).map((mod) => {
+                    const disabled =
+                      (mod === 'Online' && selectedProf?.modalityMode === 'Solo Presencial') ||
+                      (mod === 'Presencial' && selectedProf?.modalityMode === 'Solo Online');
+                    const active = modality === mod;
+                    return (
+                      <button
+                        key={mod}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setModality(mod)}
+                        className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                          active
+                            ? 'bg-[#2C4A3B] text-white shadow-sm'
+                            : disabled
+                            ? 'opacity-40 cursor-not-allowed text-stone-400'
+                            : 'text-stone-600 hover:text-stone-900'
+                        }`}
+                      >
+                        {mod === 'Online' ? <Video size={16} /> : <MapPin size={16} />}
+                        <span>{mod === 'Online' ? 'Online (Videollamada)' : 'Consulta Presencial'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {modality === 'Presencial' && selectedProf && (
+                  <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5 bg-amber-50/70 border border-amber-200/70 px-3.5 py-2 rounded-xl">
+                    <MapPin size={14} className="text-[#C87D65] shrink-0" />
+                    <span>
+                      <strong>Dirección de consulta:</strong> {selectedProf.presencialAddress}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* 4. Día Disponible */}
+              <div className="mb-6">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+                  Días de Atención Disponibles
                 </label>
                 <div className="grid grid-cols-5 gap-2.5">
-                  {upcomingDays.map((d) => {
-                    const isSelected = selectedDay.iso === d.iso;
+                  {availableDays.map((d) => {
+                    const isSelected = currentDayObj?.iso === d.iso;
                     return (
                       <button
                         key={d.iso}
                         type="button"
-                        onClick={() => setSelectedDay(d)}
+                        onClick={() => setSelectedDayIso(d.iso)}
                         className={`py-3 px-2 rounded-2xl border text-center transition-all ${
                           isSelected
                             ? 'bg-[#2C4A3B] text-white border-[#2C4A3B] shadow-md scale-[1.02]'
@@ -386,36 +584,43 @@ function CentroBookingContent() {
                 </div>
               </div>
 
-              {/* 4. Bloques Horarios */}
+              {/* 5. Bloques Horarios Libres */}
               <div className="mb-8">
-                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2.5">
-                  Bloque Horario (Hora de Chile)
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
+                  Horarios Libres ({currentDayObj?.fullLabel})
                 </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
-                  {TIME_SLOTS.map((slot) => {
-                    const isSelected = selectedTime === slot;
-                    return (
-                      <button
-                        key={slot}
-                        type="button"
-                        onClick={() => setSelectedTime(slot)}
-                        className={`py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                          isSelected
-                            ? 'bg-[#EBF3EE] border-[#2C4A3B] text-[#2C4A3B] font-bold'
-                            : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
-                        }`}
-                      >
-                        {slot}
-                      </button>
-                    );
-                  })}
-                </div>
+                {availableTimeSlots.length === 0 ? (
+                  <div className="p-4 rounded-2xl bg-stone-100 text-xs text-stone-500 text-center">
+                    No quedan bloques disponibles para este día. Por favor selecciona otra fecha.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
+                    {availableTimeSlots.map((slot) => {
+                      const isSelected = selectedTime === slot;
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => setSelectedTime(slot)}
+                          className={`py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all ${
+                            isSelected
+                              ? 'bg-[#EBF3EE] border-[#2C4A3B] text-[#2C4A3B] font-bold'
+                              : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <button
                 type="button"
+                disabled={availableTimeSlots.length === 0}
                 onClick={() => setStep('patient')}
-                className="w-full py-4 px-6 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl font-semibold text-sm transition-all duration-300 shadow-[0_10px_25px_rgb(44,74,59,0.2)] flex items-center justify-center gap-2 group"
+                className="w-full py-4 px-6 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl font-semibold text-sm transition-all duration-300 shadow-[0_10px_25px_rgb(44,74,59,0.2)] disabled:opacity-50 flex items-center justify-center gap-2 group"
               >
                 <span>Continuar con mis datos</span>
                 <ChevronRight
@@ -446,56 +651,81 @@ function CentroBookingContent() {
 
               <div className="mb-6">
                 <span className="text-xs font-semibold uppercase tracking-widest text-[#C87D65] block mb-1">
-                  Paso 2 de 2 · Datos de Contacto
+                  Paso 2 de 2 · Datos del Paciente
                 </span>
                 <h2 className="text-2xl font-bold text-stone-900 tracking-tight">
                   Confirma tu reserva clínica
                 </h2>
               </div>
 
-              <div className="bg-[#F9F8F6] rounded-2xl p-4 mb-7 border border-[#E4ECE7] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="flex items-center gap-2.5 text-stone-700">
-                  <User size={16} className="text-[#2C4A3B] shrink-0" />
-                  <span className="font-semibold truncate">{selectedProf.name}</span>
+              <div className="bg-[#F9F8F6] rounded-2xl p-4 mb-7 border border-[#E4ECE7] space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-stone-500">Especialista:</span>
+                  <strong className="text-stone-900">{selectedProf?.name}</strong>
                 </div>
-                <div className="flex items-center gap-2.5 text-stone-700">
-                  <CalendarIcon size={16} className="text-[#2C4A3B] shrink-0" />
-                  <span className="font-medium capitalize">{selectedDay.fullLabel}</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-stone-500">Servicio y Modalidad:</span>
+                  <strong className="text-[#2C4A3B]">
+                    {selectedService} ({modality})
+                  </strong>
                 </div>
-                <div className="flex items-center gap-2.5 text-stone-700">
-                  <Clock size={16} className="text-[#2C4A3B] shrink-0" />
-                  <span className="font-semibold">
-                    {selectedTime} hrs · {modality.split(' ')[0]}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-stone-500">Fecha y Hora:</span>
+                  <strong className="text-stone-900 capitalize">
+                    {currentDayObj?.fullLabel} · {selectedTime} hrs
+                  </strong>
                 </div>
+                {modality === 'Presencial' && (
+                  <div className="pt-1 border-t border-stone-200/70 text-stone-600">
+                    <strong>Dirección:</strong> {selectedProf?.presencialAddress}
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleConfirmarCita} className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1 block mb-1.5">
-                    Nombre y Apellido
-                  </label>
-                  <div className="relative">
-                    <User
-                      size={18}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400"
-                    />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1 block mb-1.5">
+                      Nombre y Apellido
+                    </label>
+                    <div className="relative">
+                      <User
+                        size={18}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400"
+                      />
+                      <input
+                        required
+                        type="text"
+                        value={patientData.nombre}
+                        onChange={(e) =>
+                          setPatientData({ ...patientData, nombre: e.target.value })
+                        }
+                        className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-[#2C4A3B]"
+                        placeholder="Ej. Camila Vergara"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1 block mb-1.5">
+                      RUT del Paciente
+                    </label>
                     <input
                       required
                       type="text"
-                      value={patientData.nombre}
+                      value={patientData.rut}
                       onChange={(e) =>
-                        setPatientData({ ...patientData, nombre: e.target.value })
+                        setPatientData({ ...patientData, rut: e.target.value })
                       }
-                      className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2C4A3B]/20 focus:border-[#2C4A3B] transition-all"
-                      placeholder="Ej. Camila Vergara"
+                      className="w-full px-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-[#2C4A3B]"
+                      placeholder="Ej. 18.456.789-2"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1 block mb-1.5">
-                    Correo Electrónico (Para comprobante y link)
+                    Correo Electrónico (Para comprobante oficial)
                   </label>
                   <div className="relative">
                     <Mail
@@ -509,7 +739,7 @@ function CentroBookingContent() {
                       onChange={(e) =>
                         setPatientData({ ...patientData, email: e.target.value })
                       }
-                      className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2C4A3B]/20 focus:border-[#2C4A3B] transition-all"
+                      className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-[#2C4A3B]"
                       placeholder="camila@ejemplo.cl"
                     />
                   </div>
@@ -517,9 +747,9 @@ function CentroBookingContent() {
 
                 <div>
                   <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1 block mb-1.5">
-                    WhatsApp (Para aviso inmediato)
+                    Teléfono Móvil (WhatsApp)
                   </label>
-                  <div className="flex items-center bg-white border border-stone-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#2C4A3B]/20 focus-within:border-[#2C4A3B] transition-all">
+                  <div className="flex items-center bg-white border border-stone-200 rounded-xl overflow-hidden focus-within:border-[#2C4A3B]">
                     <div className="pl-4 pr-3 py-3.5 bg-stone-50 border-r border-stone-200 flex items-center gap-1.5 text-sm font-semibold text-stone-600 select-none">
                       <Phone size={15} className="text-[#2C4A3B]" />
                       <span>+56 9</span>
@@ -535,18 +765,14 @@ function CentroBookingContent() {
                       placeholder="61699991"
                     />
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-1 ml-1">
-                    Ingresa los 8 dígitos de tu móvil. Se enviará al número{' '}
-                    <span className="font-semibold text-stone-600">+{fullE164Phone}</span>.
-                  </p>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isSubmitting || patientData.telefonoOchoDigitos.length < 8}
-                  className="w-full mt-4 py-4 px-6 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl font-semibold text-sm transition-all duration-300 shadow-[0_10px_25px_rgb(44,74,59,0.2)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full mt-4 py-4 px-6 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl font-semibold text-sm transition-all duration-300 shadow-[0_10px_25px_rgb(44,74,59,0.2)] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isSubmitting ? 'Confirmando tu espacio...' : 'Confirmar y Recibir Notificación'}
+                  {isSubmitting ? 'Confirmando tu espacio...' : 'Confirmar Reserva Clínica'}
                   {!isSubmitting && <ChevronRight size={18} />}
                 </button>
               </form>
@@ -576,16 +802,25 @@ function CentroBookingContent() {
               <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-3">
                 Te esperamos, {patientData.nombre.split(' ')[0]}
               </h2>
-              <p className="text-stone-500 text-sm leading-relaxed max-w-md mx-auto mb-8">
-                Tu sesión de <strong>{modality}</strong> con{' '}
-                <strong>{selectedProf.name}</strong> quedó agendada para el{' '}
-                <strong>{selectedDay.fullLabel}</strong> a las{' '}
+              <p className="text-stone-500 text-sm leading-relaxed max-w-md mx-auto mb-6">
+                Tu sesión de <strong>{selectedService}</strong> ({modality}) con{' '}
+                <strong>{selectedProf?.name}</strong> quedó agendada para el{' '}
+                <strong>{currentDayObj?.fullLabel}</strong> a las{' '}
                 <strong>{selectedTime} hrs</strong>.
               </p>
 
-              <div className="bg-[#F9F8F6] rounded-2xl p-4 text-xs text-stone-600 border border-[#E4ECE7] mb-8 max-w-md mx-auto">
-                Hemos despachado la confirmación oficial a <strong>{patientData.email}</strong> y
-                el aviso por WhatsApp al <strong>+{fullE164Phone}</strong>.
+              <div className="bg-[#F9F8F6] rounded-2xl p-4 text-xs text-stone-600 border border-[#E4ECE7] mb-8 max-w-md mx-auto space-y-1.5 text-left">
+                <p>
+                  <strong>Comprobante enviado a:</strong> {patientData.email}
+                </p>
+                <p>
+                  <strong>
+                    {modality === 'Presencial' ? 'Dirección Presencial:' : 'Acceso Online:'}
+                  </strong>{' '}
+                  {modality === 'Presencial'
+                    ? selectedProf?.presencialAddress
+                    : selectedProf?.onlineRoomUrl}
+                </p>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -616,7 +851,6 @@ function CentroBookingContent() {
   );
 }
 
-// Export principal envuelto en <Suspense> para pasar el build estático de Next.js en Vercel
 export default function CentroBookingPage() {
   return (
     <main className="min-h-screen bg-[#F9F8F6] text-stone-800 flex flex-col justify-between relative overflow-hidden font-sans selection:bg-[#2C4A3B]/15 selection:text-[#2C4A3B]">

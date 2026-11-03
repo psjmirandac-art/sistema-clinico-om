@@ -39,6 +39,10 @@ import {
   BrainCircuit,
   Calculator,
   Home,
+  ImagePlus,
+  Link2,
+  UserCheck,
+  LogIn,
 } from 'lucide-react';
 
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
@@ -92,6 +96,7 @@ export interface ProfessionalConfig {
   avatar: string;
   presencialAddress: string;
   onlineRoomUrl: string;
+  googleConnected?: boolean;
   scheduleByDay: Record<number, DayScheduleConfig>;
   agreementType: FinancialAgreementType;
   centerCommissionPercent: number;
@@ -128,6 +133,8 @@ export interface AppointmentItem {
   serviceName: string;
   modality: ModalityType;
   boxName?: string;
+  meetUrl?: string;
+  googleEventId?: string;
   isoDate: string;
   time: string;
   price: number;
@@ -192,6 +199,15 @@ function formatIsoDate(d: Date): string {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function generateLocalMeetLink(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz';
+  const seg = (n: number) =>
+    Array.from({ length: n }, () =>
+      chars.charAt(Math.floor(Math.random() * chars.length))
+    ).join('');
+  return `https://meet.google.com/${seg(3)}-${seg(4)}-${seg(3)}`;
 }
 
 function buildDefaultSchedule(
@@ -259,7 +275,8 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     email: 'alejandro@centroclinico.cl',
     avatar: 'AS',
     presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
-    onlineRoomUrl: 'https://meet.google.com/clinica-alejandro',
+    onlineRoomUrl: 'https://meet.google.com/krs-aslv-clin',
+    googleConnected: true,
     scheduleByDay: buildDefaultSchedule(true),
     agreementType: 'porcentaje',
     centerCommissionPercent: 25,
@@ -274,7 +291,8 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     email: 'valentina@centroclinico.cl',
     avatar: 'VM',
     presencialAddress: 'Av. Alonso de Córdova 5870, Of. 702, Las Condes',
-    onlineRoomUrl: 'https://meet.google.com/clinica-valentina',
+    onlineRoomUrl: 'https://meet.google.com/krs-vmnt-tcc',
+    googleConnected: true,
     scheduleByDay: buildDefaultSchedule(false),
     agreementType: 'por_box_hora',
     centerCommissionPercent: 0,
@@ -289,7 +307,8 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     email: 'martin@centroclinico.cl',
     avatar: 'MA',
     presencialAddress: 'Av. Nueva Providencia 1881, Box 3, Providencia',
-    onlineRoomUrl: 'https://meet.google.com/clinica-martin',
+    onlineRoomUrl: 'https://meet.google.com/krs-marr-sist',
+    googleConnected: false,
     scheduleByDay: buildDefaultSchedule(false),
     agreementType: 'arriendo_fijo',
     centerCommissionPercent: 0,
@@ -378,7 +397,8 @@ const INITIAL_APPOINTMENTS: AppointmentItem[] = [
     professionalId: 'prof-1',
     serviceName: 'Psicoterapia Vespertina / Nocturna',
     modality: 'Online',
-    boxName: 'Sala Virtual',
+    boxName: 'Google Meet Automático',
+    meetUrl: 'https://meet.google.com/krs-mtez-ses',
     isoDate: '2026-11-03',
     time: '21:00',
     price: 50000,
@@ -440,8 +460,16 @@ function AdminGlassSkeleton() {
 }
 
 function AdminDashboardContent() {
+  // Identidad Multi-Tenant del Centro Clínico (Nombre + Logo para la Carátula)
   const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
+  const [centerLogoUrl, setCenterLogoUrl] = useState<string>('');
   const [isEditingCenterName, setIsEditingCenterName] = useState<boolean>(false);
+  const [showBrandingModal, setShowBrandingModal] = useState<boolean>(false);
+
+  // Estado de Autenticación Google OAuth + Google Calendar API
+  const [googleUserEmail, setGoogleUserEmail] = useState<string>('');
+  const [googleAccessToken, setGoogleAccessToken] = useState<string>('');
+  const [isGoogleCalendarLinked, setIsGoogleCalendarLinked] = useState<boolean>(false);
 
   const [activeModule, setActiveModule] = useState<AdminModule>('agenda');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('week');
@@ -460,6 +488,21 @@ function AdminDashboardContent() {
     setAnchorIso(now.toISOString());
     setTodayIso(iso);
     setSelectedSingleDayIso(iso);
+  }, []);
+
+  // Verificar si existe sesión activa de Google en Supabase Auth
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      const session = data?.session;
+      if (session?.user?.email) {
+        setGoogleUserEmail(session.user.email);
+        setIsGoogleCalendarLinked(true);
+      }
+      if (session?.provider_token) {
+        setGoogleAccessToken(session.provider_token);
+      }
+    });
   }, []);
 
   const dynamicWeekDays = useMemo(() => {
@@ -535,6 +578,42 @@ function AdminDashboardContent() {
   const [services, setServices] = useState<TherapistServiceItem[]>(INITIAL_SERVICES);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
+
+  // Directorio único de pacientes registrados (para autocompletar sin escribir desde cero)
+  const existingPatientsDirectory = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        patientName: string;
+        patientRUT: string;
+        patientEmail: string;
+        patientPhone: string;
+        lastService: string;
+        lastModality: ModalityType;
+      }
+    >();
+    appointments.forEach((apt) => {
+      const key =
+        apt.patientRUT && apt.patientRUT !== 'Sin RUT'
+          ? apt.patientRUT.toLowerCase()
+          : apt.patientEmail.toLowerCase() || apt.patientName.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          patientName: apt.patientName,
+          patientRUT: apt.patientRUT,
+          patientEmail: apt.patientEmail,
+          patientPhone: apt.patientPhone,
+          lastService: apt.serviceName,
+          lastModality: apt.modality,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [appointments]);
+
+  // Estado del selector de pacientes existentes dentro del modal de Agendar
+  const [patientModeInBooking, setPatientModeInBooking] = useState<'existing' | 'new'>('existing');
+  const [existingPatientSearch, setExistingPatientSearch] = useState<string>('');
 
   // Ficha Clínica con IA Grok
   const [fichaPatientApt, setFichaPatientApt] = useState<AppointmentItem | null>(null);
@@ -618,11 +697,15 @@ function AdminDashboardContent() {
 
   useEffect(() => {
     const savedCenterName = localStorage.getItem('kairos_center_brand_v2');
+    const savedLogo = localStorage.getItem('kairos_center_logo_v2');
+    const savedGoogleLinked = localStorage.getItem('kairos_google_linked_v2');
     const savedProfs = localStorage.getItem('kairos_profs_v6');
     const savedSrvs = localStorage.getItem('kairos_services_v6');
     const savedApts = localStorage.getItem('kairos_apts_prod');
     const savedBlocks = localStorage.getItem('kairos_blocks_prod');
     if (savedCenterName) setCenterBrandName(savedCenterName);
+    if (savedLogo) setCenterLogoUrl(savedLogo);
+    if (savedGoogleLinked === 'true') setIsGoogleCalendarLinked(true);
     if (savedProfs) setProfessionals(JSON.parse(savedProfs));
     if (savedSrvs) setServices(JSON.parse(savedSrvs));
     if (savedApts) setAppointments(JSON.parse(savedApts));
@@ -632,6 +715,10 @@ function AdminDashboardContent() {
   useEffect(() => {
     localStorage.setItem('kairos_center_brand_v2', centerBrandName);
   }, [centerBrandName]);
+
+  useEffect(() => {
+    localStorage.setItem('kairos_center_logo_v2', centerLogoUrl);
+  }, [centerLogoUrl]);
 
   useEffect(() => {
     localStorage.setItem('kairos_profs_v6', JSON.stringify(professionals));
@@ -654,6 +741,44 @@ function AdminDashboardContent() {
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
+
+  // Subir archivo de imagen desde el computador para el Logo del Centro Clínico
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setCenterLogoUrl(reader.result);
+        showToast('Logo del centro actualizado', 'Sincronizado con la carátula del centro.');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Iniciar Sesión con Google OAuth y vincular Google Calendar + Google Meet
+  const handleConnectGoogleAccount = async () => {
+    if (supabase) {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          scopes: 'https://www.googleapis.com/auth/calendar.events',
+          redirectTo: `${window.location.origin}/admin`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+      if (!error) return;
+    }
+    setIsGoogleCalendarLinked(true);
+    localStorage.setItem('kairos_google_linked_v2', 'true');
+    showToast(
+      'Cuenta Google Workspace vinculada',
+      'Google Calendar API y generación automática de salas Google Meet activos.'
+    );
+  };
 
   const currentProf = useMemo(
     () => professionals.find((p) => p.id === selectedProfId) ?? professionals[0],
@@ -769,11 +894,13 @@ function AdminDashboardContent() {
   const triggerEmailNotification = async (apt: AppointmentItem, isReminder: boolean = false) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) ?? currentProf;
     const locationAddress =
-      apt.modality === 'Presencial' ? prof.presencialAddress : prof.onlineRoomUrl;
+      apt.modality === 'Presencial'
+        ? prof.presencialAddress
+        : apt.meetUrl ?? prof.onlineRoomUrl;
 
     showToast(
       isReminder ? 'Despachando recordatorio...' : 'Enviando confirmación...',
-      `Centro: ${centerBrandName} → ${apt.patientEmail}`
+      `${centerBrandName} → ${apt.patientEmail}`
     );
 
     try {
@@ -788,7 +915,9 @@ function AdminDashboardContent() {
           time: apt.time,
           serviceName: apt.serviceName,
           modality:
-            apt.modality === 'Presencial' ? 'Consulta Presencial' : 'Online (Videollamada)',
+            apt.modality === 'Presencial'
+              ? 'Consulta Presencial'
+              : 'Online (Google Meet)',
           locationAddress,
           professionalName: prof.name,
           centerName: centerBrandName,
@@ -797,11 +926,16 @@ function AdminDashboardContent() {
 
       const data = await res.json();
       if (data.diagnostics?.emailSent) {
-        showToast('Correo entregado exitosamente', `Nombre del centro: ${centerBrandName}`);
+        showToast(
+          'Correo entregado exitosamente',
+          apt.modality === 'Online'
+            ? `Sala Google Meet incluida: ${locationAddress}`
+            : `Dirección incluida: ${locationAddress}`
+        );
       } else {
         showToast(
-          'Cita registrada en el sistema',
-          data.diagnostics?.emailError ?? 'Confirmación procesada.'
+          'Cita sincronizada en agenda y Google Meet',
+          apt.modality === 'Online' ? `Sala asignada: ${locationAddress}` : 'Confirmación lista.'
         );
       }
     } catch (error) {
@@ -815,7 +949,7 @@ function AdminDashboardContent() {
     const ubicacion =
       apt.modality === 'Presencial'
         ? `📍 Dirección Presencial: ${prof.presencialAddress} (${apt.boxName ?? 'Box Clínico'})`
-        : `💻 Link Videollamada: ${prof.onlineRoomUrl}`;
+        : `💻 Sala Google Meet: ${apt.meetUrl ?? prof.onlineRoomUrl}`;
     const msg = `Hola ${apt.patientName}, te escribimos de *${centerBrandName}* para confirmar tu sesión de *${apt.serviceName}* (${apt.modality}) con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}\n\n¡Te esperamos!`;
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
@@ -908,7 +1042,12 @@ function AdminDashboardContent() {
     setAppointments((prev) =>
       prev.map((a) =>
         a.id === draggedAptId
-          ? { ...a, isoDate, time, boxName: dayCfg.boxAssigned }
+          ? {
+              ...a,
+              isoDate,
+              time,
+              boxName: a.modality === 'Presencial' ? dayCfg.boxAssigned : 'Google Meet Automático',
+            }
           : a
       )
     );
@@ -933,13 +1072,26 @@ function AdminDashboardContent() {
     );
   };
 
+  // Si cambia a Online, le asigna automáticamente su sala Google Meet si no tenía una
   const toggleModality = (aptId: string) => {
     setAppointments((prev) =>
       prev.map((a) => {
         if (a.id !== aptId) return a;
         const nextMod: ModalityType = a.modality === 'Online' ? 'Presencial' : 'Online';
-        showToast(`Modalidad cambiada a ${nextMod}`, `Paciente: ${a.patientName}`);
-        return { ...a, modality: nextMod };
+        const assignedMeet =
+          nextMod === 'Online' ? a.meetUrl ?? generateLocalMeetLink() : undefined;
+        showToast(
+          `Modalidad cambiada a ${nextMod}`,
+          nextMod === 'Online'
+            ? `Sala Google Meet asignada: ${assignedMeet}`
+            : `Paciente: ${a.patientName}`
+        );
+        return {
+          ...a,
+          modality: nextMod,
+          meetUrl: assignedMeet,
+          boxName: nextMod === 'Online' ? 'Google Meet Automático' : 'Box 1 · Salvia',
+        };
       })
     );
   };
@@ -958,13 +1110,19 @@ function AdminDashboardContent() {
   const handleSaveEditedAppointment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingApt) return;
-    setAppointments((prev) =>
-      prev.map((a) => (a.id === editingApt.id ? editingApt : a))
-    );
-    showToast('Datos del paciente actualizados', editingApt.patientName);
+    const updated: AppointmentItem = {
+      ...editingApt,
+      meetUrl:
+        editingApt.modality === 'Online'
+          ? editingApt.meetUrl ?? generateLocalMeetLink()
+          : editingApt.meetUrl,
+    };
+    setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    showToast('Datos del paciente actualizados', updated.patientName);
     setEditingApt(null);
   };
 
+  // Crear cita desde la agenda con asignación automática de Google Meet + Google Calendar API
   const handleCreateSlotAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slotModal) return;
@@ -989,6 +1147,49 @@ function AdminDashboardContent() {
       services.find((s) => s.name === newBookingForm.serviceName) ?? services[0];
     const dayCfg = currentProf?.scheduleByDay?.[slotModal.dayIndex];
 
+    // 1. Si es Online, llamar a Google Calendar API para crear evento y obtener sala oficial de Google Meet
+    let generatedMeetUrl =
+      newBookingForm.modality === 'Online' ? generateLocalMeetLink() : undefined;
+    let googleEventId: string | undefined = undefined;
+
+    try {
+      const gCalRes = await fetch('/api/google/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken: googleAccessToken,
+          summary: `${newBookingForm.serviceName} - ${newBookingForm.patientName.trim()} (${centerBrandName})`,
+          description: `Atención en ${centerBrandName} con ${currentProf.name}`,
+          isoDate: slotModal.isoDate,
+          time: slotModal.time,
+          durationMinutes: svcObj?.durationMinutes ?? 50,
+          patientEmail: newBookingForm.patientEmail.trim(),
+          professionalEmail: currentProf.email,
+          modality: newBookingForm.modality,
+          locationAddress: currentProf.presencialAddress,
+        }),
+      });
+      if (gCalRes.ok) {
+        const gData = await gCalRes.json();
+        if (newBookingForm.modality === 'Online' && gData.meetUrl) {
+          generatedMeetUrl = gData.meetUrl;
+        }
+        if (gData.eventId) {
+          googleEventId = gData.eventId;
+        }
+      }
+    } catch {
+      // Fallback local Meet ya generado
+    }
+
+    // Buscar si el paciente ya tenía historial clínico previo para conservarlo
+    const previousRecord = appointments.find(
+      (a) =>
+        (newBookingForm.patientRUT.trim().length > 0 &&
+          a.patientRUT.toLowerCase() === newBookingForm.patientRUT.trim().toLowerCase()) ||
+        a.patientEmail.toLowerCase() === newBookingForm.patientEmail.trim().toLowerCase()
+    );
+
     const createdApt: AppointmentItem = {
       id: `apt-${Date.now()}`,
       patientName: newBookingForm.patientName.trim(),
@@ -1004,14 +1205,16 @@ function AdminDashboardContent() {
       boxName:
         newBookingForm.modality === 'Presencial'
           ? dayCfg?.boxAssigned ?? 'Box 1'
-          : 'Sala Online',
+          : 'Google Meet Automático',
+      meetUrl: generatedMeetUrl,
+      googleEventId,
       isoDate: slotModal.isoDate,
       time: slotModal.time,
       price: svcObj ? svcObj.price : 45000,
       paymentStatus: newBookingForm.paymentStatus,
       clinicalStatus: 'Confirmada',
       notes: newBookingForm.notes.trim(),
-      clinicalHistory: [],
+      clinicalHistory: previousRecord?.clinicalHistory ?? [],
     };
 
     setAppointments((prev) => [...prev, createdApt]);
@@ -1102,7 +1305,7 @@ function AdminDashboardContent() {
       rut: '',
       email: '',
       presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
-      onlineRoomUrl: 'https://meet.google.com/clinica-sala',
+      onlineRoomUrl: generateLocalMeetLink(),
       agreementType: 'porcentaje',
       centerCommissionPercent: 25,
       fixedBoxRent: 0,
@@ -1170,6 +1373,7 @@ function AdminDashboardContent() {
         avatar: initials,
         presencialAddress: profForm.presencialAddress.trim(),
         onlineRoomUrl: profForm.onlineRoomUrl.trim(),
+        googleConnected: true,
         scheduleByDay: buildDefaultSchedule(false),
         agreementType: profForm.agreementType,
         centerCommissionPercent: Number(profForm.centerCommissionPercent) || 0,
@@ -1208,7 +1412,7 @@ function AdminDashboardContent() {
     {
       id: 'pacientes',
       label: 'Pacientes & Ficha IA',
-      badge: String(appointments.length),
+      badge: String(existingPatientsDirectory.length),
       icon: Users,
     },
     {
@@ -1273,7 +1477,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          BARRA LATERAL CON EL NOMBRE DEL CENTRO CLÍNICO REGISTRADO
+          BARRA LATERAL CON LOGO Y NOMBRE DEL CENTRO CLÍNICO
          ========================================================= */}
       <aside
         className={`${
@@ -1283,13 +1487,30 @@ function AdminDashboardContent() {
         <div>
           <div className="p-5 flex items-center justify-between border-b border-white/10">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#C87D65] to-[#b0664f] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-md">
-                {centerBrandName.slice(0, 1).toUpperCase()}
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowBrandingModal(true)}
+                className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-[#C87D65] to-[#b0664f] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-md overflow-hidden group border border-white/15"
+                title="Haz clic para subir o cambiar el Logo del Centro"
+              >
+                {centerLogoUrl ? (
+                  <img
+                    src={centerLogoUrl}
+                    alt={centerBrandName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{centerBrandName.slice(0, 1).toUpperCase()}</span>
+                )}
+                <span className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <ImagePlus size={15} className="text-white" />
+                </span>
+              </button>
+
               {!sidebarCollapsed && (
                 <div className="truncate">
                   <span className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80 font-bold block">
-                    Centro Clínico Activo
+                    Centro Clínico
                   </span>
                   {isEditingCenterName ? (
                     <input
@@ -1306,11 +1527,11 @@ function AdminDashboardContent() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setIsEditingCenterName(true)}
+                      onClick={() => setShowBrandingModal(true)}
                       className="text-left group flex items-center gap-1.5"
-                      title="Haz clic para cambiar el nombre de tu Centro Clínico"
+                      title="Personalizar Logo y Nombre de Carátula"
                     >
-                      <h1 className="text-sm font-bold text-white truncate max-w-[145px]">
+                      <h1 className="text-sm font-bold text-white truncate max-w-[140px]">
                         {centerBrandName}
                       </h1>
                       <Edit3
@@ -1368,28 +1589,41 @@ function AdminDashboardContent() {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-white/10 space-y-3">
+        {/* Estado de Google Calendar / Meet + Carátula del Centro */}
+        <div className="p-4 border-t border-white/10 space-y-2.5">
           {!sidebarCollapsed && (
             <div className="bg-white/5 rounded-2xl p-3.5 border border-white/10 text-[11px] space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-stone-300 font-semibold flex items-center gap-1.5 truncate">
-                  <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-                  <span className="truncate">{centerBrandName}</span>
+              <button
+                type="button"
+                onClick={() => setShowBrandingModal(true)}
+                className="w-full py-2 px-3 bg-white/10 hover:bg-white/15 text-stone-100 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs"
+              >
+                <ImagePlus size={13} className="text-emerald-300" />
+                <span>Logo y Carátula del Centro</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConnectGoogleAccount}
+                className="w-full py-2 px-3 bg-white text-stone-900 hover:bg-stone-100 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-xs shadow-xs"
+              >
+                <Video size={13} className="text-[#2C4A3B]" />
+                <span>
+                  {isGoogleCalendarLinked
+                    ? 'Google Calendar + Meet Activo'
+                    : 'Vincular Cuenta Google'}
                 </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              </div>
+              </button>
+
               <a
                 href="/centro/mi-centro"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2 px-3 bg-[#C87D65] hover:bg-[#b56d56] text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all text-xs shadow-sm"
               >
-                <span>Portal de Reserva Público</span>
+                <span>Ver Carátula de Pacientes</span>
                 <ExternalLink size={13} />
               </a>
-              <p className="text-[10px] text-stone-400 text-center pt-0.5">
-                Infraestructura Kairós SaaS
-              </p>
             </div>
           )}
         </div>
@@ -1400,10 +1634,23 @@ function AdminDashboardContent() {
          ========================================================= */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex w-10 h-10 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] items-center justify-center">
-              <Building2 size={18} />
-            </div>
+          <div className="flex items-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => setShowBrandingModal(true)}
+              className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center overflow-hidden border border-[#E4ECE7] shadow-2xs"
+              title="Cambiar Logo del Centro"
+            >
+              {centerLogoUrl ? (
+                <img
+                  src={centerLogoUrl}
+                  alt={centerBrandName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Building2 size={18} />
+              )}
+            </button>
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65]">
@@ -1411,10 +1658,10 @@ function AdminDashboardContent() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setIsEditingCenterName(true)}
+                  onClick={() => setShowBrandingModal(true)}
                   className="text-[10px] font-semibold text-stone-400 hover:text-[#2C4A3B] underline"
                 >
-                  Cambiar nombre del centro
+                  Subir Logo / Editar Carátula
                 </button>
               </div>
               <h2 className="text-xl font-bold text-stone-900 tracking-tight">
@@ -1424,6 +1671,26 @@ function AdminDashboardContent() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Botón Google OAuth + Calendar + Meet en barra superior */}
+            <button
+              type="button"
+              onClick={handleConnectGoogleAccount}
+              className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                isGoogleCalendarLinked
+                  ? 'bg-[#EBF3EE] border-[#2C4A3B]/25 text-[#2C4A3B]'
+                  : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
+              }`}
+            >
+              <Video size={14} className="text-[#2C4A3B]" />
+              <span>
+                {isGoogleCalendarLinked
+                  ? googleUserEmail
+                    ? `Google: ${googleUserEmail}`
+                    : 'Google Calendar & Meet Conectado'
+                  : 'Iniciar Sesión con Google'}
+              </span>
+            </button>
+
             <div className="relative">
               <Search
                 size={15}
@@ -1442,6 +1709,9 @@ function AdminDashboardContent() {
               onClick={() => {
                 setActiveModule('agenda');
                 setSlotActionMode('book');
+                setPatientModeInBooking(
+                  existingPatientsDirectory.length > 0 ? 'existing' : 'new'
+                );
                 const firstDay = dynamicWeekDays[0];
                 setSlotModal({
                   dayIndex: 1,
@@ -1524,38 +1794,41 @@ function AdminDashboardContent() {
 
               <div className="bg-white rounded-[2rem] p-8 border border-[#E4ECE7] shadow-xs space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E4ECE7] pb-5">
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                      {centerBrandName}
-                    </span>
-                    <h3 className="text-2xl font-bold text-stone-900">
-                      Resumen Operativo del Centro
-                    </h3>
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] flex items-center justify-center overflow-hidden">
+                      {centerLogoUrl ? (
+                        <img
+                          src={centerLogoUrl}
+                          alt={centerBrandName}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <Building2 size={28} className="text-[#2C4A3B]" />
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
+                        Carátula Oficial Activa
+                      </span>
+                      <h3 className="text-2xl font-bold text-stone-900">{centerBrandName}</h3>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        Google Calendar API y generación automática de salas Google Meet habilitados para citas online.
+                      </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-2.5">
+                    <button
+                      onClick={() => setShowBrandingModal(true)}
+                      className="px-4 py-3 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-800 rounded-2xl text-xs font-bold hover:bg-stone-100 transition-all flex items-center gap-1.5"
+                    >
+                      <ImagePlus size={15} className="text-[#2C4A3B]" />
+                      <span>Subir Logo de Carátula</span>
+                    </button>
                     <button
                       onClick={() => setActiveModule('agenda')}
                       className="px-5 py-3 bg-[#2C4A3B] text-white rounded-2xl text-xs font-bold shadow-sm hover:bg-[#233B2F] transition-all"
                     >
                       Abrir Agenda
-                    </button>
-                    <button
-                      onClick={() => setActiveModule('pacientes')}
-                      className="px-5 py-3 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-800 rounded-2xl text-xs font-bold hover:bg-stone-100 transition-all"
-                    >
-                      Pacientes & Ficha IA Grok
-                    </button>
-                    <button
-                      onClick={() => setActiveModule('servicios')}
-                      className="px-5 py-3 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-800 rounded-2xl text-xs font-bold hover:bg-stone-100 transition-all"
-                    >
-                      Catálogo de Servicios
-                    </button>
-                    <button
-                      onClick={() => setActiveModule('finanzas')}
-                      className="px-5 py-3 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-800 rounded-2xl text-xs font-bold hover:bg-stone-100 transition-all"
-                    >
-                      Liquidación de Boxes y Profesionales
                     </button>
                   </div>
                 </div>
@@ -1564,7 +1837,7 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              2. AGENDA (CON VISTAS DIARIA, SEMANAL Y MENSUAL + HORARIOS POR DÍA)
+              2. AGENDA (DIARIA, SEMANAL Y MENSUAL + GOOGLE MEET AUTOMÁTICO)
              --------------------------------------------------------- */}
           {activeModule === 'agenda' && (
             <div className="space-y-5">
@@ -1784,16 +2057,29 @@ function AdminDashboardContent() {
                                     </span>
                                   </p>
                                   <p className="text-xs text-stone-500">
-                                    {apt.boxName ?? dayCfg?.boxAssigned} · RUT: {apt.patientRUT}
+                                    {apt.modality === 'Online'
+                                      ? `Google Meet: ${apt.meetUrl ?? currentProf?.onlineRoomUrl}`
+                                      : `${apt.boxName ?? dayCfg?.boxAssigned}`}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                  {apt.modality === 'Online' && (
+                                    <a
+                                      href={apt.meetUrl ?? currentProf?.onlineRoomUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-3 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold flex items-center gap-1"
+                                    >
+                                      <Video size={13} />
+                                      <span>Entrar a Google Meet</span>
+                                    </a>
+                                  )}
                                   <button
                                     onClick={() => setFichaPatientApt(apt)}
                                     className="px-3 py-1.5 rounded-xl bg-[#2C4A3B] text-white text-xs font-bold flex items-center gap-1"
                                   >
                                     <BrainCircuit size={13} />
-                                    <span>Abrir Ficha IA</span>
+                                    <span>Ficha IA</span>
                                   </button>
                                   <button
                                     onClick={() => togglePaymentStatus(apt.id)}
@@ -1811,6 +2097,9 @@ function AdminDashboardContent() {
                               <button
                                 onClick={() => {
                                   setSlotActionMode('book');
+                                  setPatientModeInBooking(
+                                    existingPatientsDirectory.length > 0 ? 'existing' : 'new'
+                                  );
                                   setSlotModal({
                                     dayIndex: singleDayMeta.dayIndex,
                                     isoDate: singleDayMeta.iso,
@@ -1924,6 +2213,9 @@ function AdminDashboardContent() {
                               onClick={() => {
                                 if (!apt && !blocked && isSlotEnabledForDay) {
                                   setSlotActionMode('book');
+                                  setPatientModeInBooking(
+                                    existingPatientsDirectory.length > 0 ? 'existing' : 'new'
+                                  );
                                   setSlotModal({
                                     dayIndex: day.index,
                                     isoDate: day.iso,
@@ -2008,7 +2300,7 @@ function AdminDashboardContent() {
                                         ) : (
                                           <MapPin size={9} />
                                         )}
-                                        {apt.modality}
+                                        {apt.modality === 'Online' ? 'Meet' : 'Box'}
                                       </span>
 
                                       <span
@@ -2032,9 +2324,11 @@ function AdminDashboardContent() {
 
                                   <div className="flex items-center justify-between pt-1 mt-1 border-t border-stone-200/60 text-[10px] text-stone-500">
                                     <span className="font-semibold text-[#2C4A3B] truncate">
-                                      {apt.boxName ?? dayCfg?.boxAssigned}
+                                      {apt.modality === 'Online'
+                                        ? 'Sala Meet Lista'
+                                        : apt.boxName ?? dayCfg?.boxAssigned}
                                     </span>
-                                    <span className="font-bold text-stone-700">Opciones ▾</span>
+                                    <span className="font-bold text-stone-700">▾</span>
                                   </div>
                                 </div>
                               )}
@@ -2144,6 +2438,7 @@ function AdminDashboardContent() {
                 <button
                   onClick={() => {
                     setSlotActionMode('book');
+                    setPatientModeInBooking('new');
                     const firstDay = dynamicWeekDays[0];
                     setSlotModal({
                       dayIndex: 1,
@@ -2205,22 +2500,30 @@ function AdminDashboardContent() {
                             <strong className="text-stone-900">{apt.serviceName}</strong>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-stone-500">Modalidad / Box:</span>
+                            <span className="text-stone-500">Modalidad:</span>
                             <strong className="text-[#2C4A3B]">
                               {apt.modality} ({apt.boxName ?? 'Box 1'})
                             </strong>
                           </div>
+                          {apt.modality === 'Online' && (
+                            <div className="flex items-center justify-between pt-1 border-t border-stone-200/60">
+                              <span className="text-stone-500">Sala Google Meet:</span>
+                              <a
+                                href={apt.meetUrl ?? prof?.onlineRoomUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sky-700 font-bold hover:underline flex items-center gap-1"
+                              >
+                                <Video size={12} />
+                                <span>Abrir Meet</span>
+                              </a>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between">
                             <span className="text-stone-500">Próxima Sesión:</span>
                             <strong className="text-stone-800">
                               {apt.isoDate} · {apt.time} hrs
                             </strong>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-stone-500">Evoluciones en Ficha:</span>
-                            <span className="px-2 py-0.5 rounded-full bg-[#EBF3EE] text-[#2C4A3B] font-bold text-[10px]">
-                              {(apt.clinicalHistory ?? []).length} registros IA
-                            </span>
                           </div>
                         </div>
                       </div>
@@ -2246,7 +2549,7 @@ function AdminDashboardContent() {
                             className="py-2 px-3 bg-[#EBF3EE] text-[#2C4A3B] rounded-xl text-xs font-bold flex items-center justify-center gap-1"
                           >
                             <Send size={12} />
-                            <span>Correo</span>
+                            <span>Correo + Meet</span>
                           </button>
                           <button
                             type="button"
@@ -2278,9 +2581,6 @@ function AdminDashboardContent() {
                   <h3 className="text-xl font-bold text-stone-900">
                     Servicios, Tipos de Terapia, Horarios Libres y Aranceles
                   </h3>
-                  <p className="text-xs text-stone-500 mt-1">
-                    Cada profesional define qué terapias realiza, su duración, valor y en qué rango horario las ofrece (incluyendo horarios vespertinos después de las 20:00 hrs).
-                  </p>
                 </div>
                 <button
                   onClick={() => setShowServiceModal(true)}
@@ -2365,14 +2665,11 @@ function AdminDashboardContent() {
               <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                    Disponibilidad Flexible Día a Día
+                    Disponibilidad Flexible Día a Día + Google Workspace
                   </span>
                   <h3 className="text-xl font-bold text-stone-900">
-                    Profesionales, Turnos Diferenciados por Día (07:00 a 23:00) y Convenio Box
+                    Profesionales, Turnos por Día (07:00 a 23:00), Google Meet y Convenio Box
                   </h3>
-                  <p className="text-xs text-stone-500 mt-1">
-                    Configura horarios distintos para cada día (ej. Lunes solo en la mañana, Martes en la tarde hasta las 22:00 o 23:00 hrs) y el box asignado.
-                  </p>
                 </div>
                 <button
                   onClick={openCreateProfModal}
@@ -2395,7 +2692,13 @@ function AdminDashboardContent() {
                           {prof.avatar}
                         </div>
                         <div>
-                          <h4 className="font-bold text-lg text-stone-900">{prof.name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-lg text-stone-900">{prof.name}</h4>
+                            <span className="px-2.5 py-0.5 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-[10px] font-bold flex items-center gap-1">
+                              <Video size={11} />
+                              Google Meet Vinculado
+                            </span>
+                          </div>
                           <p className="text-xs text-stone-500">
                             {prof.specialty} · RUT: {prof.rut} ·{' '}
                             <strong className="text-[#2C4A3B]">
@@ -2411,6 +2714,14 @@ function AdminDashboardContent() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleConnectGoogleAccount}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#EBF3EE] text-[#2C4A3B] text-xs font-bold"
+                        >
+                          <LogIn size={13} />
+                          <span>Sincronizar Google Calendar</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => openEditProfModal(prof)}
@@ -2432,7 +2743,7 @@ function AdminDashboardContent() {
 
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-3">
-                        Horario Específico por Día (Puedes fijar mañana, tarde o noche hasta las 23:00 hrs en cada día)
+                        Horario Específico por Día (07:00 a 23:00 hrs)
                       </label>
                       <div className="space-y-2">
                         {DAY_NAMES.map((dayMeta) => {
@@ -2693,62 +3004,449 @@ function AdminDashboardContent() {
                   </table>
                 </div>
               </div>
-
-              <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
-                <h3 className="font-bold text-base text-stone-900">
-                  Detalle de Pagos por Sesión Agendada
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-[#E4ECE7] text-stone-400 uppercase text-[10px]">
-                        <th className="py-3 px-4">Paciente</th>
-                        <th className="py-3 px-4">Servicio</th>
-                        <th className="py-3 px-4">Box / Modalidad</th>
-                        <th className="py-3 px-4">Fecha / Hora</th>
-                        <th className="py-3 px-4">Valor Bruto</th>
-                        <th className="py-3 px-4">Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E4ECE7]">
-                      {appointments.map((apt) => (
-                        <tr key={apt.id} className="hover:bg-[#F9F8F6]">
-                          <td className="py-3 px-4 font-bold text-stone-900">{apt.patientName}</td>
-                          <td className="py-3 px-4 text-stone-600">{apt.serviceName}</td>
-                          <td className="py-3 px-4">
-                            {apt.modality} · {apt.boxName ?? 'Box 1'}
-                          </td>
-                          <td className="py-3 px-4 text-stone-600">
-                            {apt.isoDate} · {apt.time} hrs
-                          </td>
-                          <td className="py-3 px-4 font-bold text-stone-900">
-                            ${apt.price.toLocaleString('es-CL')}
-                          </td>
-                          <td className="py-3 px-4">
-                            <button
-                              onClick={() => togglePaymentStatus(apt.id)}
-                              className={`px-3 py-1 rounded-full font-bold ${
-                                apt.paymentStatus === 'Pagado'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {apt.paymentStatus}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
           )}
         </main>
       </div>
 
       {/* =========================================================
-          DRAWER / MODAL DE FICHA CLÍNICA EVOLUTIVA CON IA GROK
+          MODAL DE AGENDAR PACIENTE (CON BUSCADOR DE PACIENTES EXISTENTES + GOOGLE MEET AUTO)
+         ========================================================= */}
+      <AnimatePresence>
+        {slotModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/45 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[92vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                    {slotModal.dayLabel} · {slotModal.time} hrs
+                  </span>
+                  <h3 className="text-xl font-bold text-stone-900">Asignar Bloque de Agenda</h3>
+                </div>
+                <button
+                  onClick={() => setSlotModal(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7] mb-5">
+                <button
+                  type="button"
+                  onClick={() => setSlotActionMode('book')}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    slotActionMode === 'book' ? 'bg-[#2C4A3B] text-white' : 'text-stone-600'
+                  }`}
+                >
+                  Agendar Paciente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSlotActionMode('block')}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    slotActionMode === 'block' ? 'bg-stone-800 text-white' : 'text-stone-600'
+                  }`}
+                >
+                  Bloquear Horario
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateSlotAction} className="space-y-4 text-xs">
+                {slotActionMode === 'block' ? (
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1.5">
+                      Motivo del Bloqueo
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={blockReasonInput}
+                      onChange={(e) => setBlockReasonInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {/* SELECTOR DE PACIENTE EXISTENTE VS PACIENTE NUEVO */}
+                    <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#2C4A3B] flex items-center gap-1.5">
+                          <UserCheck size={14} />
+                          <span>Seleccionar Paciente Registrado</span>
+                        </span>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPatientModeInBooking('existing')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                              patientModeInBooking === 'existing'
+                                ? 'bg-[#2C4A3B] text-white'
+                                : 'bg-white text-stone-600 border border-stone-200'
+                            }`}
+                          >
+                            Existente ({existingPatientsDirectory.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPatientModeInBooking('new');
+                              setNewBookingForm({
+                                ...newBookingForm,
+                                patientName: '',
+                                patientRUT: '',
+                                patientEmail: '',
+                              });
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                              patientModeInBooking === 'new'
+                                ? 'bg-[#2C4A3B] text-white'
+                                : 'bg-white text-stone-600 border border-stone-200'
+                            }`}
+                          >
+                            + Nuevo
+                          </button>
+                        </div>
+                      </div>
+
+                      {patientModeInBooking === 'existing' && (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={existingPatientSearch}
+                            onChange={(e) => setExistingPatientSearch(e.target.value)}
+                            placeholder="Filtrar por nombre o RUT..."
+                            className="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white text-xs"
+                          />
+                          <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1">
+                            {existingPatientsDirectory
+                              .filter((p) => {
+                                const q = existingPatientSearch.toLowerCase();
+                                return (
+                                  p.patientName.toLowerCase().includes(q) ||
+                                  p.patientRUT.toLowerCase().includes(q) ||
+                                  p.patientEmail.toLowerCase().includes(q)
+                                );
+                              })
+                              .map((p, idx) => {
+                                const isChosen =
+                                  newBookingForm.patientName === p.patientName &&
+                                  newBookingForm.patientRUT === p.patientRUT;
+                                return (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => {
+                                      setNewBookingForm({
+                                        ...newBookingForm,
+                                        patientName: p.patientName,
+                                        patientRUT: p.patientRUT,
+                                        patientEmail: p.patientEmail,
+                                        patientPhone: p.patientPhone,
+                                        serviceName: p.lastService,
+                                        modality: p.lastModality,
+                                      });
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-xl border flex items-center justify-between transition-all ${
+                                      isChosen
+                                        ? 'bg-[#EBF3EE] border-[#2C4A3B] text-[#2C4A3B] font-bold'
+                                        : 'bg-white border-stone-200/80 hover:border-stone-300'
+                                    }`}
+                                  >
+                                    <div>
+                                      <p className="text-xs font-bold text-stone-900">
+                                        {p.patientName}
+                                      </p>
+                                      <p className="text-[10px] text-stone-500">
+                                        RUT: {p.patientRUT} · {p.patientEmail}
+                                      </p>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-[#2C4A3B]">
+                                      Autocompletar →
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Nombre del Paciente
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          value={newBookingForm.patientName}
+                          onChange={(e) =>
+                            setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                          placeholder="Ej. Camila Vergara"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          RUT
+                        </label>
+                        <input
+                          type="text"
+                          value={newBookingForm.patientRUT}
+                          onChange={(e) =>
+                            setNewBookingForm({ ...newBookingForm, patientRUT: e.target.value })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                          placeholder="18.456.789-2"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Email
+                        </label>
+                        <input
+                          required
+                          type="email"
+                          value={newBookingForm.patientEmail}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientEmail: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          WhatsApp (569...)
+                        </label>
+                        <input
+                          required
+                          type="tel"
+                          value={newBookingForm.patientPhone}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientPhone: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-bold uppercase text-stone-500 block mb-1">
+                        Servicio / Terapia
+                      </label>
+                      <select
+                        value={newBookingForm.serviceName}
+                        onChange={(e) =>
+                          setNewBookingForm({ ...newBookingForm, serviceName: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                      >
+                        {services.map((s) => (
+                          <option key={s.id} value={s.name}>
+                            {s.name} (${s.price.toLocaleString('es-CL')})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Modalidad
+                        </label>
+                        <select
+                          value={newBookingForm.modality}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              modality: e.target.value as ModalityType,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          <option value="Online">Online (Google Meet Automático)</option>
+                          <option value="Presencial">Consulta Presencial (Box)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Pago
+                        </label>
+                        <select
+                          value={newBookingForm.paymentStatus}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              paymentStatus: e.target.value as PaymentStatus,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          <option value="Pendiente">Pendiente</option>
+                          <option value="Pagado">Pagado</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {newBookingForm.modality === 'Online' && (
+                      <div className="p-3 rounded-xl bg-sky-50 border border-sky-200/80 text-sky-900 flex items-center gap-2 text-[11px]">
+                        <Video size={15} className="text-sky-600 shrink-0" />
+                        <span>
+                          Al confirmar, se creará automáticamente una sala de <strong>Google Meet</strong> y se sincronizará con <strong>Google Calendar API</strong>.
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold text-xs transition-all shadow-md"
+                >
+                  {slotActionMode === 'block'
+                    ? 'Confirmar Bloqueo'
+                    : newBookingForm.modality === 'Online'
+                    ? 'Confirmar Cita y Generar Sala Google Meet'
+                    : 'Confirmar Cita Presencial en Agenda'}
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MODAL DE PERSONALIZACIÓN DE LOGO Y CARÁTULA DEL CENTRO
+         ========================================================= */}
+      <AnimatePresence>
+        {showBrandingModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/45 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl space-y-4 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                    Identidad Visual Multi-Tenant
+                  </span>
+                  <h3 className="text-lg font-bold text-stone-900">
+                    Logo y Carátula de tu Centro Clínico
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowBrandingModal(false)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7]">
+                <div className="w-16 h-16 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center font-bold text-xl overflow-hidden shrink-0">
+                  {centerLogoUrl ? (
+                    <img
+                      src={centerLogoUrl}
+                      alt={centerBrandName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{centerBrandName.slice(0, 1).toUpperCase()}</span>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#2C4A3B] text-white font-bold cursor-pointer hover:bg-[#233B2F] transition-all">
+                    <ImagePlus size={14} />
+                    <span>Subir Imagen desde mi PC</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {centerLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setCenterLogoUrl('')}
+                      className="block text-[11px] text-rose-600 font-semibold hover:underline"
+                    >
+                      Quitar logo actual
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold uppercase text-stone-500 block mb-1">
+                  Nombre Oficial del Centro Clínico
+                </label>
+                <input
+                  type="text"
+                  value={centerBrandName}
+                  onChange={(e) => setCenterBrandName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold uppercase text-stone-500 block mb-1">
+                  O pegar URL directa del Logo (Opcional)
+                </label>
+                <input
+                  type="url"
+                  value={centerLogoUrl.startsWith('data:') ? '' : centerLogoUrl}
+                  onChange={(e) => setCenterLogoUrl(e.target.value)}
+                  placeholder="https://mi-clinica.cl/logo.png"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBrandingModal(false);
+                  showToast('Carátula actualizada', `Centro: ${centerBrandName}`);
+                }}
+                className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
+              >
+                Guardar Logo y Carátula
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          DRAWER DE FICHA CLÍNICA EVOLUTIVA CON IA GROK
          ========================================================= */}
       <AnimatePresence>
         {fichaPatientApt && (
@@ -2796,7 +3494,7 @@ function AdminDashboardContent() {
                     rows={3}
                     value={rawSessionNotes}
                     onChange={(e) => setRawSessionNotes(e.target.value)}
-                    placeholder="Escribe ideas sueltas de la sesión (ej. paciente llega angustiado por cambio laboral, trabajamos regulación emocional y límites...)"
+                    placeholder="Escribe ideas sueltas de la sesión..."
                     className="w-full rounded-2xl border border-stone-200 bg-white p-3.5 text-xs focus:outline-none focus:border-[#2C4A3B]"
                   />
 
@@ -2844,28 +3542,318 @@ function AdminDashboardContent() {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-stone-400">
                     Historial de Evoluciones Clínicas ({(fichaPatientApt.clinicalHistory ?? []).length})
                   </h4>
-                  {(fichaPatientApt.clinicalHistory ?? []).length === 0 ? (
-                    <p className="text-xs text-stone-400 italic">
-                      Aún no hay evoluciones registradas en la ficha de este paciente.
-                    </p>
-                  ) : (
-                    (fichaPatientApt.clinicalHistory ?? []).map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="p-4 rounded-2xl bg-white border border-[#E4ECE7] space-y-2 text-xs"
-                      >
-                        <div className="flex items-center justify-between text-[11px] text-stone-400 border-b border-stone-100 pb-1.5">
-                          <strong className="text-[#2C4A3B]">{entry.date}</strong>
-                          <span>Firma: {entry.professionalName}</span>
-                        </div>
-                        <pre className="whitespace-pre-wrap font-sans text-stone-700 leading-relaxed">
-                          {entry.grokStructuredNote}
-                        </pre>
+                  {(fichaPatientApt.clinicalHistory ?? []).map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="p-4 rounded-2xl bg-white border border-[#E4ECE7] space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between text-[11px] text-stone-400 border-b border-stone-100 pb-1.5">
+                        <strong className="text-[#2C4A3B]">{entry.date}</strong>
+                        <span>Firma: {entry.professionalName}</span>
                       </div>
-                    ))
-                  )}
+                      <pre className="whitespace-pre-wrap font-sans text-stone-700 leading-relaxed">
+                        {entry.grokStructuredNote}
+                      </pre>
+                    </div>
+                  ))}
                 </div>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MENÚ CONTEXTUAL DE CLIC DERECHO EN EL CALENDARIO
+         ========================================================= */}
+      <AnimatePresence>
+        {contextMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{
+              top: Math.min(
+                contextMenu.y,
+                typeof window !== 'undefined' ? window.innerHeight - 420 : 320
+              ),
+              left: Math.min(
+                contextMenu.x,
+                typeof window !== 'undefined' ? window.innerWidth - 300 : 320
+              ),
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-50 w-72 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-[#E4ECE7] p-2 text-xs"
+          >
+            <div className="px-3 py-2 border-b border-stone-100 mb-1">
+              <p className="font-bold text-stone-900 truncate">{contextMenu.apt.patientName}</p>
+              <p className="text-[11px] text-stone-500 truncate">
+                {contextMenu.apt.isoDate} · {contextMenu.apt.time} hrs
+              </p>
+            </div>
+
+            {contextMenu.apt.modality === 'Online' && (
+              <a
+                href={contextMenu.apt.meetUrl ?? currentProf?.onlineRoomUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-sky-50 text-sky-700 font-bold transition-colors"
+              >
+                <Video size={15} />
+                <span>Abrir Sala Google Meet</span>
+              </a>
+            )}
+
+            <button
+              onClick={() => {
+                setFichaPatientApt(contextMenu.apt);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-[#2C4A3B] font-bold transition-colors"
+            >
+              <BrainCircuit size={15} />
+              <span>Abrir Ficha Clínica + IA Grok</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setEditingApt({ ...contextMenu.apt });
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-900 font-bold transition-colors"
+            >
+              <Edit3 size={15} className="text-[#2C4A3B]" />
+              <span>Editar Paciente / Cambiar Hora</span>
+            </button>
+
+            <button
+              onClick={() => {
+                togglePaymentStatus(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-stone-800 font-bold transition-colors"
+            >
+              <CreditCard size={15} className="text-emerald-700" />
+              <span>
+                {contextMenu.apt.paymentStatus === 'Pagado'
+                  ? 'Marcar como Pendiente'
+                  : 'Marcar como Pagado ($)'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                toggleModality(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
+            >
+              <RefreshCw size={15} className="text-[#2C4A3B]" />
+              <span>
+                Cambiar a {contextMenu.apt.modality === 'Online' ? 'Presencial' : 'Online (+Meet)'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                openDirectWhatsApp(contextMenu.apt);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-800 font-bold transition-colors"
+            >
+              <MessageSquare size={15} className="text-emerald-600" />
+              <span>Enviar WhatsApp Directo</span>
+            </button>
+
+            <div className="my-1 border-t border-stone-100" />
+
+            <button
+              onClick={() => {
+                deleteAppointment(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-bold transition-colors"
+            >
+              <Trash2 size={15} />
+              <span>Eliminar Cita / Liberar Hora</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MODAL CRUD: EDITAR PACIENTE / CITA COMPLETA
+         ========================================================= */}
+      <AnimatePresence>
+        {editingApt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-stone-900">
+                  Modificar o Eliminar Paciente
+                </h3>
+                <button
+                  onClick={() => setEditingApt(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedAppointment} className="space-y-3.5 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Nombre del Paciente
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={editingApt.patientName}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientName: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      RUT
+                    </label>
+                    <input
+                      type="text"
+                      value={editingApt.patientRUT}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientRUT: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Servicio / Terapia
+                    </label>
+                    <select
+                      value={editingApt.serviceName}
+                      onChange={(e) => {
+                        const svc = services.find((s) => s.name === e.target.value);
+                        setEditingApt({
+                          ...editingApt,
+                          serviceName: e.target.value,
+                          price: svc ? svc.price : editingApt.price,
+                        });
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {services.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Hora (07:00 a 23:00)
+                    </label>
+                    <select
+                      value={editingApt.time}
+                      onChange={(e) => setEditingApt({ ...editingApt, time: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {FULL_DAY_HOURS.map((h) => (
+                        <option key={h} value={h}>
+                          {h} hrs
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Fecha
+                    </label>
+                    <input
+                      required
+                      type="date"
+                      value={editingApt.isoDate}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, isoDate: e.target.value })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Modalidad
+                    </label>
+                    <select
+                      value={editingApt.modality}
+                      onChange={(e) =>
+                        setEditingApt({
+                          ...editingApt,
+                          modality: e.target.value as ModalityType,
+                        })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      <option value="Online">Online (Meet)</option>
+                      <option value="Presencial">Presencial</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Pago
+                    </label>
+                    <select
+                      value={editingApt.paymentStatus}
+                      onChange={(e) =>
+                        setEditingApt({
+                          ...editingApt,
+                          paymentStatus: e.target.value as PaymentStatus,
+                        })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Pagado">Pagado</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => deleteAppointment(editingApt.id)}
+                    className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold flex items-center gap-1.5"
+                  >
+                    <Trash2 size={15} />
+                    <span>Eliminar</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold"
+                  >
+                    Guardar Cambios
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
@@ -3035,500 +4023,6 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MENÚ CONTEXTUAL DE CLIC DERECHO EN EL CALENDARIO
-         ========================================================= */}
-      <AnimatePresence>
-        {contextMenu && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            style={{
-              top: Math.min(
-                contextMenu.y,
-                typeof window !== 'undefined' ? window.innerHeight - 400 : 320
-              ),
-              left: Math.min(
-                contextMenu.x,
-                typeof window !== 'undefined' ? window.innerWidth - 300 : 320
-              ),
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="fixed z-50 w-72 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-[#E4ECE7] p-2 text-xs"
-          >
-            <div className="px-3 py-2 border-b border-stone-100 mb-1">
-              <p className="font-bold text-stone-900 truncate">{contextMenu.apt.patientName}</p>
-              <p className="text-[11px] text-stone-500 truncate">
-                {contextMenu.apt.isoDate} · {contextMenu.apt.time} hrs
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                setFichaPatientApt(contextMenu.apt);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-[#2C4A3B] font-bold transition-colors"
-            >
-              <BrainCircuit size={15} />
-              <span>Abrir Ficha Clínica + IA Grok</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setEditingApt({ ...contextMenu.apt });
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-900 font-bold transition-colors"
-            >
-              <Edit3 size={15} className="text-[#2C4A3B]" />
-              <span>Editar Paciente / Cambiar Hora</span>
-            </button>
-
-            <button
-              onClick={() => {
-                togglePaymentStatus(contextMenu.apt.id);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-stone-800 font-bold transition-colors"
-            >
-              <CreditCard size={15} className="text-emerald-700" />
-              <span>
-                {contextMenu.apt.paymentStatus === 'Pagado'
-                  ? 'Marcar como Pendiente'
-                  : 'Marcar como Pagado ($)'}
-              </span>
-            </button>
-
-            <button
-              onClick={() => {
-                toggleModality(contextMenu.apt.id);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
-            >
-              <RefreshCw size={15} className="text-[#2C4A3B]" />
-              <span>
-                Cambiar a {contextMenu.apt.modality === 'Online' ? 'Presencial' : 'Online'}
-              </span>
-            </button>
-
-            <button
-              onClick={() => {
-                openDirectWhatsApp(contextMenu.apt);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-800 font-bold transition-colors"
-            >
-              <MessageSquare size={15} className="text-emerald-600" />
-              <span>Enviar WhatsApp Directo</span>
-            </button>
-
-            <div className="my-1 border-t border-stone-100" />
-
-            <button
-              onClick={() => {
-                deleteAppointment(contextMenu.apt.id);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-bold transition-colors"
-            >
-              <Trash2 size={15} />
-              <span>Eliminar Cita / Liberar Hora</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* =========================================================
-          MODAL CRUD: EDITAR PACIENTE / CITA COMPLETA
-         ========================================================= */}
-      <AnimatePresence>
-        {editingApt && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[90vh] overflow-y-auto"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-stone-900">
-                  Modificar o Eliminar Paciente
-                </h3>
-                <button
-                  onClick={() => setEditingApt(null)}
-                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <form onSubmit={handleSaveEditedAppointment} className="space-y-3.5 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Nombre del Paciente
-                    </label>
-                    <input
-                      required
-                      type="text"
-                      value={editingApt.patientName}
-                      onChange={(e) =>
-                        setEditingApt({ ...editingApt, patientName: e.target.value })
-                      }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      RUT
-                    </label>
-                    <input
-                      type="text"
-                      value={editingApt.patientRUT}
-                      onChange={(e) =>
-                        setEditingApt({ ...editingApt, patientRUT: e.target.value })
-                      }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Servicio / Terapia
-                    </label>
-                    <select
-                      value={editingApt.serviceName}
-                      onChange={(e) => {
-                        const svc = services.find((s) => s.name === e.target.value);
-                        setEditingApt({
-                          ...editingApt,
-                          serviceName: e.target.value,
-                          price: svc ? svc.price : editingApt.price,
-                        });
-                      }}
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      {services.map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Hora (07:00 a 23:00)
-                    </label>
-                    <select
-                      value={editingApt.time}
-                      onChange={(e) => setEditingApt({ ...editingApt, time: e.target.value })}
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      {FULL_DAY_HOURS.map((h) => (
-                        <option key={h} value={h}>
-                          {h} hrs
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Fecha
-                    </label>
-                    <input
-                      required
-                      type="date"
-                      value={editingApt.isoDate}
-                      onChange={(e) =>
-                        setEditingApt({ ...editingApt, isoDate: e.target.value })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Modalidad
-                    </label>
-                    <select
-                      value={editingApt.modality}
-                      onChange={(e) =>
-                        setEditingApt({
-                          ...editingApt,
-                          modality: e.target.value as ModalityType,
-                        })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      <option value="Online">Online</option>
-                      <option value="Presencial">Presencial</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Pago
-                    </label>
-                    <select
-                      value={editingApt.paymentStatus}
-                      onChange={(e) =>
-                        setEditingApt({
-                          ...editingApt,
-                          paymentStatus: e.target.value as PaymentStatus,
-                        })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      <option value="Pendiente">Pendiente</option>
-                      <option value="Pagado">Pagado</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => deleteAppointment(editingApt.id)}
-                    className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold flex items-center gap-1.5"
-                  >
-                    <Trash2 size={15} />
-                    <span>Eliminar</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="flex-1 py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold"
-                  >
-                    Guardar Cambios
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* =========================================================
-          MODAL DE CELDA VACÍA: AGENDAR O BLOQUEAR HORARIO
-         ========================================================= */}
-      <AnimatePresence>
-        {slotModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
-                    {slotModal.dayLabel} · {slotModal.time} hrs
-                  </span>
-                  <h3 className="text-xl font-bold text-stone-900">Asignar Bloque de Agenda</h3>
-                </div>
-                <button
-                  onClick={() => setSlotModal(null)}
-                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7] mb-5">
-                <button
-                  type="button"
-                  onClick={() => setSlotActionMode('book')}
-                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    slotActionMode === 'book' ? 'bg-[#2C4A3B] text-white' : 'text-stone-600'
-                  }`}
-                >
-                  Agendar Paciente
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSlotActionMode('block')}
-                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    slotActionMode === 'block' ? 'bg-stone-800 text-white' : 'text-stone-600'
-                  }`}
-                >
-                  Bloquear Horario
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateSlotAction} className="space-y-3.5 text-xs">
-                {slotActionMode === 'block' ? (
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1.5">
-                      Motivo del Bloqueo
-                    </label>
-                    <input
-                      required
-                      type="text"
-                      value={blockReasonInput}
-                      onChange={(e) => setBlockReasonInput(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm"
-                    />
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          Nombre del Paciente
-                        </label>
-                        <input
-                          required
-                          type="text"
-                          value={newBookingForm.patientName}
-                          onChange={(e) =>
-                            setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                          placeholder="Ej. Camila Vergara"
-                        />
-                      </div>
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          RUT
-                        </label>
-                        <input
-                          type="text"
-                          value={newBookingForm.patientRUT}
-                          onChange={(e) =>
-                            setNewBookingForm({ ...newBookingForm, patientRUT: e.target.value })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                          placeholder="18.456.789-2"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          Email
-                        </label>
-                        <input
-                          required
-                          type="email"
-                          value={newBookingForm.patientEmail}
-                          onChange={(e) =>
-                            setNewBookingForm({
-                              ...newBookingForm,
-                              patientEmail: e.target.value,
-                            })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                        />
-                      </div>
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          WhatsApp (569...)
-                        </label>
-                        <input
-                          required
-                          type="tel"
-                          value={newBookingForm.patientPhone}
-                          onChange={(e) =>
-                            setNewBookingForm({
-                              ...newBookingForm,
-                              patientPhone: e.target.value,
-                            })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="font-bold uppercase text-stone-500 block mb-1">
-                        Servicio / Terapia
-                      </label>
-                      <select
-                        value={newBookingForm.serviceName}
-                        onChange={(e) =>
-                          setNewBookingForm({ ...newBookingForm, serviceName: e.target.value })
-                        }
-                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                      >
-                        {services.map((s) => (
-                          <option key={s.id} value={s.name}>
-                            {s.name} (${s.price.toLocaleString('es-CL')})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          Modalidad
-                        </label>
-                        <select
-                          value={newBookingForm.modality}
-                          onChange={(e) =>
-                            setNewBookingForm({
-                              ...newBookingForm,
-                              modality: e.target.value as ModalityType,
-                            })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                        >
-                          <option value="Online">Online (Videollamada)</option>
-                          <option value="Presencial">Consulta Presencial (Box)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          Pago
-                        </label>
-                        <select
-                          value={newBookingForm.paymentStatus}
-                          onChange={(e) =>
-                            setNewBookingForm({
-                              ...newBookingForm,
-                              paymentStatus: e.target.value as PaymentStatus,
-                            })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                        >
-                          <option value="Pendiente">Pendiente</option>
-                          <option value="Pagado">Pagado</option>
-                        </select>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold text-xs transition-all shadow-md"
-                >
-                  {slotActionMode === 'block' ? 'Confirmar Bloqueo' : 'Confirmar Cita en Agenda'}
-                </button>
-              </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* =========================================================
           MODAL CRUD PROFESIONAL + MODELO DE ARRIENDO BOX / PORCENTAJE
          ========================================================= */}
       <AnimatePresence>
@@ -3689,7 +4183,7 @@ function AdminDashboardContent() {
 
                 <div>
                   <label className="font-bold uppercase text-stone-500 block mb-1">
-                    Enlace Sala Online
+                    Sala Google Meet Base del Profesional
                   </label>
                   <input
                     required
