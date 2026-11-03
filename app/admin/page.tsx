@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,7 +11,6 @@ import {
   FileText,
   MessageSquare,
   Wallet,
-  Clock,
   MapPin,
   Video,
   CheckCircle2,
@@ -23,7 +22,6 @@ import {
   Check,
   X,
   Building2,
-  GripVertical,
   AlertCircle,
   RefreshCw,
   Search,
@@ -90,7 +88,7 @@ interface AppointmentItem {
   professionalId: string;
   serviceName: string;
   modality: ModalityType;
-  isoDate: string; // YYYY-MM-DD real para soportar cualquier semana del año
+  isoDate: string; // YYYY-MM-DD
   time: string;
   price: number;
   paymentStatus: PaymentStatus;
@@ -101,7 +99,7 @@ interface AppointmentItem {
 interface BlockedSlot {
   id: string;
   professionalId: string;
-  isoDate: string; // YYYY-MM-DD real
+  isoDate: string; // YYYY-MM-DD
   time: string;
   reason: string;
 }
@@ -130,14 +128,16 @@ const ALL_HOURS = [
   '20:00',
 ];
 
-// Utilidades de fechas reales para mover semanas libremente
-function getMondayOfCurrentWeek(offsetWeeks: number = 0): Date {
-  const now = new Date();
-  const day = now.getDay(); // 0 = Dom, 1 = Lun ...
+// Semilla determinista para que el prerender estático de Next.js jamás invoque new Date() sin argumentos
+const DETERMINISTIC_BASE_MONDAY = '2026-11-02T12:00:00';
+
+function getMondayFromAnchor(anchorIso: string, offsetWeeks: number = 0): Date {
+  const base = new Date(anchorIso);
+  const day = base.getDay(); // 0 = Dom, 1 = Lun ...
   const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
+  const monday = new Date(base);
   monday.setHours(12, 0, 0, 0);
-  monday.setDate(now.getDate() + diffToMonday + offsetWeeks * 7);
+  monday.setDate(base.getDate() + diffToMonday + offsetWeeks * 7);
   return monday;
 }
 
@@ -196,28 +196,132 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
   },
 ];
 
-export default function AdminDashboardPage() {
+const INITIAL_APPOINTMENTS: AppointmentItem[] = [
+  {
+    id: 'apt-101',
+    patientName: 'Camila Vergara',
+    patientRUT: '18.456.789-2',
+    patientEmail: 'camila@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Psicoterapia Individual',
+    modality: 'Presencial',
+    isoDate: '2026-11-02',
+    time: '10:00',
+    price: 45000,
+    paymentStatus: 'Pagado',
+    clinicalStatus: 'Confirmada',
+    notes: 'Primera sesión presencial en box 1204.',
+  },
+  {
+    id: 'apt-102',
+    patientName: 'Matías Errázuriz',
+    patientRUT: '16.789.234-5',
+    patientEmail: 'matias@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Terapia de Pareja / Familiar',
+    modality: 'Online',
+    isoDate: '2026-11-03',
+    time: '11:00',
+    price: 60000,
+    paymentStatus: 'Pendiente',
+    clinicalStatus: 'Confirmada',
+    notes: 'Enviar link de Google Meet 15 min antes.',
+  },
+  {
+    id: 'apt-103',
+    patientName: 'Sofía Domínguez',
+    patientRUT: '19.321.654-8',
+    patientEmail: 'sofia@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Evaluación Psicodiagnóstica',
+    modality: 'Presencial',
+    isoDate: '2026-11-05',
+    time: '16:00',
+    price: 55000,
+    paymentStatus: 'Pendiente',
+    clinicalStatus: 'En Espera',
+    notes: 'Aplicación de batería diagnóstica.',
+  },
+];
+
+const INITIAL_BLOCKED_SLOTS: BlockedSlot[] = [
+  {
+    id: 'blk-1',
+    professionalId: 'prof-1',
+    isoDate: '2026-11-04',
+    time: '13:00',
+    reason: 'Almuerzo / Supervisión Clínica',
+  },
+];
+
+// Skeleton de lujo para el límite <Suspense> exigido por Next.js
+function AdminGlassSkeleton() {
+  return (
+    <div className="min-h-screen bg-[#F9F8F6] flex font-sans">
+      <div className="w-72 bg-[#1E3329] shrink-0 p-6 hidden md:flex flex-col justify-between">
+        <div className="space-y-4">
+          <div className="h-10 w-44 bg-white/10 rounded-2xl animate-pulse" />
+          <div className="space-y-2 pt-4">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <div key={n} className="h-11 w-full bg-white/5 rounded-2xl animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <div className="h-24 w-full bg-white/5 rounded-2xl animate-pulse" />
+      </div>
+      <div className="flex-1 p-8 space-y-6">
+        <div className="h-16 w-full bg-white/80 rounded-3xl border border-[#E4ECE7] animate-pulse" />
+        <div className="h-[540px] w-full bg-white/90 rounded-[2rem] border border-[#E4ECE7] animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboardContent() {
   const [activeModule, setActiveModule] = useState<AdminModule>('agenda');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [patientModalityFilter, setPatientModalityFilter] = useState<'Todas' | ModalityType>('Todas');
 
-  // Control dinámico de semanas en el calendario (-1, 0, +1, +2...)
+  // Reloj determinista en SSR y actualizado en useEffect para cumplir la regla de Next.js
+  const [anchorIso, setAnchorIso] = useState<string>(DETERMINISTIC_BASE_MONDAY);
+  const [todayIso, setTodayIso] = useState<string>('2026-11-03');
   const [weekOffset, setWeekOffset] = useState<number>(0);
 
-  // Días de la semana calculados dinámicamente según weekOffset
+  useEffect(() => {
+    const now = new Date();
+    setAnchorIso(now.toISOString());
+    setTodayIso(formatIsoDate(now));
+  }, []);
+
   const dynamicWeekDays = useMemo(() => {
-    const monday = getMondayOfCurrentWeek(weekOffset);
+    const monday = getMondayFromAnchor(anchorIso, weekOffset);
     const shortNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const fullNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const monthFormatter = new Intl.DateTimeFormat('es-CL', { month: 'short' });
+    const monthNames = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
 
     return [0, 1, 2, 3, 4, 5].map((i) => {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const iso = formatIsoDate(d);
       const dayNum = String(d.getDate()).padStart(2, '0');
-      const monthShort = monthFormatter.format(d).replace('.', '');
+      const monthShort = monthNames[d.getMonth()];
       return {
         index: i + 1, // 1 = Lun ... 6 = Sáb
         short: shortNames[i],
@@ -226,7 +330,7 @@ export default function AdminDashboardPage() {
         iso,
       };
     });
-  }, [weekOffset]);
+  }, [anchorIso, weekOffset]);
 
   const weekRangeLabel = useMemo(() => {
     if (dynamicWeekDays.length === 0) return '';
@@ -238,84 +342,8 @@ export default function AdminDashboardPage() {
 
   const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(INITIAL_PROFESSIONALS);
   const [selectedProfId, setSelectedProfId] = useState<string>(INITIAL_PROFESSIONALS[0].id);
-
-  // Inicializar citas en la semana actual para que siempre sean visibles al abrir
-  const [appointments, setAppointments] = useState<AppointmentItem[]>(() => {
-    const mon = getMondayOfCurrentWeek(0);
-    const d1 = formatIsoDate(mon);
-    const tue = new Date(mon);
-    tue.setDate(mon.getDate() + 1);
-    const d2 = formatIsoDate(tue);
-    const thu = new Date(mon);
-    thu.setDate(mon.getDate() + 3);
-    const d4 = formatIsoDate(thu);
-
-    return [
-      {
-        id: 'apt-101',
-        patientName: 'Camila Vergara',
-        patientRUT: '18.456.789-2',
-        patientEmail: 'camila@ejemplo.cl',
-        patientPhone: '56961699991',
-        professionalId: 'prof-1',
-        serviceName: 'Psicoterapia Individual',
-        modality: 'Presencial',
-        isoDate: d1,
-        time: '10:00',
-        price: 45000,
-        paymentStatus: 'Pagado',
-        clinicalStatus: 'Confirmada',
-        notes: 'Primera sesión presencial en box 1204.',
-      },
-      {
-        id: 'apt-102',
-        patientName: 'Matías Errázuriz',
-        patientRUT: '16.789.234-5',
-        patientEmail: 'matias@ejemplo.cl',
-        patientPhone: '56961699991',
-        professionalId: 'prof-1',
-        serviceName: 'Terapia de Pareja / Familiar',
-        modality: 'Online',
-        isoDate: d2,
-        time: '11:00',
-        price: 60000,
-        paymentStatus: 'Pendiente',
-        clinicalStatus: 'Confirmada',
-        notes: 'Enviar link de Google Meet 15 min antes.',
-      },
-      {
-        id: 'apt-103',
-        patientName: 'Sofía Domínguez',
-        patientRUT: '19.321.654-8',
-        patientEmail: 'sofia@ejemplo.cl',
-        patientPhone: '56961699991',
-        professionalId: 'prof-1',
-        serviceName: 'Evaluación Psicodiagnóstica',
-        modality: 'Presencial',
-        isoDate: d4,
-        time: '16:00',
-        price: 55000,
-        paymentStatus: 'Pendiente',
-        clinicalStatus: 'En Espera',
-        notes: 'Aplicación de batería diagnóstica.',
-      },
-    ];
-  });
-
-  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(() => {
-    const mon = getMondayOfCurrentWeek(0);
-    const wed = new Date(mon);
-    wed.setDate(mon.getDate() + 2);
-    return [
-      {
-        id: 'blk-1',
-        professionalId: 'prof-1',
-        isoDate: formatIsoDate(wed),
-        time: '13:00',
-        reason: 'Almuerzo / Supervisión Clínica',
-      },
-    ];
-  });
+  const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
 
   // Credenciales en caliente para destrabar Meta / Resend sin esperar Redeploy
   const [showApiConfigModal, setShowApiConfigModal] = useState(false);
@@ -390,10 +418,10 @@ export default function AdminDashboardPage() {
 
   // Persistencia local
   useEffect(() => {
-    const savedProfs = localStorage.getItem('kairos_profs_v4');
-    const savedApts = localStorage.getItem('kairos_apts_v4');
-    const savedBlocks = localStorage.getItem('kairos_blocks_v4');
-    const savedApi = localStorage.getItem('kairos_api_overrides_v4');
+    const savedProfs = localStorage.getItem('kairos_profs_v5');
+    const savedApts = localStorage.getItem('kairos_apts_v5');
+    const savedBlocks = localStorage.getItem('kairos_blocks_v5');
+    const savedApi = localStorage.getItem('kairos_api_overrides_v5');
     if (savedProfs) setProfessionals(JSON.parse(savedProfs));
     if (savedApts) setAppointments(JSON.parse(savedApts));
     if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
@@ -401,19 +429,19 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('kairos_profs_v4', JSON.stringify(professionals));
+    localStorage.setItem('kairos_profs_v5', JSON.stringify(professionals));
   }, [professionals]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_apts_v4', JSON.stringify(appointments));
+    localStorage.setItem('kairos_apts_v5', JSON.stringify(appointments));
   }, [appointments]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_blocks_v4', JSON.stringify(blockedSlots));
+    localStorage.setItem('kairos_blocks_v5', JSON.stringify(blockedSlots));
   }, [blockedSlots]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_api_overrides_v4', JSON.stringify(apiOverrides));
+    localStorage.setItem('kairos_api_overrides_v5', JSON.stringify(apiOverrides));
   }, [apiOverrides]);
 
   useEffect(() => {
@@ -462,7 +490,7 @@ export default function AdminDashboardPage() {
     if (!isoString) return;
     const [y, m, d] = isoString.split('-').map(Number);
     const target = new Date(y, m - 1, d, 12, 0, 0);
-    const currentMon = getMondayOfCurrentWeek(0);
+    const currentMon = getMondayFromAnchor(anchorIso, 0);
     const targetDay = target.getDay();
     const diffTargetMon = targetDay === 0 ? -6 : 1 - targetDay;
     const targetMon = new Date(target);
@@ -473,7 +501,7 @@ export default function AdminDashboardPage() {
     setWeekOffset(diffWeeks);
   };
 
-  // DISPARADOR DE NOTIFICACIÓN Y RECORDATORIO AUTOMÁTICO (API + FALLBACK)
+  // DISPARADOR DE NOTIFICACIÓN Y RECORDATORIO AUTOMÁTICO
   const triggerNotificationForApt = async (apt: AppointmentItem, isReminder: boolean = false) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) || currentProf;
     const locationAddress =
@@ -519,13 +547,13 @@ export default function AdminDashboardPage() {
         } else if (emailSent && !whatsappSent) {
           showToast(
             'Correo enviado · Token de WhatsApp requiere actualización',
-            `Meta respondió: "${whatsappError}". Haz clic en el botón superior "Credenciales API" para pegar tu token fresco.`,
+            `Meta respondió: "${whatsappError}". Haz clic en "Credenciales API" arriba para pegar tu token fresco.`,
             'warn'
           );
         } else if (!emailSent && whatsappSent) {
           showToast(
             'WhatsApp enviado · Aviso de Resend',
-            `Resend: "${emailError}". (En cuentas gratis de Resend, pon tu propio correo en "Credenciales API").`,
+            `Resend: "${emailError}". (Pon tu correo de Resend en "Credenciales API").`,
             'warn'
           );
         } else {
@@ -537,11 +565,10 @@ export default function AdminDashboardPage() {
         }
       }
     } catch (error) {
-      showToast('Error de red al conectar con la API', 'Revisa tu conexión local o Vercel', 'warn');
+      showToast('Error de red al conectar con la API', 'Revisa tu conexión o Vercel', 'warn');
     }
   };
 
-  // Enviar recordatorio masivo a todos los pacientes de la semana visible
   const handleSendBulkReminders = async () => {
     const visibleIsos = new Set(dynamicWeekDays.map((d) => d.iso));
     const weekApts = appointments.filter((a) => visibleIsos.has(a.isoDate));
@@ -648,7 +675,10 @@ export default function AdminDashboardPage() {
     const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
     if (editingApt?.id === aptId) setEditingApt(null);
-    showToast('Paciente / Cita eliminada', target ? `Se eliminó la ficha de ${target.patientName}` : undefined);
+    showToast(
+      'Paciente / Cita eliminada',
+      target ? `Se eliminó la ficha de ${target.patientName}` : undefined
+    );
   };
 
   const handleSaveEditedAppointment = (e: React.FormEvent) => {
@@ -661,7 +691,6 @@ export default function AdminDashboardPage() {
     setEditingApt(null);
   };
 
-  // Crear cita o bloqueo desde celda vacía
   const handleCreateSlotAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slotModal) return;
@@ -732,7 +761,7 @@ export default function AdminDashboardPage() {
     });
   };
 
-  // CRUD PROFESIONALES (Crear, Editar, Eliminar)
+  // CRUD PROFESIONALES
   const openCreateProfModal = () => {
     setEditingProfId(null);
     setProfForm({
@@ -836,7 +865,6 @@ export default function AdminDashboardPage() {
     if (selectedProfId === profId) {
       setSelectedProfId(remaining[0].id);
     }
-    // Reasignar las citas de ese profesional al primero disponible para no perder historial
     setAppointments((prev) =>
       prev.map((a) => (a.professionalId === profId ? { ...a, professionalId: remaining[0].id } : a))
     );
@@ -1127,9 +1155,7 @@ export default function AdminDashboardPage() {
              --------------------------------------------------------- */}
           {activeModule === 'agenda' && (
             <div className="space-y-5">
-              {/* Barra de Navegación de Fechas / Semanas + Selector de Profesional */}
               <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex flex-wrap items-center justify-between gap-4">
-                {/* Selector de Profesionales */}
                 <div className="flex flex-wrap items-center gap-2">
                   {professionals.map((prof) => (
                     <button
@@ -1191,7 +1217,6 @@ export default function AdminDashboardPage() {
                     <ChevronRight size={16} />
                   </button>
 
-                  {/* Saltar a fecha específica */}
                   <input
                     type="date"
                     value={dynamicWeekDays[0]?.iso || ''}
@@ -1202,7 +1227,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* Dirección Presencial y Link Online del Profesional */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-white rounded-2xl px-4 py-3 border border-[#E4ECE7] flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2 text-stone-700 truncate">
@@ -1241,7 +1265,7 @@ export default function AdminDashboardPage() {
                     </div>
                     {dynamicWeekDays.map((day) => {
                       const isWorkingDay = currentProf?.workingDays.includes(day.index);
-                      const isToday = day.iso === formatIsoDate(new Date());
+                      const isToday = day.iso === todayIso;
                       return (
                         <div
                           key={day.iso}
@@ -1416,7 +1440,7 @@ export default function AdminDashboardPage() {
                                   <span className="font-semibold text-[#2C4A3B]">
                                     {apt.clinicalStatus}
                                   </span>
-                                  <span className="font-bold text-stone-700">Editar ▾</span>
+                                  <span className="font-bold text-stone-700">Opciones ▾</span>
                                 </div>
                               </div>
                             )}
@@ -1431,7 +1455,7 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              3. PACIENTES & SERVICIOS (CON EDICIÓN Y ELIMINACIÓN TOTAL)
+              3. PACIENTES & SERVICIOS (CRUD COMPLETO)
              --------------------------------------------------------- */}
           {activeModule === 'pacientes' && (
             <div className="space-y-5">
@@ -1492,7 +1516,6 @@ export default function AdminDashboardPage() {
                             </p>
                           </div>
 
-                          {/* Botones de Editar y Eliminar Paciente */}
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -1620,7 +1643,7 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              4. PROFESIONALES & HORARIOS (CON EDICIÓN Y ELIMINACIÓN TOTAL)
+              4. PROFESIONALES & HORARIOS (CRUD COMPLETO)
              --------------------------------------------------------- */}
           {activeModule === 'profesionales' && (
             <div className="space-y-6">
@@ -1661,7 +1684,6 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
 
-                      {/* Botones para Editar y Eliminar Profesional */}
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -1669,7 +1691,7 @@ export default function AdminDashboardPage() {
                           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-[#EBF3EE] text-stone-700 hover:text-[#2C4A3B] text-xs font-bold transition-colors"
                         >
                           <Edit3 size={14} />
-                          <span>Editar Datos</span>
+                          <span>Editar</span>
                         </button>
                         <button
                           type="button"
@@ -1682,7 +1704,6 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Días que atiende */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-2">
                         Días de Atención (Clic para activar o desactivar)
@@ -1715,7 +1736,6 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Rango de Horas y Modalidad */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="text-[11px] font-bold uppercase text-stone-400 block mb-1">
@@ -1787,7 +1807,6 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Dirección Presencial */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
                         <Building2 size={14} className="text-[#C87D65]" />
@@ -1809,7 +1828,6 @@ export default function AdminDashboardPage() {
                       />
                     </div>
 
-                    {/* Link Videollamada */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
                         <Video size={14} className="text-[#2C4A3B]" />
@@ -2720,7 +2738,7 @@ export default function AdminDashboardPage() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL DE CREDENCIALES EN CALIENTE (DESTRABAR WHATSAPP Y RESEND)
+          MODAL DE CREDENCIALES EN CALIENTE
          ========================================================= */}
       <AnimatePresence>
         {showApiConfigModal && (
@@ -2832,5 +2850,14 @@ export default function AdminDashboardPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// Export principal protegido con <Suspense> para el prerender estático de Next.js en Vercel
+export default function AdminDashboardPage() {
+  return (
+    <Suspense fallback={<AdminGlassSkeleton />}>
+      <AdminDashboardContent />
+    </Suspense>
   );
 }
