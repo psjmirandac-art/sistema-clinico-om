@@ -22,7 +22,6 @@ import {
   UserCheck,
   CreditCard,
   ShieldCheck,
-  Clock,
   CalendarClock,
   AlertTriangle,
   Trash2,
@@ -72,6 +71,28 @@ function normalizeRut(raw: string): string {
     .toUpperCase();
 }
 
+function slugifyText(text: string): string {
+  return String(text ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Convierte "centro-om" -> "Centro OM" automáticamente desde la URL
+function humanizeSlug(slug: string): string {
+  if (!slug) return 'Centro Clínico';
+  return decodeURIComponent(slug)
+    .split('-')
+    .filter(Boolean)
+    .map((word) => {
+      if (word.toLowerCase() === 'om') return 'OM';
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
 function isHourInsideDayBlocks(dayCfg: any, hour: string): boolean {
   if (!dayCfg || !dayCfg.enabled) return false;
   if (Array.isArray(dayCfg.blocks) && dayCfg.blocks.length > 0) {
@@ -86,7 +107,6 @@ function isHourInsideDayBlocks(dayCfg: any, hour: string): boolean {
   return false;
 }
 
-// Calcula cuántas horas faltan para la sesión para aplicar la Regla de 24 Horas
 function getHoursUntilSession(isoDate: string, time: string, nowIso: string): number {
   const [y, m, d] = String(isoDate).split('-').map(Number);
   const [hh, mm] = String(time).split(':').map(Number);
@@ -95,6 +115,97 @@ function getHoursUntilSession(isoDate: string, time: string, nowIso: string): nu
   const diffMs = sessionDate.getTime() - nowDate.getTime();
   return Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
 }
+
+// Horarios reales configurados en Centro OM (Martes 09-21, Miércoles 09-11 y 17-20, Jueves 09-11)
+function buildCentroOmDefaultSchedule(boxName: string) {
+  return {
+    1: {
+      enabled: false,
+      blocks: [{ startHour: '09:00', endHour: '14:00' }],
+      modality: 'Ambas (Híbrido)',
+      boxAssigned: boxName,
+    },
+    2: {
+      enabled: true,
+      blocks: [{ startHour: '09:00', endHour: '21:00' }],
+      modality: 'Ambas (Híbrido)',
+      boxAssigned: boxName,
+    },
+    3: {
+      enabled: true,
+      blocks: [
+        { startHour: '09:00', endHour: '11:00' },
+        { startHour: '17:00', endHour: '20:00' },
+      ],
+      modality: 'Ambas (Híbrido)',
+      boxAssigned: boxName,
+    },
+    4: {
+      enabled: true,
+      blocks: [{ startHour: '09:00', endHour: '11:00' }],
+      modality: 'Ambas (Híbrido)',
+      boxAssigned: boxName,
+    },
+    5: {
+      enabled: true,
+      blocks: [{ startHour: '09:00', endHour: '18:00' }],
+      modality: 'Ambas (Híbrido)',
+      boxAssigned: boxName,
+    },
+    6: {
+      enabled: false,
+      blocks: [{ startHour: '09:00', endHour: '14:00' }],
+      modality: 'Solo Online',
+      boxAssigned: boxName,
+    },
+    7: {
+      enabled: false,
+      blocks: [{ startHour: '10:00', endHour: '14:00' }],
+      modality: 'Solo Online',
+      boxAssigned: boxName,
+    },
+  };
+}
+
+const CENTRO_OM_PROFESSIONALS = [
+  {
+    id: 'prof-1',
+    name: 'Jaime Miranda',
+    specialty: 'Psicoterapia Clínica',
+    avatar: 'JM',
+    email: 'jaime@centroom.cl',
+    presencialAddress: 'Consulta Centro OM',
+    onlineRoomUrl: 'https://meet.google.com/krs-jmir-om',
+    scheduleByDay: buildCentroOmDefaultSchedule('Box 1'),
+  },
+  {
+    id: 'prof-2',
+    name: 'Ivette Olivares',
+    specialty: 'Psicoterapia Clínica',
+    avatar: 'IO',
+    email: 'ivette@centroom.cl',
+    presencialAddress: 'Consulta Centro OM',
+    onlineRoomUrl: 'https://meet.google.com/krs-iolv-om',
+    scheduleByDay: buildCentroOmDefaultSchedule('Box 2'),
+  },
+];
+
+const CENTRO_OM_SERVICES = [
+  {
+    id: 'srv-1',
+    professionalId: 'all',
+    name: 'Psicoterapia Individual Adulto',
+    durationMinutes: 50,
+    price: 45000,
+  },
+  {
+    id: 'srv-2',
+    professionalId: 'all',
+    name: 'Psicoterapia Clínica Online / Presencial',
+    durationMinutes: 50,
+    price: 45000,
+  },
+];
 
 function BookingGlassSkeleton() {
   return (
@@ -111,22 +222,20 @@ function BookingGlassSkeleton() {
 
 function CentroBookingContent() {
   const params = useParams();
-  const slug = typeof params?.slug === 'string' ? params.slug : 'mi-centro';
+  const rawSlug = typeof params?.slug === 'string' ? params.slug : 'centro-om';
+  const normalizedUrlSlug = slugifyText(rawSlug);
 
-  // Modo Principal del Portal: 'book' (Reservar) vs 'manage' (Reagendar / Cancelar con Regla 24h)
   const [portalMode, setPortalMode] = useState<'book' | 'manage'>('book');
 
-  const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
+  // El nombre inicial se toma directamente del [slug] de la URL (ej: "centro-om" -> "Centro OM")
+  const [centerBrandName, setCenterBrandName] = useState<string>(() =>
+    humanizeSlug(rawSlug)
+  );
   const [centerLogoUrl, setCenterLogoUrl] = useState<string>('');
-  const [centerBoxes, setCenterBoxes] = useState<string[]>([
-    'Box 1 · Salvia',
-    'Box 2 · Arena',
-    'Box 3 · Olivo',
-    'Box 4 · Terracota',
-  ]);
+  const [centerBoxes, setCenterBoxes] = useState<string[]>(['Box 1', 'Box 2']);
 
-  const [professionals, setProfessionals] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
+  const [professionals, setProfessionals] = useState<any[]>(CENTRO_OM_PROFESSIONALS);
+  const [services, setServices] = useState<any[]>(CENTRO_OM_SERVICES);
   const [patientsDirectory, setPatientsDirectory] = useState<any[]>([]);
   const [existingApts, setExistingApts] = useState<any[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<any[]>([]);
@@ -136,12 +245,10 @@ function CentroBookingContent() {
   const [isPatientGoogleLogged, setIsPatientGoogleLogged] = useState<boolean>(false);
   const [recognizedPatientBanner, setRecognizedPatientBanner] = useState<string>('');
 
-  // Pasarela de Pagos en el Paso 3
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethodOption>('webpay');
   const [paymentTransactionCode, setPaymentTransactionCode] = useState<string>('');
 
-  // Estado del Portal de Autogestión (Regla 24h)
   const [lookupRutInput, setLookupRutInput] = useState<string>('');
   const [reschedulingAptId, setReschedulingAptId] = useState<string | null>(null);
   const [newRescheduleDate, setNewRescheduleDate] = useState<string>('');
@@ -155,20 +262,101 @@ function CentroBookingContent() {
     telefonoOchoDigitos: '',
   });
 
+  // Sincronización inteligente: Lee el [slug] de la URL + LocalStorage de /admin + Supabase
   useEffect(() => {
     setAnchorDateIso(new Date().toISOString());
-    const savedName =
-      localStorage.getItem('kairos_center_brand_v3') ??
-      localStorage.getItem('kairos_center_brand_v2');
+
+    const urlHumanName = humanizeSlug(rawSlug);
+    const savedNameV3 = localStorage.getItem('kairos_center_brand_v3');
+    const savedNameV2 = localStorage.getItem('kairos_center_brand_v2');
+    const savedTenantsRaw = localStorage.getItem('kairos_tenants_registry_v1');
+
+    // 1. Resolver el Nombre y Boxes exactos según el [slug] de la URL
+    let resolvedName = urlHumanName;
+    if (savedTenantsRaw) {
+      try {
+        const tenants = JSON.parse(savedTenantsRaw);
+        const matchedTenant = Array.isArray(tenants)
+          ? tenants.find((t: any) => slugifyText(t.slug) === normalizedUrlSlug)
+          : null;
+        if (matchedTenant?.brandName) {
+          resolvedName = matchedTenant.brandName;
+          if (Array.isArray(matchedTenant.boxesList) && matchedTenant.boxesList.length > 0) {
+            setCenterBoxes(matchedTenant.boxesList);
+          }
+        }
+      } catch {}
+    }
+
+    // Si en /admin está guardado el mismo centro (ej. "Centro OM") o uno personalizado que no sea el demo viejo
+    const candidateAdminName = savedNameV3 ?? savedNameV2 ?? '';
+    if (
+      candidateAdminName &&
+      candidateAdminName !== 'Centro Terapéutico Horizonte' &&
+      (slugifyText(candidateAdminName) === normalizedUrlSlug ||
+        rawSlug === 'mi-centro' ||
+        rawSlug === 'kairos-central')
+    ) {
+      resolvedName = candidateAdminName;
+    }
+
+    setCenterBrandName(resolvedName);
+
+    // 2. Resolver el Logo del Centro
     const savedLogo =
       localStorage.getItem('kairos_center_logo_v3') ??
       localStorage.getItem('kairos_center_logo_v2');
+    if (savedLogo) setCenterLogoUrl(savedLogo);
+
+    // 3. Resolver Boxes
     const savedBoxes = localStorage.getItem('kairos_center_boxes_v3');
-    const savedProfs =
-      localStorage.getItem('kairos_profs_v7') ?? localStorage.getItem('kairos_profs_v6');
-    const savedSrvs =
+    if (savedBoxes) {
+      try {
+        const parsedBoxes = JSON.parse(savedBoxes);
+        if (Array.isArray(parsedBoxes) && parsedBoxes.length > 0) {
+          setCenterBoxes(parsedBoxes);
+        }
+      } catch {}
+    }
+
+    // 4. Resolver Profesionales reales desde /admin (Filtrando cualquier dato demo antiguo de Alejandro Silva)
+    const savedProfsRaw =
+      localStorage.getItem('kairos_profs_v7') ??
+      localStorage.getItem('kairos_profs_v6') ??
+      localStorage.getItem('kairos_profs_v5');
+
+    if (savedProfsRaw) {
+      try {
+        const parsedProfs = JSON.parse(savedProfsRaw);
+        if (Array.isArray(parsedProfs) && parsedProfs.length > 0) {
+          const isOldDemoList = parsedProfs.some(
+            (p: any) =>
+              String(p.name).includes('Alejandro Silva') ||
+              String(p.name).includes('Alejandro Kairós')
+          );
+          if (!isOldDemoList) {
+            setProfessionals(parsedProfs);
+          } else {
+            setProfessionals(CENTRO_OM_PROFESSIONALS);
+          }
+        }
+      } catch {}
+    }
+
+    // 5. Resolver Servicios (Si en /admin hay 0 servicios creados aún, mantiene el servicio base activo)
+    const savedSrvsRaw =
       localStorage.getItem('kairos_services_v7') ??
       localStorage.getItem('kairos_services_v6');
+    if (savedSrvsRaw) {
+      try {
+        const parsedSrvs = JSON.parse(savedSrvsRaw);
+        if (Array.isArray(parsedSrvs) && parsedSrvs.length > 0) {
+          setServices(parsedSrvs);
+        }
+      } catch {}
+    }
+
+    // 6. Resolver Pacientes, Citas y Bloqueos
     const savedPatients = localStorage.getItem('kairos_patients_v7');
     const savedApts =
       localStorage.getItem('kairos_apts_v7') ?? localStorage.getItem('kairos_apts_prod');
@@ -176,15 +364,42 @@ function CentroBookingContent() {
       localStorage.getItem('kairos_blocks_v7') ??
       localStorage.getItem('kairos_blocks_prod');
 
-    if (savedName) setCenterBrandName(savedName);
-    if (savedLogo) setCenterLogoUrl(savedLogo);
-    if (savedBoxes) setCenterBoxes(JSON.parse(savedBoxes));
-    if (savedProfs) setProfessionals(JSON.parse(savedProfs));
-    if (savedSrvs) setServices(JSON.parse(savedSrvs));
-    if (savedPatients) setPatientsDirectory(JSON.parse(savedPatients));
-    if (savedApts) setExistingApts(JSON.parse(savedApts));
-    if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
-  }, []);
+    if (savedPatients) {
+      try {
+        setPatientsDirectory(JSON.parse(savedPatients));
+      } catch {}
+    }
+    if (savedApts) {
+      try {
+        setExistingApts(JSON.parse(savedApts));
+      } catch {}
+    }
+    if (savedBlocks) {
+      try {
+        setBlockedSlots(JSON.parse(savedBlocks));
+      } catch {}
+    }
+
+    // Escuchar cambios en vivo si el admin edita en otra pestaña
+    const handleStorageChange = () => {
+      const updatedName = localStorage.getItem('kairos_center_brand_v3');
+      const updatedLogo = localStorage.getItem('kairos_center_logo_v3');
+      const updatedProfs = localStorage.getItem('kairos_profs_v7');
+      if (updatedName && updatedName !== 'Centro Terapéutico Horizonte') {
+        setCenterBrandName(updatedName);
+      }
+      if (updatedLogo) setCenterLogoUrl(updatedLogo);
+      if (updatedProfs) {
+        try {
+          const p = JSON.parse(updatedProfs);
+          if (Array.isArray(p) && p.length > 0) setProfessionals(p);
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [rawSlug, normalizedUrlSlug]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -217,86 +432,26 @@ function CentroBookingContent() {
   };
 
   const activeProfs = useMemo(
-    () =>
-      professionals.length > 0
-        ? professionals
-        : [
-            {
-              id: 'prof-1',
-              name: 'Dr. Alejandro Silva',
-              specialty: 'Psicoterapia Clínica & Ansiedad',
-              avatar: 'AS',
-              presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
-              onlineRoomUrl: 'https://meet.google.com/krs-aslv-clin',
-              scheduleByDay: {
-                1: {
-                  enabled: true,
-                  blocks: [
-                    { startHour: '09:00', endHour: '14:00' },
-                    { startHour: '16:00', endHour: '21:00' },
-                  ],
-                  modality: 'Ambas (Híbrido)',
-                  boxAssigned: 'Box 1 · Salvia',
-                },
-                2: {
-                  enabled: true,
-                  blocks: [
-                    { startHour: '09:00', endHour: '13:00' },
-                    { startHour: '15:00', endHour: '21:00' },
-                  ],
-                  modality: 'Ambas (Híbrido)',
-                  boxAssigned: 'Box 1 · Salvia',
-                },
-                3: {
-                  enabled: true,
-                  blocks: [
-                    { startHour: '09:00', endHour: '14:00' },
-                    { startHour: '16:00', endHour: '21:00' },
-                  ],
-                  modality: 'Ambas (Híbrido)',
-                  boxAssigned: 'Box 1 · Salvia',
-                },
-                4: {
-                  enabled: true,
-                  blocks: [
-                    { startHour: '10:00', endHour: '14:00' },
-                    { startHour: '16:00', endHour: '22:00' },
-                  ],
-                  modality: 'Ambas (Híbrido)',
-                  boxAssigned: 'Box 1 · Salvia',
-                },
-                5: {
-                  enabled: true,
-                  blocks: [{ startHour: '09:00', endHour: '18:00' }],
-                  modality: 'Ambas (Híbrido)',
-                  boxAssigned: 'Box 1 · Salvia',
-                },
-              },
-            },
-          ],
+    () => (professionals.length > 0 ? professionals : CENTRO_OM_PROFESSIONALS),
     [professionals]
   );
 
   const activeServices = useMemo(
-    () =>
-      services.length > 0
-        ? services
-        : [
-            {
-              id: 'srv-1',
-              name: 'Psicoterapia Individual Adulto',
-              durationMinutes: 50,
-              price: 45000,
-            },
-          ],
+    () => (services.length > 0 ? services : CENTRO_OM_SERVICES),
     [services]
   );
 
-  // Pasos del flujo de reserva con Checkout integrado: schedule -> patient -> payment -> success
   const [step, setStep] = useState<'schedule' | 'patient' | 'payment' | 'success'>('schedule');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [selectedProfId, setSelectedProfId] = useState<string>('prof-1');
+
+  useEffect(() => {
+    if (activeProfs.length > 0 && !activeProfs.some((p) => p.id === selectedProfId)) {
+      setSelectedProfId(activeProfs[0].id);
+    }
+  }, [activeProfs, selectedProfId]);
+
   const selectedProf = useMemo(
     () => activeProfs.find((p) => p.id === selectedProfId) ?? activeProfs[0],
     [activeProfs, selectedProfId]
@@ -369,7 +524,7 @@ function CentroBookingContent() {
   );
 
   const availableTimeSlots = useMemo(() => {
-    if (!selectedProf || !currentDayObj) return ['10:00', '11:00', '16:00'];
+    if (!selectedProf || !currentDayObj) return ['09:00', '10:00', '17:00'];
     const dayCfg = selectedProf.scheduleByDay?.[currentDayObj.dow];
 
     return FULL_DAY_HOURS.filter((hour) => {
@@ -403,7 +558,7 @@ function CentroBookingContent() {
     });
   }, [selectedProf, currentDayObj, existingApts, blockedSlots, modality, centerBoxes]);
 
-  const [selectedTime, setSelectedTime] = useState<string>('10:00');
+  const [selectedTime, setSelectedTime] = useState<string>('09:00');
 
   useEffect(() => {
     if (availableTimeSlots.length > 0 && !availableTimeSlots.includes(selectedTime)) {
@@ -449,7 +604,6 @@ function CentroBookingContent() {
     setStep('payment');
   };
 
-  // Procesar Pago en Pasarela + Confirmar Cita como 'Pagado' en /admin
   const handleProcessPaymentAndConfirm = async () => {
     if (!currentDayObj) return;
     setIsSubmitting(true);
@@ -462,7 +616,7 @@ function CentroBookingContent() {
       setPaymentTransactionCode(txCode);
 
       const dayCfg = selectedProf?.scheduleByDay?.[currentDayObj.dow];
-      const preferredBox = dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1 · Salvia';
+      const preferredBox = dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1';
       const usedBoxesAtSlot = new Set(
         existingApts
           .filter(
@@ -551,7 +705,7 @@ function CentroBookingContent() {
         isoDate: currentDayObj.iso,
         time: selectedTime,
         price: currentServiceObj?.price ?? 45000,
-        paymentStatus: 'Pagado', // Entra directo como Pagado tras el checkout
+        paymentStatus: 'Pagado',
         clinicalStatus: 'Confirmada',
         notes: `Pago verificado vía ${selectedPaymentMethod.toUpperCase()} (${txCode})`,
       };
@@ -589,9 +743,6 @@ function CentroBookingContent() {
     }
   };
 
-  // =========================================================
-  // LÓGICA DE AUTOGESTIÓN DEL PACIENTE (REGLA DE 24 HORAS)
-  // =========================================================
   const patientFoundAppointments = useMemo(() => {
     const cleanQuery = normalizeRut(lookupRutInput);
     if (cleanQuery.length < 6) return [];
@@ -647,7 +798,7 @@ function CentroBookingContent() {
 
   const googleCalendarUrl = useMemo(() => {
     const calDate = (currentDayObj?.iso ?? '2026-11-03').replace(/-/g, '');
-    const startHour = (selectedTime ?? '10:00').replace(':', '');
+    const startHour = (selectedTime ?? '09:00').replace(':', '');
     const endHourNum = parseInt(startHour.slice(0, 2), 10) + 1;
     const endHour = `${String(endHourNum).padStart(2, '0')}${startHour.slice(2, 4)}`;
     const locationAddress =
@@ -682,7 +833,7 @@ function CentroBookingContent() {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span>{centerBrandName.slice(0, 1).toUpperCase()}</span>
+              <span>{centerBrandName.slice(0, 2).toUpperCase()}</span>
             )}
           </div>
           <div>
@@ -695,7 +846,6 @@ function CentroBookingContent() {
           </div>
         </div>
 
-        {/* Conmutador: Reservar Nueva Hora vs Gestionar mi Cita (Regla 24h) */}
         <div className="flex items-center gap-2">
           <div className="bg-white/90 backdrop-blur-md p-1 rounded-2xl border border-[#E4ECE7] flex items-center">
             <button
@@ -741,9 +891,6 @@ function CentroBookingContent() {
 
       <section className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
         {portalMode === 'manage' ? (
-          /* =========================================================
-             MÓDULO DE AUTOGESTIÓN DEL PACIENTE CON REGLA DE 24 HORAS
-             ========================================================= */
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -751,13 +898,13 @@ function CentroBookingContent() {
           >
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block mb-1">
-                Autogestión de Citas · Regla de 24 Horas
+                Autogestión de Citas · {centerBrandName}
               </span>
               <h1 className="text-2xl font-bold text-stone-900">
                 Reagenda o cancela tu sesión
               </h1>
               <p className="text-xs text-stone-500 mt-1">
-                Ingresa tu RUT para ver tus próximas sesiones. Puedes modificar o anular tu hora sin costo hasta <strong>24 horas antes</strong> del inicio de la consulta.
+                Ingresa tu RUT para ver tus próximas sesiones en <strong>{centerBrandName}</strong>. Puedes modificar o anular tu hora sin costo hasta <strong>24 horas antes</strong> del inicio de la consulta.
               </p>
             </div>
 
@@ -957,10 +1104,10 @@ function CentroBookingContent() {
                   </div>
                 </div>
 
-                {/* 2. Especialista */}
+                {/* 2. Especialistas reales del Centro (Jaime Miranda, Ivette Olivares, etc.) */}
                 <div className="mb-6">
                   <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
-                    Especialista
+                    Especialista en {centerBrandName}
                   </label>
                   <div className="space-y-2.5">
                     {activeProfs.map((prof) => {
@@ -1031,7 +1178,7 @@ function CentroBookingContent() {
                     <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5 bg-amber-50/70 border border-amber-200/70 px-3.5 py-2 rounded-xl">
                       <DoorOpen size={14} className="text-[#C87D65] shrink-0" />
                       <span>
-                        <strong>Dirección:</strong> {selectedProf.presencialAddress}
+                        <strong>Ubicación:</strong> {selectedProf.presencialAddress}
                       </span>
                     </p>
                   )}
@@ -1131,7 +1278,7 @@ function CentroBookingContent() {
                 </button>
 
                 <span className="text-xs font-semibold uppercase tracking-widest text-[#C87D65] block mb-1">
-                  Paso 2 de 3 · Identificación Clínica
+                  Paso 2 de 3 · {centerBrandName}
                 </span>
                 <h2 className="text-2xl font-bold text-stone-900 mb-4">
                   Tus datos de contacto
@@ -1176,7 +1323,7 @@ function CentroBookingContent() {
                             setPatientData({ ...patientData, nombre: e.target.value })
                           }
                           className="w-full pl-10 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-[#2C4A3B]"
-                          placeholder="Ej. Camila Vergara"
+                          placeholder="Ej. Daniela Gonzáles"
                         />
                       </div>
                     </div>
@@ -1199,7 +1346,7 @@ function CentroBookingContent() {
                           setPatientData({ ...patientData, email: e.target.value })
                         }
                         className="w-full pl-10 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:border-[#2C4A3B]"
-                        placeholder="camila@ejemplo.cl"
+                        placeholder="daniela@ejemplo.cl"
                       />
                     </div>
                   </div>
@@ -1238,9 +1385,6 @@ function CentroBookingContent() {
               </motion.div>
             )}
 
-            {/* =========================================================
-                PASO 3: PASARELA DE PAGOS CLÍNICA INTEGRADA
-               ========================================================= */}
             {step === 'payment' && (
               <motion.div
                 key="step-payment"
@@ -1260,14 +1404,13 @@ function CentroBookingContent() {
 
                 <div>
                   <span className="text-xs font-semibold uppercase tracking-widest text-[#C87D65] block mb-1">
-                    Paso 3 de 3 · Pasarela de Pago Encriptada
+                    Paso 3 de 3 · {centerBrandName}
                   </span>
                   <h2 className="text-2xl font-bold text-stone-900">
                     Confirma y abona tu sesión
                   </h2>
                 </div>
 
-                {/* Resumen de cobro */}
                 <div className="p-5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-2.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-stone-500">Paciente:</span>
@@ -1293,7 +1436,6 @@ function CentroBookingContent() {
                   </div>
                 </div>
 
-                {/* Selector de Pasarela */}
                 <div className="space-y-2.5">
                   <label className="text-xs font-bold uppercase text-stone-500 block">
                     Selecciona tu Medio de Pago
@@ -1313,7 +1455,7 @@ function CentroBookingContent() {
                       },
                       {
                         id: 'transferencia',
-                        title: 'Transferencia Bancaria Instantánea (Khipu / Fintoc)',
+                        title: 'Transferencia Bancaria Instantánea',
                         desc: 'Conciliación automática con tu banco',
                       },
                     ] as const
@@ -1392,7 +1534,7 @@ function CentroBookingContent() {
                     Pago Aprobado · Código {paymentTransactionCode}
                   </span>
                   <h2 className="text-2xl sm:text-3xl font-bold text-stone-900">
-                    ¡Cita Pagada y Agendada!
+                    ¡Cita Agendada en {centerBrandName}!
                   </h2>
                   <p className="text-stone-500 text-sm mt-2">
                     Tu sesión de <strong>{selectedService}</strong> (
