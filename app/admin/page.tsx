@@ -29,7 +29,6 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   UserPlus,
   Filter,
   Edit3,
@@ -37,7 +36,6 @@ import {
   TrendingUp,
   BrainCircuit,
   Calculator,
-  Home,
   ImagePlus,
   UserCheck,
   Mic,
@@ -46,6 +44,9 @@ import {
   DoorOpen,
   Activity,
   UserX,
+  Upload,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
@@ -90,7 +91,7 @@ export interface TimeRangeBlock {
 
 export interface DayScheduleConfig {
   enabled: boolean;
-  blocks: TimeRangeBlock[]; // Múltiples tramos horarios por día (ej: 09:00-14:00 y 16:00-21:00)
+  blocks: TimeRangeBlock[];
   modality: 'Ambas (Híbrido)' | 'Solo Online' | 'Solo Presencial';
   boxAssigned: string;
 }
@@ -131,7 +132,6 @@ export interface ClinicalEvolutionNote {
   professionalName: string;
 }
 
-// Entidad de Paciente Independiente (Eliminar una hora en la agenda NO elimina al paciente)
 export interface PatientRecord {
   id: string;
   patientName: string;
@@ -246,7 +246,13 @@ function generateLocalMeetLink(): string {
   return `https://meet.google.com/${seg(3)}-${seg(4)}-${seg(3)}`;
 }
 
-// Verifica si una hora (ej: "16:00") cae dentro de alguno de los tramos del día (ej: 09:00-14:00 o 16:00-21:00)
+function normalizePhoneDigits(raw: string): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.length === 8) return `569${digits}`;
+  if (digits.length === 9 && digits.startsWith('9')) return `56${digits}`;
+  return digits.length > 0 ? digits : '56900000000';
+}
+
 function isHourInsideDayBlocks(dayCfg: DayScheduleConfig | undefined, hour: string): boolean {
   if (!dayCfg || !dayCfg.enabled) return false;
   if (!Array.isArray(dayCfg.blocks) || dayCfg.blocks.length === 0) return false;
@@ -538,7 +544,6 @@ function AdminGlassSkeleton() {
 }
 
 function AdminDashboardContent() {
-  // Identidad del Centro: Se edita únicamente haciendo clic en la foto/logo o nombre arriba
   const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
   const [centerLogoUrl, setCenterLogoUrl] = useState<string>('');
   const [centerBoxes, setCenterBoxes] = useState<string[]>(DEFAULT_CENTER_BOXES);
@@ -635,10 +640,14 @@ function AdminDashboardContent() {
   const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(INITIAL_PROFESSIONALS);
   const [selectedProfId, setSelectedProfId] = useState<string>(INITIAL_PROFESSIONALS[0].id);
   const [services, setServices] = useState<TherapistServiceItem[]>(INITIAL_SERVICES);
-  // Pacientes y Citas separados para que borrar una cita jamás elimine al paciente
   const [patients, setPatients] = useState<PatientRecord[]>(INITIAL_PATIENTS);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
+
+  // Estado para Importar / Exportar Planilla Excel / CSV de Pacientes
+  const [showImportModal, setShowImportModal] = useState<boolean>(false);
+  const [importedPreviewRows, setImportedPreviewRows] = useState<PatientRecord[]>([]);
+  const [importFileName, setImportFileName] = useState<string>('');
 
   // Estado del selector de pacientes al agendar + repetición
   const [patientModeInBooking, setPatientModeInBooking] = useState<'existing' | 'new'>('existing');
@@ -768,10 +777,12 @@ function AdminDashboardContent() {
 
   useEffect(() => {
     localStorage.setItem('kairos_center_brand_v3', centerBrandName);
+    localStorage.setItem('kairos_center_brand_v2', centerBrandName);
   }, [centerBrandName]);
 
   useEffect(() => {
     localStorage.setItem('kairos_center_logo_v3', centerLogoUrl);
+    localStorage.setItem('kairos_center_logo_v2', centerLogoUrl);
   }, [centerLogoUrl]);
 
   useEffect(() => {
@@ -780,10 +791,12 @@ function AdminDashboardContent() {
 
   useEffect(() => {
     localStorage.setItem('kairos_profs_v7', JSON.stringify(professionals));
+    localStorage.setItem('kairos_profs_v6', JSON.stringify(professionals));
   }, [professionals]);
 
   useEffect(() => {
     localStorage.setItem('kairos_services_v7', JSON.stringify(services));
+    localStorage.setItem('kairos_services_v6', JSON.stringify(services));
   }, [services]);
 
   useEffect(() => {
@@ -797,6 +810,7 @@ function AdminDashboardContent() {
 
   useEffect(() => {
     localStorage.setItem('kairos_blocks_v7', JSON.stringify(blockedSlots));
+    localStorage.setItem('kairos_blocks_prod', JSON.stringify(blockedSlots));
   }, [blockedSlots]);
 
   useEffect(() => {
@@ -804,6 +818,209 @@ function AdminDashboardContent() {
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
+
+  // =========================================================
+  // MOTOR DE IMPORTACIÓN Y EXPORTACIÓN DE PACIENTES (EXCEL / CSV)
+  // =========================================================
+  const handleExportPatientsToExcelCsv = () => {
+    // BOM UTF-8 (\uFEFF) y separador ';' para que Microsoft Excel en español abra tildes y columnas directo
+    const headers = [
+      'Nombre Completo',
+      'RUT',
+      'Email',
+      'Telefono WhatsApp',
+      'Servicio Habitual',
+      'Modalidad',
+      'Profesional Asignado',
+      'Estado Clinico',
+    ];
+
+    const rows = patients.map((p) => {
+      const prof = professionals.find((pr) => pr.id === p.assignedProfessionalId);
+      const clean = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+      return [
+        clean(p.patientName),
+        clean(p.patientRUT),
+        clean(p.patientEmail),
+        clean(p.patientPhone),
+        clean(p.defaultService),
+        clean(p.defaultModality),
+        clean(prof?.name ?? 'Dr. Alejandro Silva'),
+        clean(p.clinicalStatusTag),
+      ].join(';');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `Pacientes_${centerBrandName.replace(/\s+/g, '_')}_${todayIso}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(
+      'Planilla de pacientes exportada',
+      `${patients.length} pacientes descargados en formato compatible con Excel.`
+    );
+  };
+
+  const handleDownloadSampleTemplateCsv = () => {
+    const sampleHeaders = [
+      'Nombre Completo',
+      'RUT',
+      'Email',
+      'Telefono WhatsApp',
+      'Servicio Habitual',
+      'Modalidad',
+    ];
+    const sampleRows = [
+      'Valentina Rojas;19.456.123-K;valentina.rojas@ejemplo.cl;56987654321;Psicoterapia Individual Adulto;Online',
+      'Sebastián Morales;17.222.333-4;sebastian.m@ejemplo.cl;56912345678;Terapia de Pareja / Vincular;Presencial',
+      'Francisca Soto;20.111.444-9;fran.soto@ejemplo.cl;56961699991;Evaluación Psicodiagnóstica;Presencial',
+    ];
+    const csvContent = '\uFEFF' + [sampleHeaders.join(';'), ...sampleRows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'Plantilla_Importar_Pacientes.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleParseUploadedPatientSheet = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const rawText = String(evt.target?.result ?? '');
+      const lines = rawText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      if (lines.length === 0) return;
+
+      // Detectar delimitador automáticamente (; de Excel en español, , de CSV estándar o Tabulador de copiar/pegar Excel)
+      const firstLine = lines[0];
+      const delimiter = firstLine.includes(';')
+        ? ';'
+        : firstLine.includes('\t')
+        ? '\t'
+        : ',';
+
+      const splitRow = (line: string) =>
+        line
+          .split(delimiter)
+          .map((cell) => cell.replace(/^"|"$/g, '').trim());
+
+      const firstRowCols = splitRow(firstLine).map((c) => c.toLowerCase());
+      const hasHeader =
+        firstRowCols.some((c) => c.includes('nombre') || c.includes('paciente') || c.includes('name')) ||
+        firstRowCols.some((c) => c.includes('rut') || c.includes('dni') || c.includes('email') || c.includes('correo'));
+
+      const findIdx = (keywords: string[], fallbackIdx: number) => {
+        if (!hasHeader) return fallbackIdx;
+        const found = firstRowCols.findIndex((col) =>
+          keywords.some((kw) => col.includes(kw))
+        );
+        return found >= 0 ? found : fallbackIdx;
+      };
+
+      const nameIdx = findIdx(['nombre', 'paciente', 'name', 'cliente'], 0);
+      const rutIdx = findIdx(['rut', 'run', 'dni', 'documento'], 1);
+      const emailIdx = findIdx(['email', 'correo', 'mail'], 2);
+      const phoneIdx = findIdx(['telefono', 'teléfono', 'whatsapp', 'celular', 'fono', 'movil'], 3);
+      const serviceIdx = findIdx(['servicio', 'terapia', 'prestacion'], 4);
+      const modalityIdx = findIdx(['modalidad', 'tipo', 'atencion'], 5);
+
+      const dataLines = hasHeader ? lines.slice(1) : lines;
+      const parsedPatients: PatientRecord[] = [];
+
+      dataLines.forEach((line, idx) => {
+        const cols = splitRow(line);
+        const rawName = cols[nameIdx] ?? '';
+        if (!rawName || rawName.length < 2) return;
+
+        const rawRut = cols[rutIdx] ?? 'Sin RUT';
+        const rawEmail = cols[emailIdx] ?? '';
+        const rawPhone = normalizePhoneDigits(cols[phoneIdx] ?? '');
+        const rawService = cols[serviceIdx] || (services[0]?.name ?? 'Psicoterapia Individual Adulto');
+        const rawModStr = (cols[modalityIdx] ?? '').toLowerCase();
+        const mod: ModalityType = rawModStr.includes('online') ? 'Online' : 'Presencial';
+
+        parsedPatients.push({
+          id: `pat-imp-${Date.now()}-${idx}`,
+          patientName: rawName,
+          patientRUT: rawRut.length > 0 ? rawRut : 'Sin RUT',
+          patientEmail: rawEmail.length > 0 ? rawEmail : 'sin-correo@paciente.cl',
+          patientPhone: rawPhone,
+          defaultService: rawService,
+          defaultModality: mod,
+          assignedProfessionalId: selectedProfId,
+          clinicalStatusTag: 'Activo',
+          clinicalHistory: [],
+        });
+      });
+
+      setImportedPreviewRows(parsedPatients);
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleConfirmBatchImportPatients = async () => {
+    if (importedPreviewRows.length === 0) return;
+
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    setPatients((prev) => {
+      const nextList = [...prev];
+      importedPreviewRows.forEach((incoming) => {
+        const existingIndex = nextList.findIndex(
+          (p) =>
+            (incoming.patientRUT !== 'Sin RUT' &&
+              p.patientRUT.toLowerCase() === incoming.patientRUT.toLowerCase()) ||
+            p.patientName.toLowerCase() === incoming.patientName.toLowerCase()
+        );
+
+        if (existingIndex >= 0) {
+          nextList[existingIndex] = {
+            ...nextList[existingIndex],
+            patientEmail:
+              incoming.patientEmail !== 'sin-correo@paciente.cl'
+                ? incoming.patientEmail
+                : nextList[existingIndex].patientEmail,
+            patientPhone: incoming.patientPhone || nextList[existingIndex].patientPhone,
+            defaultService: incoming.defaultService || nextList[existingIndex].defaultService,
+          };
+          updatedCount++;
+        } else {
+          nextList.push(incoming);
+          addedCount++;
+        }
+      });
+      return nextList;
+    });
+
+    setShowImportModal(false);
+    setImportedPreviewRows([]);
+    setImportFileName('');
+    showToast(
+      'Importación masiva completada',
+      `${addedCount} pacientes nuevos registrados y ${updatedCount} actualizados.`
+    );
+  };
 
   // Subir Logo desde PC al pinchar la foto del centro arriba
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -844,7 +1061,6 @@ function AdminDashboardContent() {
     [professionals, selectedProfId]
   );
 
-  // Rango horario visible basado en todos los tramos del profesional
   const visibleHours = useMemo(() => {
     if (!currentProf || !currentProf.scheduleByDay) return FULL_DAY_HOURS;
     const allBlocks: TimeRangeBlock[] = [];
@@ -865,7 +1081,6 @@ function AdminDashboardContent() {
     return FULL_DAY_HOURS.filter((h) => h >= minStart && h <= maxEnd);
   }, [currentProf]);
 
-  // Filtrado del Directorio Independiente de Pacientes
   const filteredPatients = useMemo(() => {
     return patients.filter((p) => {
       const q = searchQuery.toLowerCase();
@@ -880,7 +1095,6 @@ function AdminDashboardContent() {
     });
   }, [patients, searchQuery, patientModalityFilter]);
 
-  // Motor de Reportes Clínicos (Retención, Abandono, Pacientes Agendados) + Liquidación Financiera por Box
   const financialAndClinicalReport = useMemo(() => {
     const byProf = professionals.map((prof) => {
       const profApts = appointments.filter((a) => a.professionalId === prof.id);
@@ -888,7 +1102,6 @@ function AdminDashboardContent() {
       const uniquePatientIds = new Set(profApts.map((a) => a.patientId || a.patientRUT));
       const totalUniquePatients = Math.max(profPatients.length, uniquePatientIds.size);
 
-      // Pacientes con más de 1 sesión o estado Activo/Seguimiento = Retenidos
       const retainedPatientsCount = profPatients.filter(
         (p) => p.clinicalStatusTag === 'Activo' || p.clinicalStatusTag === 'En Seguimiento'
       ).length;
@@ -1006,9 +1219,7 @@ function AdminDashboardContent() {
     setWeekOffset(diffWeeks);
   };
 
-  // =========================================================
-  // ESCUCHA AMBIENTAL CON IA GROK (ESCUCHA EN SILENCIO Y RESUME)
-  // =========================================================
+  // Escucha ambiental con IA Grok
   const startAmbientListening = () => {
     setIsListeningSession(true);
     setListeningSeconds(0);
@@ -1032,14 +1243,11 @@ function AdminDashboardContent() {
             for (let i = 0; i < event.results.length; i++) {
               transcriptChunk += event.results[i][0].transcript + ' ';
             }
-            // Se guarda internamente en memoria para el resumen de IA sin mostrar transcripción literal
             setCapturedAudioContext(transcriptChunk.trim());
           };
           recognition.start();
           speechRecRef.current = recognition;
-        } catch {
-          // Fallback silencioso si el navegador restringe SpeechRecognition
-        }
+        } catch {}
       }
     }
   };
@@ -1060,7 +1268,7 @@ function AdminDashboardContent() {
       const durationMin = Math.max(1, Math.round(listeningSeconds / 60));
       const contextHint =
         capturedAudioContext.trim().length > 5
-          ? `Se identificaron temáticas clave abordadas verbalmente durante la sesión (${capturedAudioContext
+          ? `Se identificaron temáticas clave abordadas durante la sesión (${capturedAudioContext
               .slice(0, 140)
               .trim()}...).`
           : rawSessionNotes.trim().length > 0
@@ -1128,8 +1336,7 @@ function AdminDashboardContent() {
     showToast('Evolución agregada a la Ficha Clínica', `Paciente: ${updatedPatient.patientName}`);
   };
 
-  // Notificaciones
-  const triggerEmailNotification = async (apt: AppointmentItem, isReminder: boolean = false) => {
+  const triggerEmailNotification = async (apt: AppointmentItem) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) ?? currentProf;
     const locationAddress =
       apt.modality === 'Presencial'
@@ -1168,7 +1375,6 @@ function AdminDashboardContent() {
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // Drag & Drop validando múltiples tramos horarios del día y disponibilidad de Box
   const handleDragStart = (e: React.DragEvent, aptId: string) => {
     setDraggedAptId(aptId);
     e.dataTransfer.setData('text/plain', aptId);
@@ -1243,26 +1449,6 @@ function AdminDashboardContent() {
     );
   };
 
-  const toggleModality = (aptId: string) => {
-    setAppointments((prev) =>
-      prev.map((a) => {
-        if (a.id !== aptId) return a;
-        const nextMod: ModalityType = a.modality === 'Online' ? 'Presencial' : 'Online';
-        const assignedMeet =
-          nextMod === 'Online' ? a.meetUrl ?? generateLocalMeetLink() : undefined;
-        return {
-          ...a,
-          modality: nextMod,
-          meetUrl: assignedMeet,
-          boxName:
-            nextMod === 'Online'
-              ? 'Online (Google Meet)'
-              : currentProf?.scheduleByDay?.[1]?.boxAssigned ?? 'Box 1 · Salvia',
-        };
-      })
-    );
-  };
-
   // ELIMINAR HORA EN AGENDA: Libera el horario pero MANTIENE INTACTO al paciente en el directorio
   const deleteAppointmentSlotOnly = (aptId: string) => {
     const target = appointments.find((a) => a.id === aptId);
@@ -1276,7 +1462,6 @@ function AdminDashboardContent() {
     );
   };
 
-  // ELIMINAR PACIENTE DEL DIRECTORIO (Solo cuando el admin lo pide expresamente en la pestaña Pacientes)
   const deletePatientFromDirectory = (patientId: string) => {
     const target = patients.find((p) => p.id === patientId);
     setPatients((prev) => prev.filter((p) => p.id !== patientId));
@@ -1296,7 +1481,6 @@ function AdminDashboardContent() {
     setEditingApt(null);
   };
 
-  // AGENDAR PACIENTE CON REPETICIÓN (SEMANAL, QUINCENAL, MENSUAL) + GOOGLE MEET IMPLÍCITO
   const handleCreateSlotAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slotModal) return;
@@ -1325,7 +1509,6 @@ function AdminDashboardContent() {
         ? dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1 · Salvia'
         : 'Online (Google Meet)';
 
-    // Validar que el box físico no esté ocupado por otro terapeuta del centro a esa misma hora
     if (newBookingForm.modality === 'Presencial') {
       const boxConflict = appointments.find(
         (a) =>
@@ -1346,7 +1529,6 @@ function AdminDashboardContent() {
       }
     }
 
-    // Asegurar que el paciente exista en el Directorio Independiente de Pacientes
     let targetPatientId = newBookingForm.selectedPatientId;
     const cleanName = newBookingForm.patientName.trim();
     const cleanRut =
@@ -1381,7 +1563,6 @@ function AdminDashboardContent() {
       setPatients((prev) => [...prev, newPatRecord]);
     }
 
-    // Calcular fechas según repetición (Sin repetición, Semanal, Quincenal, Mensual)
     const totalOccurrences =
       newBookingForm.recurrence === 'none'
         ? 1
@@ -1445,10 +1626,9 @@ function AdminDashboardContent() {
       `${cleanName} · ${slotModal.time} hrs`
     );
 
-    await triggerEmailNotification(generatedAppointments[0], false);
+    await triggerEmailNotification(generatedAppointments[0]);
   };
 
-  // Crear paciente directo en el directorio sin agendar hora todavía
   const handleCreateDirectPatient = (e: React.FormEvent) => {
     e.preventDefault();
     const created: PatientRecord = {
@@ -1478,7 +1658,6 @@ function AdminDashboardContent() {
     setEditingPatientRecord(null);
   };
 
-  // Servicios
   const handleCreateService = (e: React.FormEvent) => {
     e.preventDefault();
     const newSrv: TherapistServiceItem = {
@@ -1501,7 +1680,6 @@ function AdminDashboardContent() {
     showToast('Servicio eliminado');
   };
 
-  // Múltiples bloques horarios por día (ej: agregar bloque post-colación 16:00 a 21:00)
   const updateProfDaySchedule = (
     profId: string,
     dayIndex: number,
@@ -1838,7 +2016,6 @@ function AdminDashboardContent() {
           </nav>
         </div>
 
-        {/* Pie minimalista sin cajas de Google ni botones de carátula redundantes */}
         <div className="p-4 border-t border-white/10">
           {!sidebarCollapsed && (
             <p className="text-[11px] text-stone-400 text-center">
@@ -1852,7 +2029,6 @@ function AdminDashboardContent() {
           CONTENEDOR CENTRAL DEL CENTRO CLÍNICO
          ========================================================= */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header Superior Limpio (Sin botón Google arriba) */}
         <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <button
@@ -2001,7 +2177,6 @@ function AdminDashboardContent() {
           {activeModule === 'agenda' && (
             <div className="space-y-5">
               <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex flex-wrap items-center justify-between gap-4">
-                {/* Si está en vista por profesional muestra los terapeutas; si está en Ocupación de Boxes muestra los boxes del centro */}
                 {calendarView !== 'center_boxes' ? (
                   <div className="flex flex-wrap items-center gap-2">
                     {professionals.map((prof) => (
@@ -2046,7 +2221,6 @@ function AdminDashboardContent() {
                   </div>
                 )}
 
-                {/* Selector de Vista: Diario | Semanal | Mensual | Boxes Centro */}
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center bg-[#F9F8F6] p-1 rounded-2xl border border-[#E4ECE7]">
                     {(
@@ -2072,7 +2246,6 @@ function AdminDashboardContent() {
                     ))}
                   </div>
 
-                  {/* Navegación de Fechas */}
                   <div className="flex items-center gap-1.5 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
                     <button
                       type="button"
@@ -2150,7 +2323,6 @@ function AdminDashboardContent() {
                         Hora
                       </div>
                       {centerBoxes.map((boxName) => {
-                        // Qué terapeutas tienen asignado este box hoy
                         const assignedProfsToday = professionals.filter(
                           (p) =>
                             p.scheduleByDay?.[singleDayMeta.dayIndex]?.enabled &&
@@ -2188,7 +2360,6 @@ function AdminDashboardContent() {
                         </div>
 
                         {centerBoxes.map((boxName) => {
-                          // Cita presencial ocupando este box a esta hora
                           const occupyingApt = appointments.find(
                             (a) =>
                               a.isoDate === singleDayMeta.iso &&
@@ -2200,7 +2371,6 @@ function AdminDashboardContent() {
                             ? professionals.find((p) => p.id === occupyingApt.professionalId)
                             : undefined;
 
-                          // Terapeuta dueño del bloque aunque aún no tenga paciente agendado
                           const holderProf = professionals.find((p) => {
                             const cfg = p.scheduleByDay?.[singleDayMeta.dayIndex];
                             return (
@@ -2687,7 +2857,7 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              3. MÓDULO PACIENTES & FICHA CLÍNICA CON ESCUCHA IA GROK (INDEPENDIENTE DE CITAS)
+              3. MÓDULO PACIENTES & FICHA IA + IMPORTAR / EXPORTAR PLANILLA EXCEL / CSV
              --------------------------------------------------------- */}
           {activeModule === 'pacientes' && (
             <div className="space-y-5">
@@ -2710,13 +2880,39 @@ function AdminDashboardContent() {
                   ))}
                 </div>
 
-                <button
-                  onClick={() => setShowNewPatientModal(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
-                >
-                  <Plus size={15} />
-                  <span>Registrar Nuevo Paciente</span>
-                </button>
+                {/* BOTONES DE IMPORTAR Y EXPORTAR PLANILLA EXCEL / CSV + NUEVO PACIENTE */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportedPreviewRows([]);
+                      setImportFileName('');
+                      setShowImportModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#EBF3EE] hover:bg-[#dbeadd] text-[#2C4A3B] rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Upload size={14} />
+                    <span>Importar Excel / CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportPatientsToExcelCsv}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#F9F8F6] hover:bg-stone-100 border border-[#E4ECE7] text-stone-700 rounded-xl text-xs font-bold transition-all"
+                  >
+                    <Download size={14} />
+                    <span>Exportar Planilla</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPatientModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl text-xs font-bold shadow-xs"
+                  >
+                    <Plus size={15} />
+                    <span>Registrar Paciente</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -2957,7 +3153,6 @@ function AdminDashboardContent() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {/* Solo muestra el botón de conectar si AÚN NO está conectado; una vez conectado desaparece */}
                         {!prof.googleConnected && (
                           <button
                             type="button"
@@ -2988,7 +3183,6 @@ function AdminDashboardContent() {
                       </div>
                     </div>
 
-                    {/* CONFIGURACIÓN DE MÚLTIPLES TRAMOS HORARIOS POR DÍA + ASIGNACIÓN DE BOX DEL CENTRO */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-3">
                         Tramos Horarios por Día (Puedes agregar más bloques para separar mañana, colación y tarde) y Box Asignado
@@ -3024,7 +3218,6 @@ function AdminDashboardContent() {
                                 <span className="font-bold text-stone-900">{dayMeta.label}</span>
                               </div>
 
-                              {/* Tramos de Horas del Día (Soporta Tramo 1: 09:00-14:00, Tramo 2: 16:00-21:00, etc.) */}
                               <div className="lg:col-span-6 flex flex-wrap items-center gap-2">
                                 {(cfg.blocks ?? []).map((b, bIdx) => (
                                   <div
@@ -3124,7 +3317,6 @@ function AdminDashboardContent() {
                                 </select>
                               </div>
 
-                              {/* Selector de Box según los Boxes que tiene el Centro */}
                               <div className="lg:col-span-2">
                                 <select
                                   disabled={!cfg.enabled}
@@ -3185,7 +3377,6 @@ function AdminDashboardContent() {
              --------------------------------------------------------- */}
           {activeModule === 'finanzas' && (
             <div className="space-y-6">
-              {/* KPIs Financieros + Indicadores de Retención y Abandono */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
                   <span className="text-[11px] font-bold uppercase text-stone-400 block">
@@ -3245,7 +3436,6 @@ function AdminDashboardContent() {
                 </div>
               </div>
 
-              {/* Reporte Integral de Rendimiento Clínico y Liquidación por Profesional */}
               <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
@@ -3318,6 +3508,133 @@ function AdminDashboardContent() {
       </div>
 
       {/* =========================================================
+          MODAL DE IMPORTACIÓN MASIVA DE PACIENTES (EXCEL / CSV)
+         ========================================================= */}
+      <AnimatePresence>
+        {showImportModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/45 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-2xl w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[90vh] overflow-y-auto space-y-5 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center">
+                    <FileSpreadsheet size={22} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                      Carga Masiva Instantánea
+                    </span>
+                    <h3 className="text-xl font-bold text-stone-900">
+                      Importar Pacientes desde Planilla Excel / CSV
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="font-bold text-stone-800">
+                    ¿Tienes tus pacientes en Excel?
+                  </p>
+                  <p className="text-stone-500 text-[11px]">
+                    Guarda tu Excel como <strong>CSV (delimitado por comas o punto y coma)</strong> y súbelo aquí. El sistema detecta automáticamente Nombre, RUT, Email, Teléfono y Terapia.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadSampleTemplateCsv}
+                  className="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-[#2C4A3B] font-bold hover:bg-stone-50 flex items-center gap-1.5 shrink-0"
+                >
+                  <Download size={13} />
+                  <span>Descargar Plantilla Ejemplo</span>
+                </button>
+              </div>
+
+              <label className="border-2 border-dashed border-[#2C4A3B]/30 hover:border-[#2C4A3B] bg-[#EBF3EE]/30 rounded-3xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all text-center">
+                <Upload size={28} className="text-[#2C4A3B] mb-2" />
+                <span className="font-bold text-sm text-stone-900">
+                  {importFileName
+                    ? `Archivo cargado: ${importFileName}`
+                    : 'Haz clic aquí para seleccionar tu archivo .CSV de Excel'}
+                </span>
+                <span className="text-[11px] text-stone-500 mt-1">
+                  Soporta planillas exportadas desde Excel, Google Sheets o Numbers
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleParseUploadedPatientSheet}
+                  className="hidden"
+                />
+              </label>
+
+              {importedPreviewRows.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-stone-800">
+                      Vista Previa: {importedPreviewRows.length} pacientes detectados listos para registrar
+                    </span>
+                  </div>
+
+                  <div className="max-h-52 overflow-y-auto rounded-2xl border border-[#E4ECE7]">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-[#F9F8F6] border-b border-[#E4ECE7] text-stone-400 uppercase text-[10px]">
+                          <th className="py-2.5 px-3">Nombre</th>
+                          <th className="py-2.5 px-3">RUT</th>
+                          <th className="py-2.5 px-3">Email</th>
+                          <th className="py-2.5 px-3">WhatsApp</th>
+                          <th className="py-2.5 px-3">Modalidad</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E4ECE7]">
+                        {importedPreviewRows.map((row) => (
+                          <tr key={row.id}>
+                            <td className="py-2 px-3 font-bold text-stone-900">
+                              {row.patientName}
+                            </td>
+                            <td className="py-2 px-3 text-stone-600">{row.patientRUT}</td>
+                            <td className="py-2 px-3 text-stone-600">{row.patientEmail}</td>
+                            <td className="py-2 px-3 text-stone-600">+{row.patientPhone}</td>
+                            <td className="py-2 px-3 font-semibold text-[#2C4A3B]">
+                              {row.defaultModality}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleConfirmBatchImportPatients}
+                    className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold text-xs shadow-md transition-all"
+                  >
+                    Registrar {importedPreviewRows.length} Pacientes Ahora
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
           MODAL DE AGENDAR CITA (CON REPETICIÓN SEMANAL/QUINCENAL/MENSUAL Y TEXTOS LIMPIOS)
          ========================================================= */}
       <AnimatePresence>
@@ -3386,7 +3703,6 @@ function AdminDashboardContent() {
                   </div>
                 ) : (
                   <>
-                    {/* Selector de Paciente Registrado */}
                     <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-[#2C4A3B] flex items-center gap-1.5">
@@ -3598,7 +3914,6 @@ function AdminDashboardContent() {
                       </div>
                     </div>
 
-                    {/* OPCIÓN DE REPETICIÓN DE LA CITA (SEMANAL, QUINCENAL, MENSUAL) */}
                     <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] grid grid-cols-2 gap-3">
                       <div>
                         <label className="font-bold uppercase text-stone-500 flex items-center gap-1 mb-1">
@@ -3678,7 +3993,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          DRAWER DE FICHA CLÍNICA CON ESCUCHA AMBIENTAL IA GROK (ESCUCHA Y RESUME)
+          DRAWER DE FICHA CLÍNICA CON ESCUCHA AMBIENTAL IA GROK
          ========================================================= */}
       <AnimatePresence>
         {fichaPatient && (
@@ -3717,7 +4032,6 @@ function AdminDashboardContent() {
                   </button>
                 </div>
 
-                {/* MÓDULO DE ESCUCHA CLÍNICA AMBIENTAL (ESCUCHA EN SILENCIO Y RESUME) */}
                 <div className="bg-[#1E3329] text-white rounded-3xl p-5 space-y-4 shadow-md">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -3766,7 +4080,6 @@ function AdminDashboardContent() {
                   </div>
                 </div>
 
-                {/* Apuntes complementarios o Resumen generado por la Escucha IA */}
                 <div className="bg-[#F9F8F6] rounded-3xl p-5 border border-[#E4ECE7] space-y-3">
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-600 block">
                     Observaciones Manuales (Opcional)
@@ -3815,7 +4128,6 @@ function AdminDashboardContent() {
                   )}
                 </div>
 
-                {/* Historial de Evoluciones */}
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-stone-400">
                     Historial Clínico del Paciente ({fichaPatient.clinicalHistory.length})
@@ -3847,7 +4159,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL AL PINCHAR LA FOTO/LOGO DEL CENTRO ARRIBA (LOGO, NOMBRE Y CANTIDAD DE BOXES)
+          MODAL AL PINCHAR LA FOTO/LOGO DEL CENTRO ARRIBA
          ========================================================= */}
       <AnimatePresence>
         {showBrandingModal && (
@@ -3913,7 +4225,6 @@ function AdminDashboardContent() {
                 />
               </div>
 
-              {/* Gestión de Boxes del Centro */}
               <div className="space-y-2">
                 <label className="font-bold uppercase text-stone-500 block">
                   Boxes del Centro ({centerBoxes.length})
@@ -4186,7 +4497,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL EDITAR PACIENTE DEL DIRECTORIO (ESTADO RETENCIÓN / ABANDONO)
+          MODAL EDITAR PACIENTE DEL DIRECTORIO
          ========================================================= */}
       <AnimatePresence>
         {editingPatientRecord && (
