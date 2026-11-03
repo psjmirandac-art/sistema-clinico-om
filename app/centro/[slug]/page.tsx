@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { Suspense, useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,7 +21,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 
-// Inicialización segura de Supabase en el cliente usando tus variables de Vercel
+// Inicialización segura de Supabase en el cliente
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID || '';
@@ -67,7 +67,31 @@ const PROFESSIONALS: Professional[] = [
 
 const TIME_SLOTS = ['09:30', '11:00', '12:30', '15:00', '16:30', '18:00'];
 
-export default function CentroBookingPage() {
+// Skeleton de lujo para el streaming de Suspense en Next.js
+function BookingGlassSkeleton() {
+  return (
+    <div className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
+      <div className="bg-white/85 backdrop-blur-xl rounded-[2rem] p-6 sm:p-10 shadow-[0_20px_60px_rgb(44,74,59,0.05)] border border-[#E4ECE7] animate-pulse">
+        <div className="h-3 w-36 bg-stone-200/80 rounded-full mb-3" />
+        <div className="h-8 w-72 bg-stone-200 rounded-xl mb-8" />
+        <div className="h-12 w-full bg-[#F9F8F6] rounded-2xl mb-7 border border-[#E4ECE7]" />
+        <div className="space-y-3 mb-7">
+          <div className="h-20 w-full bg-stone-100/80 rounded-2xl" />
+          <div className="h-20 w-full bg-stone-100/80 rounded-2xl" />
+        </div>
+        <div className="grid grid-cols-5 gap-2.5 mb-8">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <div key={n} className="h-20 bg-stone-100 rounded-2xl" />
+          ))}
+        </div>
+        <div className="h-14 w-full bg-[#2C4A3B]/20 rounded-2xl" />
+      </div>
+    </div>
+  );
+}
+
+// Subcomponente que consume useParams() de forma segura dentro de <Suspense>
+function CentroBookingContent() {
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : 'kairos-central';
 
@@ -116,7 +140,7 @@ export default function CentroBookingPage() {
   const [patientData, setPatientData] = useState({
     nombre: '',
     email: '',
-    telefonoOchoDigitos: '', // El usuario ingresa los 8 dígitos tras el +56 9
+    telefonoOchoDigitos: '',
     notas: '',
   });
 
@@ -182,7 +206,6 @@ export default function CentroBookingPage() {
     }
   };
 
-  // Enlace dinámico a Google Calendar para el estado de éxito
   const googleCalendarUrl = useMemo(() => {
     const calDate = selectedDay.iso.replace(/-/g, '');
     const startHour = selectedTime.replace(':', '');
@@ -201,11 +224,7 @@ export default function CentroBookingPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#F9F8F6] text-stone-800 flex flex-col justify-between relative overflow-hidden font-sans selection:bg-[#2C4A3B]/15 selection:text-[#2C4A3B]">
-      {/* Halos ambientales terapéuticos */}
-      <div className="pointer-events-none fixed -top-40 -left-40 w-96 h-96 rounded-full bg-[#2C4A3B]/5 blur-3xl" />
-      <div className="pointer-events-none fixed -bottom-40 -right-40 w-96 h-96 rounded-full bg-[#C87D65]/10 blur-3xl" />
-
+    <>
       {/* Header minimalista de lujo */}
       <header className="w-full max-w-4xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
@@ -231,7 +250,6 @@ export default function CentroBookingPage() {
       {/* Contenedor Principal */}
       <section className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
         <AnimatePresence mode="wait">
-          {/* PASO 1: SELECCIÓN DE ESPECIALISTA, MODALIDAD Y HORARIO */}
           {step === 'schedule' && (
             <motion.div
               key="step-schedule"
@@ -408,7 +426,6 @@ export default function CentroBookingPage() {
             </motion.div>
           )}
 
-          {/* PASO 2: DATOS DEL PACIENTE Y CONFIRMACIÓN */}
           {step === 'patient' && (
             <motion.div
               key="step-patient"
@@ -436,7 +453,6 @@ export default function CentroBookingPage() {
                 </h2>
               </div>
 
-              {/* Resumen compacto de la sesión seleccionada */}
               <div className="bg-[#F9F8F6] rounded-2xl p-4 mb-7 border border-[#E4ECE7] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="flex items-center gap-2.5 text-stone-700">
                   <User size={16} className="text-[#2C4A3B] shrink-0" />
@@ -537,7 +553,6 @@ export default function CentroBookingPage() {
             </motion.div>
           )}
 
-          {/* PASO 3: CONFIRMACIÓN DE LUJO */}
           {step === 'success' && (
             <motion.div
               key="step-success"
@@ -597,6 +612,20 @@ export default function CentroBookingPage() {
           )}
         </AnimatePresence>
       </section>
+    </>
+  );
+}
+
+// Export principal envuelto en <Suspense> para pasar el build estático de Next.js en Vercel
+export default function CentroBookingPage() {
+  return (
+    <main className="min-h-screen bg-[#F9F8F6] text-stone-800 flex flex-col justify-between relative overflow-hidden font-sans selection:bg-[#2C4A3B]/15 selection:text-[#2C4A3B]">
+      <div className="pointer-events-none fixed -top-40 -left-40 w-96 h-96 rounded-full bg-[#2C4A3B]/5 blur-3xl" />
+      <div className="pointer-events-none fixed -bottom-40 -right-40 w-96 h-96 rounded-full bg-[#C87D65]/10 blur-3xl" />
+
+      <Suspense fallback={<BookingGlassSkeleton />}>
+        <CentroBookingContent />
+      </Suspense>
 
       <footer className="w-full text-center py-6 text-xs text-stone-400 z-10">
         Kairós Clínico · Infraestructura de Salud Mental
