@@ -73,7 +73,7 @@ export interface ProfessionalConfig {
   rut: string;
   email: string;
   avatar: string;
-  workingDays: number[]; // 1 = Lun ... 6 = Sáb
+  workingDays: number[];
   startHour: string;
   endHour: string;
   modalityMode: 'Ambas (Híbrido)' | 'Solo Online' | 'Solo Presencial';
@@ -91,7 +91,7 @@ export interface AppointmentItem {
   professionalId: string;
   serviceName: string;
   modality: ModalityType;
-  isoDate: string; // YYYY-MM-DD
+  isoDate: string;
   time: string;
   price: number;
   paymentStatus: PaymentStatus;
@@ -102,7 +102,7 @@ export interface AppointmentItem {
 export interface BlockedSlot {
   id: string;
   professionalId: string;
-  isoDate: string; // YYYY-MM-DD
+  isoDate: string;
   time: string;
   reason: string;
 }
@@ -1258,7 +1258,6 @@ function AdminDashboardContent() {
                   ))}
                 </div>
 
-                {/* Navegador de Semanas y Selector de Fecha */}
                 <div className="flex flex-wrap items-center gap-2 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
                   <button
                     type="button"
@@ -1391,7 +1390,7 @@ function AdminDashboardContent() {
                           (b) =>
                             b.professionalId === selectedProfId &&
                             b.isoDate === day.iso &&
-                            a.time === hour
+                            b.time === hour
                         );
                         const isDragOver = dragOverCell === cellKey;
 
@@ -2386,7 +2385,7 @@ function AdminDashboardContent() {
                           paymentStatus: e.target.value as PaymentStatus,
                         })
                       }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
                     >
                       <option value="Pendiente">Pendiente</option>
                       <option value="Pagado">Pagado</option>
