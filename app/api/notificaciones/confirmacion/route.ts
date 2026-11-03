@@ -19,7 +19,7 @@ export async function POST(request: Request) {
         to: patientEmail,
         subject: `Cita Confirmada: ${date} a las ${time}`,
         html: `
-          <div style="font-family: 'Inter', sans-serif; max-w: 600px; margin: 0 auto; padding: 32px; border: 1px solid #E4ECE7; border-radius: 24px; background-color: #F9F8F6;">
+          <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; border: 1px solid #E4ECE7; border-radius: 24px; background-color: #F9F8F6;">
             <h2 style="color: #1F2937; margin-bottom: 16px; font-size: 22px; font-weight: 800;">Hola ${patientName},</h2>
             <p style="color: #4B5563; line-height: 1.6; font-size: 15px;">
               Confirmamos tu cita para el día <strong>${date}</strong> a las <strong>${time} hrs</strong> con <strong>${professionalName}</strong>.
@@ -38,12 +38,11 @@ export async function POST(request: Request) {
       notificationPromises.push(emailPromise);
     }
 
-    // --- 2. DISPARAR WHATSAPP (META CLOUD API - SANDBOX MODE) ---
+    // --- 2. DISPARAR WHATSAPP (META CLOUD API) ---
     if (patientPhone && whatsappToken && whatsappPhoneId) {
-      const cleanPhone = patientPhone.replace(/\D/g, ''); // Limpiar formato (ej: 5691699991)
+      const cleanPhone = patientPhone.replace(/\D/g, '');
       
-      if (cleanPhone.length >= 11) {
-        // Usamos la plantilla nativa 'hello_world' para pasar el Sandbox sin errores de variables
+      if (cleanPhone.length >= 10) {
         const waPromise = fetch(`https://graph.facebook.com/v25.0/${whatsappPhoneId}/messages`, {
           method: 'POST',
           headers: {
@@ -55,22 +54,25 @@ export async function POST(request: Request) {
             to: cleanPhone,
             type: 'template',
             template: {
-              name: 'hello_world', // Plantilla universal pre-aprobada por Meta en todos los Sandbox
+              name: 'hello_world', // Plantilla nativa garantizada en pruebas
               language: { code: 'en_US' }
             }
           }),
-        }).then(res => res.json());
+        }).then(async res => {
+          const json = await res.json();
+          if (!res.ok) console.error("Error en Meta API:", json);
+          return json;
+        });
 
         notificationPromises.push(waPromise);
       }
     }
 
-    // Ejecutar envíos en paralelo
     await Promise.allSettled(notificationPromises);
     
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('Error al notificar confirmación:', error);
+    console.error('Error crítico en endpoint de notificaciones:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
