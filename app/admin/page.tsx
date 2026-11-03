@@ -35,12 +35,9 @@ import {
   Filter,
   Edit3,
   CalendarDays,
-  GripVertical,
   TrendingUp,
   BrainCircuit,
-  Clock,
   Calculator,
-  Percent,
   Home,
 } from 'lucide-react';
 
@@ -57,7 +54,7 @@ const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID ?? 'centro-principal';
 const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-type AdminModule =
+export type AdminModule =
   | 'dashboard'
   | 'agenda'
   | 'pacientes'
@@ -67,11 +64,16 @@ type AdminModule =
   | 'comunicaciones'
   | 'finanzas';
 
-type CalendarViewMode = 'day' | 'week' | 'month';
-type ModalityType = 'Online' | 'Presencial';
-type PaymentStatus = 'Pagado' | 'Pendiente';
-type ClinicalStatus = 'Confirmada' | 'En Espera' | 'En Consulta' | 'Atendida' | 'No Asistió';
-typeFinancialAgreementType = 'porcentaje' | 'arriendo_fijo' | 'por_box_hora';
+export type CalendarViewMode = 'day' | 'week' | 'month';
+export type ModalityType = 'Online' | 'Presencial';
+export type PaymentStatus = 'Pagado' | 'Pendiente';
+export type ClinicalStatus =
+  | 'Confirmada'
+  | 'En Espera'
+  | 'En Consulta'
+  | 'Atendida'
+  | 'No Asistió';
+export type FinancialAgreementType = 'porcentaje' | 'arriendo_fijo' | 'por_box_hora';
 
 export interface DayScheduleConfig {
   enabled: boolean;
@@ -90,24 +92,22 @@ export interface ProfessionalConfig {
   avatar: string;
   presencialAddress: string;
   onlineRoomUrl: string;
-  // Horario diferenciado por día (1 = Lunes ... 7 = Domingo)
   scheduleByDay: Record<number, DayScheduleConfig>;
-  // Modelo Financiero con el Centro / Box
-  agreementType: 'porcentaje' | 'arriendo_fijo' | 'por_box_hora';
-  centerCommissionPercent: number; // Ej: 25% para el centro, 75% para el profesional
-  fixedBoxRent: number; // Ej: $180.000 mensual fijo
-  boxCostPerSession: number; // Ej: $8.000 por uso de box por sesión
+  agreementType: FinancialAgreementType;
+  centerCommissionPercent: number;
+  fixedBoxRent: number;
+  boxCostPerSession: number;
 }
 
 export interface TherapistServiceItem {
   id: string;
-  professionalId: string; // 'all' o ID del terapeuta
+  professionalId: string;
   name: string;
   therapyType: string;
   durationMinutes: number;
   price: number;
   modality: 'Ambas (Híbrido)' | 'Online' | 'Presencial';
-  allowedHoursLabel: string; // Ej: "08:00 a 22:30 hrs"
+  allowedHoursLabel: string;
 }
 
 export interface ClinicalEvolutionNote {
@@ -128,7 +128,7 @@ export interface AppointmentItem {
   serviceName: string;
   modality: ModalityType;
   boxName?: string;
-  isoDate: string; // YYYY-MM-DD
+  isoDate: string;
   time: string;
   price: number;
   paymentStatus: PaymentStatus;
@@ -145,7 +145,6 @@ export interface BlockedSlot {
   reason: string;
 }
 
-// Horarios ampliados desde las 07:00 hasta las 23:00 hrs para libertad total del profesional
 const FULL_DAY_HOURS = [
   '07:00',
   '08:00',
@@ -261,7 +260,7 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     avatar: 'AS',
     presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
     onlineRoomUrl: 'https://meet.google.com/clinica-alejandro',
-    scheduleByDay: buildDefaultSchedule(true), // Lunes mañana, Martes tarde/noche hasta las 22:00
+    scheduleByDay: buildDefaultSchedule(true),
     agreementType: 'porcentaje',
     centerCommissionPercent: 25,
     fixedBoxRent: 0,
@@ -441,7 +440,6 @@ function AdminGlassSkeleton() {
 }
 
 function AdminDashboardContent() {
-  // Identidad Dinámica del Centro Clínico Registrado (Multi-Tenant)
   const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
   const [isEditingCenterName, setIsEditingCenterName] = useState<boolean>(false);
 
@@ -498,7 +496,6 @@ function AdminDashboardContent() {
     });
   }, [anchorIso, weekOffset]);
 
-  // Grilla de 30 días para la Vista Mensual
   const dynamicMonthDays = useMemo(() => {
     const base = getMondayFromAnchor(anchorIso, weekOffset);
     const year = base.getFullYear();
@@ -539,13 +536,13 @@ function AdminDashboardContent() {
   const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
 
-  // Estado Ficha Clínica con IA Grok
+  // Ficha Clínica con IA Grok
   const [fichaPatientApt, setFichaPatientApt] = useState<AppointmentItem | null>(null);
   const [rawSessionNotes, setRawSessionNotes] = useState<string>('');
   const [grokPreviewNote, setGrokPreviewNote] = useState<string>('');
   const [isGeneratingGrok, setIsGeneratingGrok] = useState<boolean>(false);
 
-  // Estado Nuevo Servicio en pestaña Servicios
+  // Modal Nuevo Servicio
   const [showServiceModal, setShowServiceModal] = useState<boolean>(false);
   const [serviceForm, setServiceForm] = useState({
     professionalId: 'prof-1',
@@ -591,7 +588,7 @@ function AdminDashboardContent() {
     email: '',
     presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
     onlineRoomUrl: 'https://meet.google.com/clinica-sala',
-    agreementType: 'porcentaje' as ProfessionalConfig['agreementType'],
+    agreementType: 'porcentaje' as FinancialAgreementType,
     centerCommissionPercent: 25,
     fixedBoxRent: 0,
     boxCostPerSession: 8000,
@@ -619,7 +616,6 @@ function AdminDashboardContent() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // Persistencia local sincronizada
   useEffect(() => {
     const savedCenterName = localStorage.getItem('kairos_center_brand_v2');
     const savedProfs = localStorage.getItem('kairos_profs_v6');
@@ -664,7 +660,6 @@ function AdminDashboardContent() {
     [professionals, selectedProfId]
   );
 
-  // Horas dinámicas de la grilla calculadas según el mínimo inicio y máximo término de los días activos del profesional (Soporta hasta las 23:00)
   const visibleHours = useMemo(() => {
     if (!currentProf || !currentProf.scheduleByDay) return FULL_DAY_HOURS;
     const enabledDays = Object.values(currentProf.scheduleByDay).filter((d) => d.enabled);
@@ -694,7 +689,6 @@ function AdminDashboardContent() {
     });
   }, [appointments, searchQuery, patientModalityFilter]);
 
-  // Motor Financiero: Cálculo de Bruto, Descuento por Box / Porcentaje / Arriendo Fijo y Neto por Profesional
   const financialBreakdown = useMemo(() => {
     const byProf = professionals.map((prof) => {
       const profApts = appointments.filter((a) => a.professionalId === prof.id);
@@ -772,7 +766,6 @@ function AdminDashboardContent() {
     setWeekOffset(diffWeeks);
   };
 
-  // Envío de Confirmación con el Nombre del Centro Clínico registrado
   const triggerEmailNotification = async (apt: AppointmentItem, isReminder: boolean = false) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) ?? currentProf;
     const locationAddress =
@@ -827,7 +820,6 @@ function AdminDashboardContent() {
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // Asistente Clínico IA Grok para la Ficha del Paciente
   const handleGenerateGrokEvolution = () => {
     if (!rawSessionNotes.trim() || !fichaPatientApt) return;
     setIsGeneratingGrok(true);
@@ -875,7 +867,6 @@ function AdminDashboardContent() {
     showToast('Evolución guardada en Ficha Clínica', `Paciente: ${updatedApt.patientName}`);
   };
 
-  // Drag & Drop en Calendario validando el horario específico de ese día
   const handleDragStart = (e: React.DragEvent, aptId: string) => {
     setDraggedAptId(aptId);
     e.dataTransfer.setData('text/plain', aptId);
@@ -953,13 +944,6 @@ function AdminDashboardContent() {
     );
   };
 
-  const updateClinicalStatus = (aptId: string, status: ClinicalStatus) => {
-    setAppointments((prev) =>
-      prev.map((a) => (a.id === aptId ? { ...a, clinicalStatus: status } : a))
-    );
-    showToast(`Estado clínico: ${status}`);
-  };
-
   const deleteAppointment = (aptId: string) => {
     const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
@@ -1032,6 +1016,23 @@ function AdminDashboardContent() {
 
     setAppointments((prev) => [...prev, createdApt]);
     setSlotModal(null);
+
+    if (supabase) {
+      await supabase.from('appointments').insert([
+        {
+          center_id: defaultCenterId,
+          patient_name: createdApt.patientName,
+          patient_email: createdApt.patientEmail,
+          patient_phone: createdApt.patientPhone,
+          professional_name: currentProf.name,
+          modality: createdApt.modality,
+          date: createdApt.isoDate,
+          time: createdApt.time,
+          status: 'confirmed',
+        },
+      ]);
+    }
+
     await triggerEmailNotification(createdApt, false);
     setNewBookingForm({
       patientName: '',
@@ -1045,7 +1046,6 @@ function AdminDashboardContent() {
     });
   };
 
-  // Crear nuevo servicio del terapeuta
   const handleCreateService = (e: React.FormEvent) => {
     e.preventDefault();
     const newSrv: TherapistServiceItem = {
@@ -1068,7 +1068,6 @@ function AdminDashboardContent() {
     showToast('Servicio eliminado del catálogo');
   };
 
-  // Actualizar el horario de un día específico (Lunes mañana, Martes tarde, etc.) de un profesional
   const updateProfDaySchedule = (
     profId: string,
     dayIndex: number,
@@ -1400,7 +1399,6 @@ function AdminDashboardContent() {
           CONTENEDOR CENTRAL DEL CENTRO CLÍNICO
          ========================================================= */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header Superior Limpio (Sin botón de Recordatorios Semana en la esquina) */}
         <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex w-10 h-10 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] items-center justify-center">
@@ -1461,7 +1459,9 @@ function AdminDashboardContent() {
         </header>
 
         <main className="p-6 max-w-[1440px] w-full mx-auto space-y-6">
-          {/* KPIs Ejecutivos */}
+          {/* ---------------------------------------------------------
+              1. RESUMEN EJECUTIVO
+             --------------------------------------------------------- */}
           {activeModule === 'dashboard' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1568,7 +1568,6 @@ function AdminDashboardContent() {
              --------------------------------------------------------- */}
           {activeModule === 'agenda' && (
             <div className="space-y-5">
-              {/* Barra Superior de Agenda: Selector de Profesional + Conmutador Día / Semana / Mes */}
               <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex flex-wrap items-center justify-between gap-4">
                 <div className="flex flex-wrap items-center gap-2">
                   {professionals.map((prof) => (
@@ -1598,7 +1597,7 @@ function AdminDashboardContent() {
                   ))}
                 </div>
 
-                {/* Selector de Vista: Diaria | Semanal | Mensual */}
+                {/* Selector de Vista: Diario | Semanal | Mensual */}
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center bg-[#F9F8F6] p-1 rounded-2xl border border-[#E4ECE7]">
                     {(
@@ -1722,7 +1721,9 @@ function AdminDashboardContent() {
                     {visibleHours.map((hour) => {
                       const dayCfg = currentProf?.scheduleByDay?.[singleDayMeta.dayIndex];
                       const isWithinDayHours =
-                        dayCfg?.enabled && hour >= dayCfg.startHour && hour <= dayCfg.endHour;
+                        Boolean(dayCfg?.enabled) &&
+                        hour >= (dayCfg?.startHour ?? '09:00') &&
+                        hour <= (dayCfg?.endHour ?? '20:00');
                       const apt = appointments.find(
                         (a) =>
                           a.professionalId === selectedProfId &&
@@ -1820,7 +1821,9 @@ function AdminDashboardContent() {
                                 className="text-xs font-semibold text-[#2C4A3B] hover:underline flex items-center gap-1"
                               >
                                 <Plus size={14} />
-                                <span>Disponible ({dayCfg?.boxAssigned}) · Clic para agendar o bloquear</span>
+                                <span>
+                                  Disponible ({dayCfg?.boxAssigned}) · Clic para agendar o bloquear
+                                </span>
                               </button>
                             )}
                           </div>
@@ -1831,7 +1834,7 @@ function AdminDashboardContent() {
                 </div>
               )}
 
-              {/* VISTA 2: AGENDA SEMANAL (CON DRAG & DROP Y HORARIOS DIFERENCIADOS POR DÍA) */}
+              {/* VISTA 2: AGENDA SEMANAL */}
               {calendarView === 'week' && (
                 <div className="bg-white rounded-[2rem] border border-[#E4ECE7] shadow-[0_12px_40px_rgb(44,74,59,0.05)] overflow-x-auto">
                   <div className="min-w-[980px]">
@@ -1890,7 +1893,6 @@ function AdminDashboardContent() {
                         {dynamicWeekDays.map((day) => {
                           const cellKey = `${day.iso}-${hour}`;
                           const dayCfg = currentProf?.scheduleByDay?.[day.index];
-                          // Respeta si ese día atiende solo en la mañana o solo en la tarde/noche
                           const isSlotEnabledForDay =
                             Boolean(dayCfg?.enabled) &&
                             hour >= (dayCfg?.startHour ?? '09:00') &&
@@ -2264,7 +2266,7 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              4. MÓDULO SERVICIOS & TERAPIAS (INDEPENDIENTE POR TERAPEUTA)
+              4. MÓDULO SERVICIOS & TERAPIAS
              --------------------------------------------------------- */}
           {activeModule === 'servicios' && (
             <div className="space-y-6">
@@ -2428,7 +2430,6 @@ function AdminDashboardContent() {
                       </div>
                     </div>
 
-                    {/* MATRIZ DE HORARIOS POR DÍA (LUNES A DOMINGO CON HORAS LIBRES HASTA LAS 23:00) */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-3">
                         Horario Específico por Día (Puedes fijar mañana, tarde o noche hasta las 23:00 hrs en cada día)
@@ -2578,7 +2579,6 @@ function AdminDashboardContent() {
              --------------------------------------------------------- */}
           {activeModule === 'finanzas' && (
             <div className="space-y-6">
-              {/* Tarjetas Financieras del Centro */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
                   <span className="text-[11px] font-bold uppercase text-stone-400 block">
@@ -2629,7 +2629,6 @@ function AdminDashboardContent() {
                 </div>
               </div>
 
-              {/* Tabla de Liquidación por Profesional (Bruto, Modalidad de Cobro Box/% y Neto) */}
               <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -2695,7 +2694,6 @@ function AdminDashboardContent() {
                 </div>
               </div>
 
-              {/* Detalle de Cobros por Paciente */}
               <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
                 <h3 className="font-bold text-base text-stone-900">
                   Detalle de Pagos por Sesión Agendada
@@ -2790,7 +2788,6 @@ function AdminDashboardContent() {
                   </button>
                 </div>
 
-                {/* Redactor de Evolución con Grok AI */}
                 <div className="bg-[#F9F8F6] rounded-3xl p-5 border border-[#E4ECE7] space-y-3">
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-600 block">
                     Apuntes Rápidos de la Sesión (Borrador libre del terapeuta)
@@ -2843,7 +2840,6 @@ function AdminDashboardContent() {
                   )}
                 </div>
 
-                {/* Historial de Evoluciones */}
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-stone-400">
                     Historial de Evoluciones Clínicas ({(fichaPatientApt.clinicalHistory ?? []).length})
@@ -3591,7 +3587,6 @@ function AdminDashboardContent() {
                   </div>
                 </div>
 
-                {/* Modelo Financiero con el Centro: Porcentaje vs Arriendo Fijo vs Pago por Box */}
                 <div className="p-4 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3">
                   <label className="font-bold uppercase text-[#2C4A3B] block">
                     Convenio Financiero con el Centro (Descuento para Liquidación)
@@ -3601,7 +3596,7 @@ function AdminDashboardContent() {
                     onChange={(e) =>
                       setProfForm({
                         ...profForm,
-                        agreementType: e.target.value as ProfessionalConfig['agreementType'],
+                        agreementType: e.target.value as FinancialAgreementType,
                       })
                     }
                     className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
