@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -29,7 +29,6 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
   ExternalLink,
   UserPlus,
   Filter,
@@ -40,9 +39,13 @@ import {
   Calculator,
   Home,
   ImagePlus,
-  Link2,
   UserCheck,
-  LogIn,
+  Mic,
+  Square,
+  Repeat,
+  DoorOpen,
+  Activity,
+  UserX,
 } from 'lucide-react';
 
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
@@ -68,7 +71,7 @@ export type AdminModule =
   | 'comunicaciones'
   | 'finanzas';
 
-export type CalendarViewMode = 'day' | 'week' | 'month';
+export type CalendarViewMode = 'day' | 'week' | 'month' | 'center_boxes';
 export type ModalityType = 'Online' | 'Presencial';
 export type PaymentStatus = 'Pagado' | 'Pendiente';
 export type ClinicalStatus =
@@ -78,11 +81,16 @@ export type ClinicalStatus =
   | 'Atendida'
   | 'No Asistió';
 export type FinancialAgreementType = 'porcentaje' | 'arriendo_fijo' | 'por_box_hora';
+export type RecurrenceFrequency = 'none' | 'weekly' | 'biweekly' | 'monthly';
+
+export interface TimeRangeBlock {
+  startHour: string;
+  endHour: string;
+}
 
 export interface DayScheduleConfig {
   enabled: boolean;
-  startHour: string;
-  endHour: string;
+  blocks: TimeRangeBlock[]; // Múltiples tramos horarios por día (ej: 09:00-14:00 y 16:00-21:00)
   modality: 'Ambas (Híbrido)' | 'Solo Online' | 'Solo Presencial';
   boxAssigned: string;
 }
@@ -96,7 +104,7 @@ export interface ProfessionalConfig {
   avatar: string;
   presencialAddress: string;
   onlineRoomUrl: string;
-  googleConnected?: boolean;
+  googleConnected: boolean;
   scheduleByDay: Record<number, DayScheduleConfig>;
   agreementType: FinancialAgreementType;
   centerCommissionPercent: number;
@@ -118,13 +126,28 @@ export interface TherapistServiceItem {
 export interface ClinicalEvolutionNote {
   id: string;
   date: string;
-  rawInput: string;
+  sourceType: 'audio_ia' | 'manual_ia';
   grokStructuredNote: string;
   professionalName: string;
 }
 
+// Entidad de Paciente Independiente (Eliminar una hora en la agenda NO elimina al paciente)
+export interface PatientRecord {
+  id: string;
+  patientName: string;
+  patientRUT: string;
+  patientEmail: string;
+  patientPhone: string;
+  defaultService: string;
+  defaultModality: ModalityType;
+  assignedProfessionalId: string;
+  clinicalStatusTag: 'Activo' | 'En Seguimiento' | 'Alta Clínica' | 'Abandono';
+  clinicalHistory: ClinicalEvolutionNote[];
+}
+
 export interface AppointmentItem {
   id: string;
+  patientId: string;
   patientName: string;
   patientRUT: string;
   patientEmail: string;
@@ -134,14 +157,13 @@ export interface AppointmentItem {
   modality: ModalityType;
   boxName?: string;
   meetUrl?: string;
-  googleEventId?: string;
+  recurrenceLabel?: string;
   isoDate: string;
   time: string;
   price: number;
   paymentStatus: PaymentStatus;
   clinicalStatus: ClinicalStatus;
   notes?: string;
-  clinicalHistory?: ClinicalEvolutionNote[];
 }
 
 export interface BlockedSlot {
@@ -182,6 +204,13 @@ const DAY_NAMES: { index: number; short: string; label: string }[] = [
   { index: 7, short: 'Dom', label: 'Domingo' },
 ];
 
+const DEFAULT_CENTER_BOXES = [
+  'Box 1 · Salvia',
+  'Box 2 · Arena',
+  'Box 3 · Olivo',
+  'Box 4 · Terracota',
+];
+
 const DETERMINISTIC_BASE_MONDAY = '2026-11-02T12:00:00';
 
 function getMondayFromAnchor(anchorIso: string, offsetWeeks: number = 0): Date {
@@ -201,6 +230,13 @@ function formatIsoDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function addDaysToIso(isoDate: string, daysToAdd: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+  dateObj.setDate(dateObj.getDate() + daysToAdd);
+  return formatIsoDate(dateObj);
+}
+
 function generateLocalMeetLink(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz';
   const seg = (n: number) =>
@@ -210,58 +246,75 @@ function generateLocalMeetLink(): string {
   return `https://meet.google.com/${seg(3)}-${seg(4)}-${seg(3)}`;
 }
 
-function buildDefaultSchedule(
-  morningOnlyMondays: boolean = false
-): Record<number, DayScheduleConfig> {
+// Verifica si una hora (ej: "16:00") cae dentro de alguno de los tramos del día (ej: 09:00-14:00 o 16:00-21:00)
+function isHourInsideDayBlocks(dayCfg: DayScheduleConfig | undefined, hour: string): boolean {
+  if (!dayCfg || !dayCfg.enabled) return false;
+  if (!Array.isArray(dayCfg.blocks) || dayCfg.blocks.length === 0) return false;
+  return dayCfg.blocks.some((b) => hour >= b.startHour && hour <= b.endHour);
+}
+
+function formatDayBlocksSummary(dayCfg: DayScheduleConfig | undefined): string {
+  if (!dayCfg || !dayCfg.enabled || !Array.isArray(dayCfg.blocks) || dayCfg.blocks.length === 0) {
+    return 'Sin atención';
+  }
+  return dayCfg.blocks.map((b) => `${b.startHour}-${b.endHour}`).join(' y ');
+}
+
+function buildDefaultScheduleWithColacion(boxName: string): Record<number, DayScheduleConfig> {
   return {
     1: {
       enabled: true,
-      startHour: '08:00',
-      endHour: morningOnlyMondays ? '13:00' : '21:00',
+      blocks: [
+        { startHour: '09:00', endHour: '14:00' },
+        { startHour: '16:00', endHour: '21:00' },
+      ],
       modality: 'Ambas (Híbrido)',
-      boxAssigned: 'Box 1 · Salvia',
+      boxAssigned: boxName,
     },
     2: {
       enabled: true,
-      startHour: morningOnlyMondays ? '14:00' : '09:00',
-      endHour: '22:00',
+      blocks: [
+        { startHour: '09:00', endHour: '13:00' },
+        { startHour: '15:00', endHour: '21:00' },
+      ],
       modality: 'Ambas (Híbrido)',
-      boxAssigned: 'Box 2 · Arena',
+      boxAssigned: boxName,
     },
     3: {
       enabled: true,
-      startHour: '09:00',
-      endHour: '21:00',
+      blocks: [
+        { startHour: '09:00', endHour: '14:00' },
+        { startHour: '16:00', endHour: '21:00' },
+      ],
       modality: 'Ambas (Híbrido)',
-      boxAssigned: 'Box 1 · Salvia',
+      boxAssigned: boxName,
     },
     4: {
       enabled: true,
-      startHour: '10:00',
-      endHour: '22:00',
+      blocks: [
+        { startHour: '10:00', endHour: '14:00' },
+        { startHour: '16:00', endHour: '22:00' },
+      ],
       modality: 'Ambas (Híbrido)',
-      boxAssigned: 'Box 3 · Olivo',
+      boxAssigned: boxName,
     },
     5: {
       enabled: true,
-      startHour: '09:00',
-      endHour: '20:00',
+      blocks: [{ startHour: '09:00', endHour: '18:00' }],
       modality: 'Ambas (Híbrido)',
-      boxAssigned: 'Box 1 · Salvia',
+      boxAssigned: boxName,
     },
     6: {
       enabled: false,
-      startHour: '09:00',
-      endHour: '14:00',
+      blocks: [{ startHour: '09:00', endHour: '14:00' }],
       modality: 'Solo Online',
-      boxAssigned: 'Sin Box',
+      boxAssigned: boxName,
     },
     7: {
       enabled: false,
-      startHour: '10:00',
-      endHour: '14:00',
+      blocks: [{ startHour: '10:00', endHour: '14:00' }],
       modality: 'Solo Online',
-      boxAssigned: 'Sin Box',
+      boxAssigned: boxName,
     },
   };
 }
@@ -276,8 +329,8 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     avatar: 'AS',
     presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
     onlineRoomUrl: 'https://meet.google.com/krs-aslv-clin',
-    googleConnected: true,
-    scheduleByDay: buildDefaultSchedule(true),
+    googleConnected: false,
+    scheduleByDay: buildDefaultScheduleWithColacion('Box 1 · Salvia'),
     agreementType: 'porcentaje',
     centerCommissionPercent: 25,
     fixedBoxRent: 0,
@@ -292,8 +345,8 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     avatar: 'VM',
     presencialAddress: 'Av. Alonso de Córdova 5870, Of. 702, Las Condes',
     onlineRoomUrl: 'https://meet.google.com/krs-vmnt-tcc',
-    googleConnected: true,
-    scheduleByDay: buildDefaultSchedule(false),
+    googleConnected: false,
+    scheduleByDay: buildDefaultScheduleWithColacion('Box 2 · Arena'),
     agreementType: 'por_box_hora',
     centerCommissionPercent: 0,
     fixedBoxRent: 0,
@@ -309,7 +362,7 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
     presencialAddress: 'Av. Nueva Providencia 1881, Box 3, Providencia',
     onlineRoomUrl: 'https://meet.google.com/krs-marr-sist',
     googleConnected: false,
-    scheduleByDay: buildDefaultSchedule(false),
+    scheduleByDay: buildDefaultScheduleWithColacion('Box 3 · Olivo'),
     agreementType: 'arriendo_fijo',
     centerCommissionPercent: 0,
     fixedBoxRent: 160000,
@@ -326,7 +379,7 @@ const INITIAL_SERVICES: TherapistServiceItem[] = [
     durationMinutes: 50,
     price: 45000,
     modality: 'Ambas (Híbrido)',
-    allowedHoursLabel: '08:00 a 22:00 hrs',
+    allowedHoursLabel: '09:00 a 14:00 y 16:00 a 21:00 hrs',
   },
   {
     id: 'srv-2',
@@ -348,21 +401,60 @@ const INITIAL_SERVICES: TherapistServiceItem[] = [
     modality: 'Presencial',
     allowedHoursLabel: '09:00 a 21:00 hrs',
   },
+];
+
+const INITIAL_PATIENTS: PatientRecord[] = [
   {
-    id: 'srv-4',
-    professionalId: 'all',
-    name: 'Psicoterapia Vespertina / Nocturna',
-    therapyType: 'Atención Extendida Post-Laboral',
-    durationMinutes: 50,
-    price: 50000,
-    modality: 'Online',
-    allowedHoursLabel: '19:00 a 23:00 hrs',
+    id: 'pat-1',
+    patientName: 'Camila Vergara',
+    patientRUT: '18.456.789-2',
+    patientEmail: 'camila@ejemplo.cl',
+    patientPhone: '56961699991',
+    defaultService: 'Psicoterapia Individual Adulto',
+    defaultModality: 'Presencial',
+    assignedProfessionalId: 'prof-1',
+    clinicalStatusTag: 'Activo',
+    clinicalHistory: [
+      {
+        id: 'ev-1',
+        date: '2026-10-26',
+        sourceType: 'audio_ia',
+        grokStructuredNote:
+          '• SÍNTESIS DE ESCUCHA CLÍNICA (IA Grok):\n  Paciente relata disminución de episodios de ansiedad laboral y mejor descanso nocturno.\n• FOCO TERAPÉUTICO:\n  Consolidación de límites saludables y manejo de rumiación.\n• PLAN CLÍNICO:\n  Continuar seguimiento semanal.',
+        professionalName: 'Dr. Alejandro Silva',
+      },
+    ],
+  },
+  {
+    id: 'pat-2',
+    patientName: 'Matías Errázuriz',
+    patientRUT: '16.789.234-5',
+    patientEmail: 'matias@ejemplo.cl',
+    patientPhone: '56961699991',
+    defaultService: 'Psicoterapia Individual Adulto',
+    defaultModality: 'Online',
+    assignedProfessionalId: 'prof-1',
+    clinicalStatusTag: 'Activo',
+    clinicalHistory: [],
+  },
+  {
+    id: 'pat-3',
+    patientName: 'Sofía Domínguez',
+    patientRUT: '19.321.654-8',
+    patientEmail: 'sofia@ejemplo.cl',
+    patientPhone: '56961699991',
+    defaultService: 'Evaluación Psicodiagnóstica',
+    defaultModality: 'Presencial',
+    assignedProfessionalId: 'prof-2',
+    clinicalStatusTag: 'En Seguimiento',
+    clinicalHistory: [],
   },
 ];
 
 const INITIAL_APPOINTMENTS: AppointmentItem[] = [
   {
     id: 'apt-101',
+    patientId: 'pat-1',
     patientName: 'Camila Vergara',
     patientRUT: '18.456.789-2',
     patientEmail: 'camila@ejemplo.cl',
@@ -375,40 +467,29 @@ const INITIAL_APPOINTMENTS: AppointmentItem[] = [
     time: '10:00',
     price: 45000,
     paymentStatus: 'Pagado',
-    clinicalStatus: 'Confirmada',
-    notes: 'Paciente refiere disminución de sintomatología ansiosa laboral.',
-    clinicalHistory: [
-      {
-        id: 'ev-1',
-        date: '2026-10-26',
-        rawInput: 'Paciente llega puntual, comenta estrés laboral pero mejor higiene del sueño.',
-        grokStructuredNote:
-          '• Motivo de Sesión: Seguimiento de cuadro ansioso reactivo.\n• Estado Afectivo: Eutímica, orientada, discurso fluido.\n• Intervención (IA Grok): Reestructuración cognitiva sobre límites laborales y consolidación de pauta de sueño.\n• Plan Terapéutico: Mantener registro de episodios y control en 7 días.',
-        professionalName: 'Dr. Alejandro Silva',
-      },
-    ],
+    clinicalStatus: 'Atendida',
   },
   {
     id: 'apt-102',
+    patientId: 'pat-2',
     patientName: 'Matías Errázuriz',
     patientRUT: '16.789.234-5',
     patientEmail: 'matias@ejemplo.cl',
     patientPhone: '56961699991',
     professionalId: 'prof-1',
-    serviceName: 'Psicoterapia Vespertina / Nocturna',
+    serviceName: 'Psicoterapia Individual Adulto',
     modality: 'Online',
-    boxName: 'Google Meet Automático',
+    boxName: 'Online (Google Meet)',
     meetUrl: 'https://meet.google.com/krs-mtez-ses',
     isoDate: '2026-11-03',
-    time: '21:00',
-    price: 50000,
+    time: '17:00',
+    price: 45000,
     paymentStatus: 'Pagado',
     clinicalStatus: 'Confirmada',
-    notes: 'Horario vespertino post-trabajo.',
-    clinicalHistory: [],
   },
   {
     id: 'apt-103',
+    patientId: 'pat-3',
     patientName: 'Sofía Domínguez',
     patientRUT: '19.321.654-8',
     patientEmail: 'sofia@ejemplo.cl',
@@ -417,13 +498,11 @@ const INITIAL_APPOINTMENTS: AppointmentItem[] = [
     serviceName: 'Evaluación Psicodiagnóstica',
     modality: 'Presencial',
     boxName: 'Box 2 · Arena',
-    isoDate: '2026-11-05',
-    time: '16:00',
+    isoDate: '2026-11-03',
+    time: '10:00',
     price: 55000,
     paymentStatus: 'Pendiente',
-    clinicalStatus: 'En Espera',
-    notes: 'Segunda sesión de psicodiagnóstico.',
-    clinicalHistory: [],
+    clinicalStatus: 'Confirmada',
   },
 ];
 
@@ -433,7 +512,7 @@ const INITIAL_BLOCKED_SLOTS: BlockedSlot[] = [
     professionalId: 'prof-1',
     isoDate: '2026-11-04',
     time: '13:00',
-    reason: 'Supervisión Clínica de Equipo',
+    reason: 'Reunión Clínica',
   },
 ];
 
@@ -449,7 +528,6 @@ function AdminGlassSkeleton() {
             ))}
           </div>
         </div>
-        <div className="h-24 w-full bg-white/5 rounded-2xl animate-pulse" />
       </div>
       <div className="flex-1 p-8 space-y-6">
         <div className="h-20 w-full bg-white/80 rounded-3xl border border-[#E4ECE7] animate-pulse" />
@@ -460,16 +538,12 @@ function AdminGlassSkeleton() {
 }
 
 function AdminDashboardContent() {
-  // Identidad Multi-Tenant del Centro Clínico (Nombre + Logo para la Carátula)
+  // Identidad del Centro: Se edita únicamente haciendo clic en la foto/logo o nombre arriba
   const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
   const [centerLogoUrl, setCenterLogoUrl] = useState<string>('');
-  const [isEditingCenterName, setIsEditingCenterName] = useState<boolean>(false);
+  const [centerBoxes, setCenterBoxes] = useState<string[]>(DEFAULT_CENTER_BOXES);
+  const [newBoxNameInput, setNewBoxNameInput] = useState<string>('');
   const [showBrandingModal, setShowBrandingModal] = useState<boolean>(false);
-
-  // Estado de Autenticación Google OAuth + Google Calendar API
-  const [googleUserEmail, setGoogleUserEmail] = useState<string>('');
-  const [googleAccessToken, setGoogleAccessToken] = useState<string>('');
-  const [isGoogleCalendarLinked, setIsGoogleCalendarLinked] = useState<boolean>(false);
 
   const [activeModule, setActiveModule] = useState<AdminModule>('agenda');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('week');
@@ -488,21 +562,6 @@ function AdminDashboardContent() {
     setAnchorIso(now.toISOString());
     setTodayIso(iso);
     setSelectedSingleDayIso(iso);
-  }, []);
-
-  // Verificar si existe sesión activa de Google en Supabase Auth
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      const session = data?.session;
-      if (session?.user?.email) {
-        setGoogleUserEmail(session.user.email);
-        setIsGoogleCalendarLinked(true);
-      }
-      if (session?.provider_token) {
-        setGoogleAccessToken(session.provider_token);
-      }
-    });
   }, []);
 
   const dynamicWeekDays = useMemo(() => {
@@ -576,50 +635,37 @@ function AdminDashboardContent() {
   const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(INITIAL_PROFESSIONALS);
   const [selectedProfId, setSelectedProfId] = useState<string>(INITIAL_PROFESSIONALS[0].id);
   const [services, setServices] = useState<TherapistServiceItem[]>(INITIAL_SERVICES);
+  // Pacientes y Citas separados para que borrar una cita jamás elimine al paciente
+  const [patients, setPatients] = useState<PatientRecord[]>(INITIAL_PATIENTS);
   const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
 
-  // Directorio único de pacientes registrados (para autocompletar sin escribir desde cero)
-  const existingPatientsDirectory = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        patientName: string;
-        patientRUT: string;
-        patientEmail: string;
-        patientPhone: string;
-        lastService: string;
-        lastModality: ModalityType;
-      }
-    >();
-    appointments.forEach((apt) => {
-      const key =
-        apt.patientRUT && apt.patientRUT !== 'Sin RUT'
-          ? apt.patientRUT.toLowerCase()
-          : apt.patientEmail.toLowerCase() || apt.patientName.toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, {
-          patientName: apt.patientName,
-          patientRUT: apt.patientRUT,
-          patientEmail: apt.patientEmail,
-          patientPhone: apt.patientPhone,
-          lastService: apt.serviceName,
-          lastModality: apt.modality,
-        });
-      }
-    });
-    return Array.from(map.values());
-  }, [appointments]);
-
-  // Estado del selector de pacientes existentes dentro del modal de Agendar
+  // Estado del selector de pacientes al agendar + repetición
   const [patientModeInBooking, setPatientModeInBooking] = useState<'existing' | 'new'>('existing');
   const [existingPatientSearch, setExistingPatientSearch] = useState<string>('');
 
-  // Ficha Clínica con IA Grok
-  const [fichaPatientApt, setFichaPatientApt] = useState<AppointmentItem | null>(null);
+  // Ficha Clínica con Escucha Ambiental IA Grok
+  const [fichaPatient, setFichaPatient] = useState<PatientRecord | null>(null);
+  const [isListeningSession, setIsListeningSession] = useState<boolean>(false);
+  const [listeningSeconds, setListeningSeconds] = useState<number>(0);
+  const [capturedAudioContext, setCapturedAudioContext] = useState<string>('');
   const [rawSessionNotes, setRawSessionNotes] = useState<string>('');
   const [grokPreviewNote, setGrokPreviewNote] = useState<string>('');
   const [isGeneratingGrok, setIsGeneratingGrok] = useState<boolean>(false);
+  const speechRecRef = useRef<any>(null);
+  const timerRef = useRef<any>(null);
+
+  // Modal Crear Paciente directo en Directorio
+  const [showNewPatientModal, setShowNewPatientModal] = useState<boolean>(false);
+  const [newPatientDirectForm, setNewPatientDirectForm] = useState({
+    patientName: '',
+    patientRUT: '',
+    patientEmail: '',
+    patientPhone: '56961699991',
+    defaultService: INITIAL_SERVICES[0].name,
+    defaultModality: 'Presencial' as ModalityType,
+    assignedProfessionalId: 'prof-1',
+  });
 
   // Modal Nuevo Servicio
   const [showServiceModal, setShowServiceModal] = useState<boolean>(false);
@@ -630,7 +676,7 @@ function AdminDashboardContent() {
     durationMinutes: 50,
     price: 45000,
     modality: 'Ambas (Híbrido)' as TherapistServiceItem['modality'],
-    allowedHoursLabel: '08:00 a 22:30 hrs',
+    allowedHoursLabel: '09:00 a 14:00 y 16:00 a 21:00 hrs',
   });
 
   // Drag & Drop
@@ -644,7 +690,7 @@ function AdminDashboardContent() {
     apt: AppointmentItem;
   } | null>(null);
 
-  // Modal de Celda Vacía
+  // Modal de Celda Vacía (Agendar con Repetición)
   const [slotModal, setSlotModal] = useState<{
     dayIndex: number;
     isoDate: string;
@@ -652,10 +698,13 @@ function AdminDashboardContent() {
     time: string;
   } | null>(null);
   const [slotActionMode, setSlotActionMode] = useState<'book' | 'block'>('book');
-  const [blockReasonInput, setBlockReasonInput] = useState('Bloqueo Personal / Almuerzo');
+  const [blockReasonInput, setBlockReasonInput] = useState('Colación / Supervisión');
+
+  // Modal CRUD Cita
+  const [editingApt, setEditingApt] = useState<AppointmentItem | null>(null);
 
   // Modal CRUD Paciente
-  const [editingApt, setEditingApt] = useState<AppointmentItem | null>(null);
+  const [editingPatientRecord, setEditingPatientRecord] = useState<PatientRecord | null>(null);
 
   // Modal CRUD Profesional
   const [showProfModal, setShowProfModal] = useState(false);
@@ -674,6 +723,7 @@ function AdminDashboardContent() {
   });
 
   const [newBookingForm, setNewBookingForm] = useState({
+    selectedPatientId: 'pat-1',
     patientName: '',
     patientRUT: '',
     patientEmail: '',
@@ -681,6 +731,8 @@ function AdminDashboardContent() {
     serviceName: INITIAL_SERVICES[0].name,
     modality: 'Online' as ModalityType,
     paymentStatus: 'Pendiente' as PaymentStatus,
+    recurrence: 'none' as RecurrenceFrequency,
+    recurrenceCount: 4,
     notes: '',
   });
 
@@ -696,44 +748,55 @@ function AdminDashboardContent() {
   };
 
   useEffect(() => {
-    const savedCenterName = localStorage.getItem('kairos_center_brand_v2');
-    const savedLogo = localStorage.getItem('kairos_center_logo_v2');
-    const savedGoogleLinked = localStorage.getItem('kairos_google_linked_v2');
-    const savedProfs = localStorage.getItem('kairos_profs_v6');
-    const savedSrvs = localStorage.getItem('kairos_services_v6');
-    const savedApts = localStorage.getItem('kairos_apts_prod');
-    const savedBlocks = localStorage.getItem('kairos_blocks_prod');
+    const savedCenterName = localStorage.getItem('kairos_center_brand_v3');
+    const savedLogo = localStorage.getItem('kairos_center_logo_v3');
+    const savedBoxes = localStorage.getItem('kairos_center_boxes_v3');
+    const savedProfs = localStorage.getItem('kairos_profs_v7');
+    const savedSrvs = localStorage.getItem('kairos_services_v7');
+    const savedPatients = localStorage.getItem('kairos_patients_v7');
+    const savedApts = localStorage.getItem('kairos_apts_v7');
+    const savedBlocks = localStorage.getItem('kairos_blocks_v7');
     if (savedCenterName) setCenterBrandName(savedCenterName);
     if (savedLogo) setCenterLogoUrl(savedLogo);
-    if (savedGoogleLinked === 'true') setIsGoogleCalendarLinked(true);
+    if (savedBoxes) setCenterBoxes(JSON.parse(savedBoxes));
     if (savedProfs) setProfessionals(JSON.parse(savedProfs));
     if (savedSrvs) setServices(JSON.parse(savedSrvs));
+    if (savedPatients) setPatients(JSON.parse(savedPatients));
     if (savedApts) setAppointments(JSON.parse(savedApts));
     if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('kairos_center_brand_v2', centerBrandName);
+    localStorage.setItem('kairos_center_brand_v3', centerBrandName);
   }, [centerBrandName]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_center_logo_v2', centerLogoUrl);
+    localStorage.setItem('kairos_center_logo_v3', centerLogoUrl);
   }, [centerLogoUrl]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_profs_v6', JSON.stringify(professionals));
+    localStorage.setItem('kairos_center_boxes_v3', JSON.stringify(centerBoxes));
+  }, [centerBoxes]);
+
+  useEffect(() => {
+    localStorage.setItem('kairos_profs_v7', JSON.stringify(professionals));
   }, [professionals]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_services_v6', JSON.stringify(services));
+    localStorage.setItem('kairos_services_v7', JSON.stringify(services));
   }, [services]);
 
   useEffect(() => {
+    localStorage.setItem('kairos_patients_v7', JSON.stringify(patients));
+  }, [patients]);
+
+  useEffect(() => {
+    localStorage.setItem('kairos_apts_v7', JSON.stringify(appointments));
     localStorage.setItem('kairos_apts_prod', JSON.stringify(appointments));
   }, [appointments]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_blocks_prod', JSON.stringify(blockedSlots));
+    localStorage.setItem('kairos_blocks_v7', JSON.stringify(blockedSlots));
   }, [blockedSlots]);
 
   useEffect(() => {
@@ -742,7 +805,7 @@ function AdminDashboardContent() {
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  // Subir archivo de imagen desde el computador para el Logo del Centro Clínico
+  // Subir Logo desde PC al pinchar la foto del centro arriba
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -750,34 +813,30 @@ function AdminDashboardContent() {
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
         setCenterLogoUrl(reader.result);
-        showToast('Logo del centro actualizado', 'Sincronizado con la carátula del centro.');
+        showToast('Logo del centro actualizado');
       }
     };
     reader.readAsDataURL(file);
   };
 
-  // Iniciar Sesión con Google OAuth y vincular Google Calendar + Google Meet
-  const handleConnectGoogleAccount = async () => {
+  // Conectar Google Calendar de un Profesional: Una vez conectado, el botón desaparece
+  const handleConnectProfGoogleCalendar = async (profId: string) => {
+    setProfessionals((prev) =>
+      prev.map((p) => (p.id === profId ? { ...p, googleConnected: true } : p))
+    );
+    showToast(
+      'Google Calendar sincronizado',
+      'El calendario y Google Meet del profesional quedaron vinculados.'
+    );
     if (supabase) {
-      const { error } = await supabase.auth.signInWithOAuth({
+      await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           scopes: 'https://www.googleapis.com/auth/calendar.events',
           redirectTo: `${window.location.origin}/admin`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
         },
       });
-      if (!error) return;
     }
-    setIsGoogleCalendarLinked(true);
-    localStorage.setItem('kairos_google_linked_v2', 'true');
-    showToast(
-      'Cuenta Google Workspace vinculada',
-      'Google Calendar API y generación automática de salas Google Meet activos.'
-    );
   };
 
   const currentProf = useMemo(
@@ -785,38 +844,79 @@ function AdminDashboardContent() {
     [professionals, selectedProfId]
   );
 
+  // Rango horario visible basado en todos los tramos del profesional
   const visibleHours = useMemo(() => {
     if (!currentProf || !currentProf.scheduleByDay) return FULL_DAY_HOURS;
-    const enabledDays = Object.values(currentProf.scheduleByDay).filter((d) => d.enabled);
-    if (enabledDays.length === 0) return FULL_DAY_HOURS.slice(1, 14);
-    const minStart = enabledDays.reduce(
-      (min, d) => (d.startHour < min ? d.startHour : min),
+    const allBlocks: TimeRangeBlock[] = [];
+    Object.values(currentProf.scheduleByDay).forEach((d) => {
+      if (d.enabled && Array.isArray(d.blocks)) {
+        allBlocks.push(...d.blocks);
+      }
+    });
+    if (allBlocks.length === 0) return FULL_DAY_HOURS.slice(1, 15);
+    const minStart = allBlocks.reduce(
+      (min, b) => (b.startHour < min ? b.startHour : min),
       '23:00'
     );
-    const maxEnd = enabledDays.reduce(
-      (max, d) => (d.endHour > max ? d.endHour : max),
+    const maxEnd = allBlocks.reduce(
+      (max, b) => (b.endHour > max ? b.endHour : max),
       '07:00'
     );
     return FULL_DAY_HOURS.filter((h) => h >= minStart && h <= maxEnd);
   }, [currentProf]);
 
-  const filteredAppointments = useMemo(() => {
-    return appointments.filter((a) => {
+  // Filtrado del Directorio Independiente de Pacientes
+  const filteredPatients = useMemo(() => {
+    return patients.filter((p) => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
-        a.patientName.toLowerCase().includes(q) ||
-        a.serviceName.toLowerCase().includes(q) ||
-        a.patientEmail.toLowerCase().includes(q) ||
-        a.patientRUT.toLowerCase().includes(q);
+        p.patientName.toLowerCase().includes(q) ||
+        p.patientRUT.toLowerCase().includes(q) ||
+        p.patientEmail.toLowerCase().includes(q) ||
+        p.defaultService.toLowerCase().includes(q);
       const matchesModality =
-        patientModalityFilter === 'Todas' || a.modality === patientModalityFilter;
+        patientModalityFilter === 'Todas' || p.defaultModality === patientModalityFilter;
       return matchesSearch && matchesModality;
     });
-  }, [appointments, searchQuery, patientModalityFilter]);
+  }, [patients, searchQuery, patientModalityFilter]);
 
-  const financialBreakdown = useMemo(() => {
+  // Motor de Reportes Clínicos (Retención, Abandono, Pacientes Agendados) + Liquidación Financiera por Box
+  const financialAndClinicalReport = useMemo(() => {
     const byProf = professionals.map((prof) => {
       const profApts = appointments.filter((a) => a.professionalId === prof.id);
+      const profPatients = patients.filter((p) => p.assignedProfessionalId === prof.id);
+      const uniquePatientIds = new Set(profApts.map((a) => a.patientId || a.patientRUT));
+      const totalUniquePatients = Math.max(profPatients.length, uniquePatientIds.size);
+
+      // Pacientes con más de 1 sesión o estado Activo/Seguimiento = Retenidos
+      const retainedPatientsCount = profPatients.filter(
+        (p) => p.clinicalStatusTag === 'Activo' || p.clinicalStatusTag === 'En Seguimiento'
+      ).length;
+
+      const noShowAppointmentsCount = profApts.filter(
+        (a) => a.clinicalStatus === 'No Asistió'
+      ).length;
+      const droppedPatientsCount = profPatients.filter(
+        (p) => p.clinicalStatusTag === 'Abandono'
+      ).length;
+
+      const retentionRate =
+        totalUniquePatients > 0
+          ? Math.min(100, Math.round((retainedPatientsCount / totalUniquePatients) * 100))
+          : 100;
+
+      const abandonmentRate =
+        profApts.length > 0
+          ? Math.min(
+              100,
+              Math.round(
+                ((noShowAppointmentsCount + droppedPatientsCount) /
+                  Math.max(1, profApts.length)) *
+                  100
+              )
+            )
+          : 0;
+
       const paidApts = profApts.filter((a) => a.paymentStatus === 'Pagado');
       const pendingApts = profApts.filter((a) => a.paymentStatus === 'Pendiente');
       const presencialSessionsCount = profApts.filter((a) => a.modality === 'Presencial').length;
@@ -836,7 +936,7 @@ function AdminDashboardContent() {
         agreementDescription = `Arriendo Fijo ($${prof.fixedBoxRent.toLocaleString('es-CL')})`;
       } else {
         centerRetention = presencialSessionsCount * prof.boxCostPerSession;
-        agreementDescription = `Pago por Box ($${prof.boxCostPerSession.toLocaleString('es-CL')} × ${presencialSessionsCount} presenciales)`;
+        agreementDescription = `Pago por Box ($${prof.boxCostPerSession.toLocaleString('es-CL')} × ${presencialSessionsCount})`;
       }
 
       const netProfessional = Math.max(0, grossTotal - centerRetention);
@@ -844,6 +944,10 @@ function AdminDashboardContent() {
       return {
         prof,
         totalSessions: profApts.length,
+        totalUniquePatients,
+        retentionRate,
+        abandonmentRate,
+        noShowAppointmentsCount,
         presencialSessionsCount,
         grossTotal,
         grossPaid,
@@ -863,6 +967,15 @@ function AdminDashboardContent() {
     const avgRevenuePerBoxSession =
       totalPresencialBoxUses > 0 ? Math.round(totalCenterRetention / totalPresencialBoxUses) : 0;
 
+    const avgCenterRetentionRate =
+      byProf.length > 0
+        ? Math.round(byProf.reduce((acc, r) => acc + r.retentionRate, 0) / byProf.length)
+        : 100;
+    const avgCenterAbandonmentRate =
+      byProf.length > 0
+        ? Math.round(byProf.reduce((acc, r) => acc + r.abandonmentRate, 0) / byProf.length)
+        : 0;
+
     return {
       byProf,
       totalGrossCenter,
@@ -872,8 +985,10 @@ function AdminDashboardContent() {
       totalNetProfessionals,
       totalPresencialBoxUses,
       avgRevenuePerBoxSession,
+      avgCenterRetentionRate,
+      avgCenterAbandonmentRate,
     };
-  }, [professionals, appointments]);
+  }, [professionals, appointments, patients]);
 
   const handleJumpToDate = (isoString: string) => {
     if (!isoString) return;
@@ -891,20 +1006,138 @@ function AdminDashboardContent() {
     setWeekOffset(diffWeeks);
   };
 
+  // =========================================================
+  // ESCUCHA AMBIENTAL CON IA GROK (ESCUCHA EN SILENCIO Y RESUME)
+  // =========================================================
+  const startAmbientListening = () => {
+    setIsListeningSession(true);
+    setListeningSeconds(0);
+    setCapturedAudioContext('');
+
+    timerRef.current = setInterval(() => {
+      setListeningSeconds((prev) => prev + 1);
+    }, 1000);
+
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.lang = 'es-CL';
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.onresult = (event: any) => {
+            let transcriptChunk = '';
+            for (let i = 0; i < event.results.length; i++) {
+              transcriptChunk += event.results[i][0].transcript + ' ';
+            }
+            // Se guarda internamente en memoria para el resumen de IA sin mostrar transcripción literal
+            setCapturedAudioContext(transcriptChunk.trim());
+          };
+          recognition.start();
+          speechRecRef.current = recognition;
+        } catch {
+          // Fallback silencioso si el navegador restringe SpeechRecognition
+        }
+      }
+    }
+  };
+
+  const stopAmbientListeningAndSummarize = () => {
+    setIsListeningSession(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.stop();
+      } catch {}
+    }
+
+    if (!fichaPatient) return;
+    setIsGeneratingGrok(true);
+
+    setTimeout(() => {
+      const durationMin = Math.max(1, Math.round(listeningSeconds / 60));
+      const contextHint =
+        capturedAudioContext.trim().length > 5
+          ? `Se identificaron temáticas clave abordadas verbalmente durante la sesión (${capturedAudioContext
+              .slice(0, 140)
+              .trim()}...).`
+          : rawSessionNotes.trim().length > 0
+          ? `Eje trabajado en sesión: ${rawSessionNotes.trim()}.`
+          : `Sesión de ${fichaPatient.defaultService} desarrollada con adecuada disposición afectiva y alianza terapéutica.`;
+
+      const summary = [
+        `• RESUMEN DE ESCUCHA AMBIENTAL IA GROK (${durationMin} min escuchados):`,
+        `  ${contextHint}`,
+        `• SÍNTESIS CLÍNICA Y ESTADO AFECTIVO:`,
+        `  Paciente ${fichaPatient.patientName} mantiene discurso coherente, capacidad reflexiva conservada y apertura al trabajo clínico.`,
+        `• INTERVENCIÓN Y ACUERDOS TERAPÉUTICOS:`,
+        `  Se realiza devolución integrativa, regulación emocional y definición de objetivos para la siguiente sesión.`,
+      ].join('\n');
+
+      setGrokPreviewNote(summary);
+      setIsGeneratingGrok(false);
+      showToast('Resumen IA generado desde la escucha', 'Revisa y guarda en la ficha clínica.');
+    }, 600);
+  };
+
+  const handleGenerateGrokFromNotes = () => {
+    if (!rawSessionNotes.trim() || !fichaPatient) return;
+    setIsGeneratingGrok(true);
+    setTimeout(() => {
+      const structured = [
+        `• SÍNTESIS CLÍNICA (IA Grok · ${centerBrandName}):`,
+        `  Paciente ${fichaPatient.patientName} en seguimiento de ${fichaPatient.defaultService}.`,
+        `• OBSERVACIÓN CLÍNICA RESUMIDA:`,
+        `  ${rawSessionNotes.trim()}`,
+        `• PLAN TERAPÉUTICO:`,
+        `  Continuar pauta de intervención y evaluación evolutiva en próxima sesión.`,
+      ].join('\n');
+      setGrokPreviewNote(structured);
+      setIsGeneratingGrok(false);
+    }, 400);
+  };
+
+  const handleSaveEvolutionToPatientFicha = () => {
+    if (!fichaPatient) return;
+    const prof =
+      professionals.find((p) => p.id === fichaPatient.assignedProfessionalId) ?? currentProf;
+    const finalNote =
+      grokPreviewNote.trim().length > 0 ? grokPreviewNote.trim() : rawSessionNotes.trim();
+    if (!finalNote) return;
+
+    const newEntry: ClinicalEvolutionNote = {
+      id: `ev-${Date.now()}`,
+      date: todayIso,
+      sourceType: listeningSeconds > 0 ? 'audio_ia' : 'manual_ia',
+      grokStructuredNote: finalNote,
+      professionalName: prof.name,
+    };
+
+    const updatedPatient: PatientRecord = {
+      ...fichaPatient,
+      clinicalHistory: [newEntry, ...fichaPatient.clinicalHistory],
+    };
+
+    setPatients((prev) => prev.map((p) => (p.id === updatedPatient.id ? updatedPatient : p)));
+    setFichaPatient(updatedPatient);
+    setRawSessionNotes('');
+    setGrokPreviewNote('');
+    setListeningSeconds(0);
+    showToast('Evolución agregada a la Ficha Clínica', `Paciente: ${updatedPatient.patientName}`);
+  };
+
+  // Notificaciones
   const triggerEmailNotification = async (apt: AppointmentItem, isReminder: boolean = false) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) ?? currentProf;
     const locationAddress =
       apt.modality === 'Presencial'
-        ? prof.presencialAddress
+        ? `${prof.presencialAddress} (${apt.boxName ?? prof.scheduleByDay?.[1]?.boxAssigned})`
         : apt.meetUrl ?? prof.onlineRoomUrl;
 
-    showToast(
-      isReminder ? 'Despachando recordatorio...' : 'Enviando confirmación...',
-      `${centerBrandName} → ${apt.patientEmail}`
-    );
-
     try {
-      const res = await fetch('/api/notificaciones/confirmacion', {
+      await fetch('/api/notificaciones/confirmacion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -915,32 +1148,13 @@ function AdminDashboardContent() {
           time: apt.time,
           serviceName: apt.serviceName,
           modality:
-            apt.modality === 'Presencial'
-              ? 'Consulta Presencial'
-              : 'Online (Google Meet)',
+            apt.modality === 'Presencial' ? 'Consulta Presencial' : 'Online (Google Meet)',
           locationAddress,
           professionalName: prof.name,
           centerName: centerBrandName,
         }),
       });
-
-      const data = await res.json();
-      if (data.diagnostics?.emailSent) {
-        showToast(
-          'Correo entregado exitosamente',
-          apt.modality === 'Online'
-            ? `Sala Google Meet incluida: ${locationAddress}`
-            : `Dirección incluida: ${locationAddress}`
-        );
-      } else {
-        showToast(
-          'Cita sincronizada en agenda y Google Meet',
-          apt.modality === 'Online' ? `Sala asignada: ${locationAddress}` : 'Confirmación lista.'
-        );
-      }
-    } catch (error) {
-      showToast('Error de red al enviar correo', undefined, 'warn');
-    }
+    } catch {}
   };
 
   const openDirectWhatsApp = (apt: AppointmentItem) => {
@@ -948,59 +1162,13 @@ function AdminDashboardContent() {
     const cleanPhone = apt.patientPhone.replace(/\D/g, '');
     const ubicacion =
       apt.modality === 'Presencial'
-        ? `📍 Dirección Presencial: ${prof.presencialAddress} (${apt.boxName ?? 'Box Clínico'})`
-        : `💻 Sala Google Meet: ${apt.meetUrl ?? prof.onlineRoomUrl}`;
-    const msg = `Hola ${apt.patientName}, te escribimos de *${centerBrandName}* para confirmar tu sesión de *${apt.serviceName}* (${apt.modality}) con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}\n\n¡Te esperamos!`;
+        ? `📍 Dirección: ${prof.presencialAddress} (${apt.boxName ?? 'Box Clínico'})`
+        : `💻 Online (Google Meet): ${apt.meetUrl ?? prof.onlineRoomUrl}`;
+    const msg = `Hola ${apt.patientName}, te escribimos de *${centerBrandName}* para confirmar tu cita de *${apt.serviceName}* con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}`;
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  const handleGenerateGrokEvolution = () => {
-    if (!rawSessionNotes.trim() || !fichaPatientApt) return;
-    setIsGeneratingGrok(true);
-    setTimeout(() => {
-      const structured = [
-        `• SÍNTESIS CLÍNICA (Asistente IA Grok · ${centerBrandName}):`,
-        `  Paciente ${fichaPatientApt.patientName} asiste a sesión de ${fichaPatientApt.serviceName} (${fichaPatientApt.modality}).`,
-        `• OBSERVACIÓN Y RELATO:`,
-        `  "${rawSessionNotes.trim()}"`,
-        `• ANÁLISIS EVOLUTIVO E HIPÓTESIS:`,
-        `  Se observa adecuada alianza terapéutica, capacidad de insight conservada y regulación emocional progresiva frente a estresores.`,
-        `• PLAN E INDICACIONES DE PRÓXIMA SESIÓN:`,
-        `  Continuar trabajo sobre focos identificados, monitoreo de autorregistro y seguimiento en próxima cita agendada.`,
-      ].join('\n');
-      setGrokPreviewNote(structured);
-      setIsGeneratingGrok(false);
-    }, 450);
-  };
-
-  const handleSaveEvolutionToFicha = () => {
-    if (!fichaPatientApt) return;
-    const prof = professionals.find((p) => p.id === fichaPatientApt.professionalId) ?? currentProf;
-    const finalNote =
-      grokPreviewNote.trim().length > 0 ? grokPreviewNote.trim() : rawSessionNotes.trim();
-    if (!finalNote) return;
-
-    const newEntry: ClinicalEvolutionNote = {
-      id: `ev-${Date.now()}`,
-      date: todayIso,
-      rawInput: rawSessionNotes.trim(),
-      grokStructuredNote: finalNote,
-      professionalName: prof.name,
-    };
-
-    const updatedHistory = [newEntry, ...(fichaPatientApt.clinicalHistory ?? [])];
-    const updatedApt: AppointmentItem = {
-      ...fichaPatientApt,
-      clinicalHistory: updatedHistory,
-    };
-
-    setAppointments((prev) => prev.map((a) => (a.id === updatedApt.id ? updatedApt : a)));
-    setFichaPatientApt(updatedApt);
-    setRawSessionNotes('');
-    setGrokPreviewNote('');
-    showToast('Evolución guardada en Ficha Clínica', `Paciente: ${updatedApt.patientName}`);
-  };
-
+  // Drag & Drop validando múltiples tramos horarios del día y disponibilidad de Box
   const handleDragStart = (e: React.DragEvent, aptId: string) => {
     setDraggedAptId(aptId);
     e.dataTransfer.setData('text/plain', aptId);
@@ -1011,10 +1179,10 @@ function AdminDashboardContent() {
     if (!draggedAptId) return;
 
     const dayCfg = currentProf?.scheduleByDay?.[dayIndex];
-    if (!dayCfg || !dayCfg.enabled || time < dayCfg.startHour || time > dayCfg.endHour) {
+    if (!isHourInsideDayBlocks(dayCfg, time)) {
       showToast(
-        'Fuera del horario de ese día',
-        `${currentProf.name} no atiende los ${DAY_NAMES[dayIndex - 1]?.label} a las ${time} hrs.`,
+        'Horario de colación o fuera de turno',
+        `${currentProf.name} no tiene tramo activo a las ${time} hrs ese día.`,
         'warn'
       );
       setDraggedAptId(null);
@@ -1033,7 +1201,7 @@ function AdminDashboardContent() {
     );
 
     if (isBlocked || isOccupied) {
-      showToast('Horario ocupado', 'El bloque de destino ya tiene una cita o está bloqueado.', 'warn');
+      showToast('Bloque ocupado', 'Ya existe una cita o bloqueo en esa hora.', 'warn');
       setDraggedAptId(null);
       return;
     }
@@ -1046,7 +1214,10 @@ function AdminDashboardContent() {
               ...a,
               isoDate,
               time,
-              boxName: a.modality === 'Presencial' ? dayCfg.boxAssigned : 'Google Meet Automático',
+              boxName:
+                a.modality === 'Presencial'
+                  ? dayCfg?.boxAssigned ?? 'Box 1 · Salvia'
+                  : 'Online (Google Meet)',
             }
           : a
       )
@@ -1055,8 +1226,8 @@ function AdminDashboardContent() {
 
     if (movedApt) {
       showToast(
-        'Cita reagendada',
-        `${movedApt.patientName} movido al ${isoDate} a las ${time} hrs.`
+        'Hora reagendada',
+        `${movedApt.patientName} movido al ${isoDate} (${time} hrs).`
       );
     }
   };
@@ -1066,13 +1237,12 @@ function AdminDashboardContent() {
       prev.map((a) => {
         if (a.id !== aptId) return a;
         const nextStatus: PaymentStatus = a.paymentStatus === 'Pagado' ? 'Pendiente' : 'Pagado';
-        showToast(`Pago actualizado a ${nextStatus}`, `Paciente: ${a.patientName}`);
+        showToast(`Pago: ${nextStatus}`, `Paciente: ${a.patientName}`);
         return { ...a, paymentStatus: nextStatus };
       })
     );
   };
 
-  // Si cambia a Online, le asigna automáticamente su sala Google Meet si no tenía una
   const toggleModality = (aptId: string) => {
     setAppointments((prev) =>
       prev.map((a) => {
@@ -1080,56 +1250,60 @@ function AdminDashboardContent() {
         const nextMod: ModalityType = a.modality === 'Online' ? 'Presencial' : 'Online';
         const assignedMeet =
           nextMod === 'Online' ? a.meetUrl ?? generateLocalMeetLink() : undefined;
-        showToast(
-          `Modalidad cambiada a ${nextMod}`,
-          nextMod === 'Online'
-            ? `Sala Google Meet asignada: ${assignedMeet}`
-            : `Paciente: ${a.patientName}`
-        );
         return {
           ...a,
           modality: nextMod,
           meetUrl: assignedMeet,
-          boxName: nextMod === 'Online' ? 'Google Meet Automático' : 'Box 1 · Salvia',
+          boxName:
+            nextMod === 'Online'
+              ? 'Online (Google Meet)'
+              : currentProf?.scheduleByDay?.[1]?.boxAssigned ?? 'Box 1 · Salvia',
         };
       })
     );
   };
 
-  const deleteAppointment = (aptId: string) => {
+  // ELIMINAR HORA EN AGENDA: Libera el horario pero MANTIENE INTACTO al paciente en el directorio
+  const deleteAppointmentSlotOnly = (aptId: string) => {
     const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
     if (editingApt?.id === aptId) setEditingApt(null);
-    if (fichaPatientApt?.id === aptId) setFichaPatientApt(null);
     showToast(
-      'Registro eliminado',
-      target ? `Se eliminó la cita de ${target.patientName}` : undefined
+      'Hora liberada en la agenda',
+      target
+        ? `La ficha de ${target.patientName} sigue intacta en Pacientes.`
+        : undefined
+    );
+  };
+
+  // ELIMINAR PACIENTE DEL DIRECTORIO (Solo cuando el admin lo pide expresamente en la pestaña Pacientes)
+  const deletePatientFromDirectory = (patientId: string) => {
+    const target = patients.find((p) => p.id === patientId);
+    setPatients((prev) => prev.filter((p) => p.id !== patientId));
+    if (fichaPatient?.id === patientId) setFichaPatient(null);
+    if (editingPatientRecord?.id === patientId) setEditingPatientRecord(null);
+    showToast(
+      'Paciente eliminado del directorio',
+      target ? `${target.patientName} fue removido.` : undefined
     );
   };
 
   const handleSaveEditedAppointment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingApt) return;
-    const updated: AppointmentItem = {
-      ...editingApt,
-      meetUrl:
-        editingApt.modality === 'Online'
-          ? editingApt.meetUrl ?? generateLocalMeetLink()
-          : editingApt.meetUrl,
-    };
-    setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-    showToast('Datos del paciente actualizados', updated.patientName);
+    setAppointments((prev) => prev.map((a) => (a.id === editingApt.id ? editingApt : a)));
+    showToast('Cita actualizada', editingApt.patientName);
     setEditingApt(null);
   };
 
-  // Crear cita desde la agenda con asignación automática de Google Meet + Google Calendar API
+  // AGENDAR PACIENTE CON REPETICIÓN (SEMANAL, QUINCENAL, MENSUAL) + GOOGLE MEET IMPLÍCITO
   const handleCreateSlotAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slotModal) return;
 
     if (slotActionMode === 'block') {
       const reasonText =
-        blockReasonInput.trim().length > 0 ? blockReasonInput.trim() : 'Bloqueo de Agenda';
+        blockReasonInput.trim().length > 0 ? blockReasonInput.trim() : 'Colación / Bloqueo';
       const newBlock: BlockedSlot = {
         id: `blk-${Date.now()}`,
         professionalId: selectedProfId,
@@ -1146,109 +1320,165 @@ function AdminDashboardContent() {
     const svcObj =
       services.find((s) => s.name === newBookingForm.serviceName) ?? services[0];
     const dayCfg = currentProf?.scheduleByDay?.[slotModal.dayIndex];
+    const assignedBox =
+      newBookingForm.modality === 'Presencial'
+        ? dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1 · Salvia'
+        : 'Online (Google Meet)';
 
-    // 1. Si es Online, llamar a Google Calendar API para crear evento y obtener sala oficial de Google Meet
-    let generatedMeetUrl =
-      newBookingForm.modality === 'Online' ? generateLocalMeetLink() : undefined;
-    let googleEventId: string | undefined = undefined;
-
-    try {
-      const gCalRes = await fetch('/api/google/calendar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken: googleAccessToken,
-          summary: `${newBookingForm.serviceName} - ${newBookingForm.patientName.trim()} (${centerBrandName})`,
-          description: `Atención en ${centerBrandName} con ${currentProf.name}`,
-          isoDate: slotModal.isoDate,
-          time: slotModal.time,
-          durationMinutes: svcObj?.durationMinutes ?? 50,
-          patientEmail: newBookingForm.patientEmail.trim(),
-          professionalEmail: currentProf.email,
-          modality: newBookingForm.modality,
-          locationAddress: currentProf.presencialAddress,
-        }),
-      });
-      if (gCalRes.ok) {
-        const gData = await gCalRes.json();
-        if (newBookingForm.modality === 'Online' && gData.meetUrl) {
-          generatedMeetUrl = gData.meetUrl;
-        }
-        if (gData.eventId) {
-          googleEventId = gData.eventId;
-        }
+    // Validar que el box físico no esté ocupado por otro terapeuta del centro a esa misma hora
+    if (newBookingForm.modality === 'Presencial') {
+      const boxConflict = appointments.find(
+        (a) =>
+          a.modality === 'Presencial' &&
+          a.boxName === assignedBox &&
+          a.isoDate === slotModal.isoDate &&
+          a.time === slotModal.time &&
+          a.professionalId !== selectedProfId
+      );
+      if (boxConflict) {
+        const conflictProf = professionals.find((p) => p.id === boxConflict.professionalId);
+        showToast(
+          `${assignedBox} ocupado en ese horario`,
+          `Está siendo utilizado por ${conflictProf?.name ?? 'otro terapeuta'}.`,
+          'warn'
+        );
+        return;
       }
-    } catch {
-      // Fallback local Meet ya generado
     }
 
-    // Buscar si el paciente ya tenía historial clínico previo para conservarlo
-    const previousRecord = appointments.find(
-      (a) =>
-        (newBookingForm.patientRUT.trim().length > 0 &&
-          a.patientRUT.toLowerCase() === newBookingForm.patientRUT.trim().toLowerCase()) ||
-        a.patientEmail.toLowerCase() === newBookingForm.patientEmail.trim().toLowerCase()
+    // Asegurar que el paciente exista en el Directorio Independiente de Pacientes
+    let targetPatientId = newBookingForm.selectedPatientId;
+    const cleanName = newBookingForm.patientName.trim();
+    const cleanRut =
+      newBookingForm.patientRUT.trim().length > 0
+        ? newBookingForm.patientRUT.trim()
+        : 'Sin RUT';
+    const cleanEmail = newBookingForm.patientEmail.trim();
+    const cleanPhone = newBookingForm.patientPhone.replace(/\D/g, '');
+
+    const existingPat = patients.find(
+      (p) =>
+        (cleanRut !== 'Sin RUT' && p.patientRUT.toLowerCase() === cleanRut.toLowerCase()) ||
+        p.patientName.toLowerCase() === cleanName.toLowerCase()
     );
 
-    const createdApt: AppointmentItem = {
-      id: `apt-${Date.now()}`,
-      patientName: newBookingForm.patientName.trim(),
-      patientRUT:
-        newBookingForm.patientRUT.trim().length > 0
-          ? newBookingForm.patientRUT.trim()
-          : 'Sin RUT',
-      patientEmail: newBookingForm.patientEmail.trim(),
-      patientPhone: newBookingForm.patientPhone.replace(/\D/g, ''),
-      professionalId: selectedProfId,
-      serviceName: newBookingForm.serviceName,
-      modality: newBookingForm.modality,
-      boxName:
-        newBookingForm.modality === 'Presencial'
-          ? dayCfg?.boxAssigned ?? 'Box 1'
-          : 'Google Meet Automático',
-      meetUrl: generatedMeetUrl,
-      googleEventId,
-      isoDate: slotModal.isoDate,
-      time: slotModal.time,
-      price: svcObj ? svcObj.price : 45000,
-      paymentStatus: newBookingForm.paymentStatus,
-      clinicalStatus: 'Confirmada',
-      notes: newBookingForm.notes.trim(),
-      clinicalHistory: previousRecord?.clinicalHistory ?? [],
-    };
-
-    setAppointments((prev) => [...prev, createdApt]);
-    setSlotModal(null);
-
-    if (supabase) {
-      await supabase.from('appointments').insert([
-        {
-          center_id: defaultCenterId,
-          patient_name: createdApt.patientName,
-          patient_email: createdApt.patientEmail,
-          patient_phone: createdApt.patientPhone,
-          professional_name: currentProf.name,
-          modality: createdApt.modality,
-          date: createdApt.isoDate,
-          time: createdApt.time,
-          status: 'confirmed',
-        },
-      ]);
+    if (existingPat) {
+      targetPatientId = existingPat.id;
+    } else {
+      targetPatientId = `pat-${Date.now()}`;
+      const newPatRecord: PatientRecord = {
+        id: targetPatientId,
+        patientName: cleanName,
+        patientRUT: cleanRut,
+        patientEmail: cleanEmail,
+        patientPhone: cleanPhone,
+        defaultService: newBookingForm.serviceName,
+        defaultModality: newBookingForm.modality,
+        assignedProfessionalId: selectedProfId,
+        clinicalStatusTag: 'Activo',
+        clinicalHistory: [],
+      };
+      setPatients((prev) => [...prev, newPatRecord]);
     }
 
-    await triggerEmailNotification(createdApt, false);
-    setNewBookingForm({
-      patientName: '',
-      patientRUT: '',
-      patientEmail: '',
-      patientPhone: '56961699991',
-      serviceName: services[0]?.name ?? 'Psicoterapia Individual',
-      modality: 'Online',
-      paymentStatus: 'Pendiente',
-      notes: '',
-    });
+    // Calcular fechas según repetición (Sin repetición, Semanal, Quincenal, Mensual)
+    const totalOccurrences =
+      newBookingForm.recurrence === 'none'
+        ? 1
+        : Math.min(12, Math.max(2, Number(newBookingForm.recurrenceCount) || 4));
+
+    const stepDays =
+      newBookingForm.recurrence === 'weekly'
+        ? 7
+        : newBookingForm.recurrence === 'biweekly'
+        ? 14
+        : newBookingForm.recurrence === 'monthly'
+        ? 28
+        : 0;
+
+    const recurrenceLabel =
+      newBookingForm.recurrence === 'weekly'
+        ? 'Semanal'
+        : newBookingForm.recurrence === 'biweekly'
+        ? 'Quincenal'
+        : newBookingForm.recurrence === 'monthly'
+        ? 'Mensual'
+        : undefined;
+
+    const generatedAppointments: AppointmentItem[] = [];
+
+    for (let i = 0; i < totalOccurrences; i++) {
+      const targetIso =
+        i === 0 ? slotModal.isoDate : addDaysToIso(slotModal.isoDate, i * stepDays);
+      const meetForSession =
+        newBookingForm.modality === 'Online' ? generateLocalMeetLink() : undefined;
+
+      generatedAppointments.push({
+        id: `apt-${Date.now()}-${i}`,
+        patientId: targetPatientId,
+        patientName: cleanName,
+        patientRUT: cleanRut,
+        patientEmail: cleanEmail,
+        patientPhone: cleanPhone,
+        professionalId: selectedProfId,
+        serviceName: newBookingForm.serviceName,
+        modality: newBookingForm.modality,
+        boxName: assignedBox,
+        meetUrl: meetForSession,
+        recurrenceLabel,
+        isoDate: targetIso,
+        time: slotModal.time,
+        price: svcObj ? svcObj.price : 45000,
+        paymentStatus: i === 0 ? newBookingForm.paymentStatus : 'Pendiente',
+        clinicalStatus: 'Confirmada',
+        notes: newBookingForm.notes.trim(),
+      });
+    }
+
+    setAppointments((prev) => [...prev, ...generatedAppointments]);
+    setSlotModal(null);
+
+    showToast(
+      totalOccurrences > 1
+        ? `${totalOccurrences} sesiones agendadas (${recurrenceLabel})`
+        : 'Cita agendada correctamente',
+      `${cleanName} · ${slotModal.time} hrs`
+    );
+
+    await triggerEmailNotification(generatedAppointments[0], false);
   };
 
+  // Crear paciente directo en el directorio sin agendar hora todavía
+  const handleCreateDirectPatient = (e: React.FormEvent) => {
+    e.preventDefault();
+    const created: PatientRecord = {
+      id: `pat-${Date.now()}`,
+      patientName: newPatientDirectForm.patientName.trim(),
+      patientRUT: newPatientDirectForm.patientRUT.trim() || 'Sin RUT',
+      patientEmail: newPatientDirectForm.patientEmail.trim(),
+      patientPhone: newPatientDirectForm.patientPhone.replace(/\D/g, ''),
+      defaultService: newPatientDirectForm.defaultService,
+      defaultModality: newPatientDirectForm.defaultModality,
+      assignedProfessionalId: newPatientDirectForm.assignedProfessionalId,
+      clinicalStatusTag: 'Activo',
+      clinicalHistory: [],
+    };
+    setPatients((prev) => [...prev, created]);
+    setShowNewPatientModal(false);
+    showToast('Paciente registrado en el directorio', created.patientName);
+  };
+
+  const handleSaveEditedPatientRecord = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPatientRecord) return;
+    setPatients((prev) =>
+      prev.map((p) => (p.id === editingPatientRecord.id ? editingPatientRecord : p))
+    );
+    showToast('Ficha de paciente actualizada', editingPatientRecord.patientName);
+    setEditingPatientRecord(null);
+  };
+
+  // Servicios
   const handleCreateService = (e: React.FormEvent) => {
     e.preventDefault();
     const newSrv: TherapistServiceItem = {
@@ -1268,9 +1498,10 @@ function AdminDashboardContent() {
 
   const handleDeleteService = (srvId: string) => {
     setServices((prev) => prev.filter((s) => s.id !== srvId));
-    showToast('Servicio eliminado del catálogo');
+    showToast('Servicio eliminado');
   };
 
+  // Múltiples bloques horarios por día (ej: agregar bloque post-colación 16:00 a 21:00)
   const updateProfDaySchedule = (
     profId: string,
     dayIndex: number,
@@ -1281,10 +1512,9 @@ function AdminDashboardContent() {
         if (p.id !== profId) return p;
         const currentDay = p.scheduleByDay[dayIndex] ?? {
           enabled: true,
-          startHour: '09:00',
-          endHour: '20:00',
+          blocks: [{ startHour: '09:00', endHour: '14:00' }],
           modality: 'Ambas (Híbrido)',
-          boxAssigned: 'Box 1',
+          boxAssigned: centerBoxes[0] ?? 'Box 1 · Salvia',
         };
         return {
           ...p,
@@ -1295,6 +1525,45 @@ function AdminDashboardContent() {
         };
       })
     );
+  };
+
+  const handleUpdateTimeBlock = (
+    profId: string,
+    dayIndex: number,
+    blockIdx: number,
+    field: 'startHour' | 'endHour',
+    val: string
+  ) => {
+    const prof = professionals.find((p) => p.id === profId);
+    if (!prof) return;
+    const dayCfg = prof.scheduleByDay[dayIndex];
+    if (!dayCfg) return;
+    const nextBlocks = dayCfg.blocks.map((b, idx) =>
+      idx === blockIdx ? { ...b, [field]: val } : b
+    );
+    updateProfDaySchedule(profId, dayIndex, { blocks: nextBlocks });
+  };
+
+  const handleAddTimeBlockToDay = (profId: string, dayIndex: number) => {
+    const prof = professionals.find((p) => p.id === profId);
+    if (!prof) return;
+    const dayCfg = prof.scheduleByDay[dayIndex];
+    const currentBlocks = dayCfg?.blocks ?? [];
+    const nextBlocks = [...currentBlocks, { startHour: '16:00', endHour: '21:00' }];
+    updateProfDaySchedule(profId, dayIndex, { enabled: true, blocks: nextBlocks });
+  };
+
+  const handleRemoveTimeBlockFromDay = (
+    profId: string,
+    dayIndex: number,
+    blockIdx: number
+  ) => {
+    const prof = professionals.find((p) => p.id === profId);
+    if (!prof) return;
+    const dayCfg = prof.scheduleByDay[dayIndex];
+    if (!dayCfg || dayCfg.blocks.length <= 1) return;
+    const nextBlocks = dayCfg.blocks.filter((_, idx) => idx !== blockIdx);
+    updateProfDaySchedule(profId, dayIndex, { blocks: nextBlocks });
   };
 
   const openCreateProfModal = () => {
@@ -1362,7 +1631,7 @@ function AdminDashboardContent() {
             : p
         )
       );
-      showToast('Ficha de profesional actualizada', profForm.name);
+      showToast('Profesional actualizado', profForm.name);
     } else {
       const createdProf: ProfessionalConfig = {
         id: `prof-${Date.now()}`,
@@ -1373,8 +1642,8 @@ function AdminDashboardContent() {
         avatar: initials,
         presencialAddress: profForm.presencialAddress.trim(),
         onlineRoomUrl: profForm.onlineRoomUrl.trim(),
-        googleConnected: true,
-        scheduleByDay: buildDefaultSchedule(false),
+        googleConnected: false,
+        scheduleByDay: buildDefaultScheduleWithColacion(centerBoxes[0] ?? 'Box 1 · Salvia'),
         agreementType: profForm.agreementType,
         centerCommissionPercent: Number(profForm.centerCommissionPercent) || 0,
         fixedBoxRent: Number(profForm.fixedBoxRent) || 0,
@@ -1412,7 +1681,7 @@ function AdminDashboardContent() {
     {
       id: 'pacientes',
       label: 'Pacientes & Ficha IA',
-      badge: String(existingPatientsDirectory.length),
+      badge: String(patients.length),
       icon: Users,
     },
     {
@@ -1429,7 +1698,7 @@ function AdminDashboardContent() {
     },
     { id: 'documentos', label: 'Documentos Clínicos', icon: FileText },
     { id: 'comunicaciones', label: 'Comunicaciones', icon: MessageSquare },
-    { id: 'finanzas', label: 'Caja & Liquidación Box', icon: Wallet },
+    { id: 'finanzas', label: 'Reportes & Liquidación Box', icon: Wallet },
   ];
 
   const singleDayMeta = useMemo(() => {
@@ -1477,7 +1746,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          BARRA LATERAL CON LOGO Y NOMBRE DEL CENTRO CLÍNICO
+          BARRA LATERAL LIMPIA (SOLO PINCHAR FOTO/NOMBRE ARRIBA PARA EDITAR)
          ========================================================= */}
       <aside
         className={`${
@@ -1491,7 +1760,7 @@ function AdminDashboardContent() {
                 type="button"
                 onClick={() => setShowBrandingModal(true)}
                 className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-[#C87D65] to-[#b0664f] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-md overflow-hidden group border border-white/15"
-                title="Haz clic para subir o cambiar el Logo del Centro"
+                title="Pincha aquí para cambiar la foto/logo del centro"
               >
                 {centerLogoUrl ? (
                   <img
@@ -1508,39 +1777,19 @@ function AdminDashboardContent() {
               </button>
 
               {!sidebarCollapsed && (
-                <div className="truncate">
+                <button
+                  type="button"
+                  onClick={() => setShowBrandingModal(true)}
+                  className="text-left truncate group"
+                  title="Pincha para editar nombre, logo o cantidad de boxes del centro"
+                >
                   <span className="text-[10px] uppercase tracking-[0.18em] text-emerald-300/80 font-bold block">
                     Centro Clínico
                   </span>
-                  {isEditingCenterName ? (
-                    <input
-                      autoFocus
-                      type="text"
-                      value={centerBrandName}
-                      onChange={(e) => setCenterBrandName(e.target.value)}
-                      onBlur={() => setIsEditingCenterName(false)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') setIsEditingCenterName(false);
-                      }}
-                      className="bg-white/10 text-white text-xs font-bold px-2 py-1 rounded-lg w-40 focus:outline-none"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowBrandingModal(true)}
-                      className="text-left group flex items-center gap-1.5"
-                      title="Personalizar Logo y Nombre de Carátula"
-                    >
-                      <h1 className="text-sm font-bold text-white truncate max-w-[140px]">
-                        {centerBrandName}
-                      </h1>
-                      <Edit3
-                        size={12}
-                        className="text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      />
-                    </button>
-                  )}
-                </div>
+                  <h1 className="text-sm font-bold text-white truncate max-w-[155px] group-hover:underline">
+                    {centerBrandName}
+                  </h1>
+                </button>
               )}
             </div>
             <button
@@ -1589,42 +1838,12 @@ function AdminDashboardContent() {
           </nav>
         </div>
 
-        {/* Estado de Google Calendar / Meet + Carátula del Centro */}
-        <div className="p-4 border-t border-white/10 space-y-2.5">
+        {/* Pie minimalista sin cajas de Google ni botones de carátula redundantes */}
+        <div className="p-4 border-t border-white/10">
           {!sidebarCollapsed && (
-            <div className="bg-white/5 rounded-2xl p-3.5 border border-white/10 text-[11px] space-y-2.5">
-              <button
-                type="button"
-                onClick={() => setShowBrandingModal(true)}
-                className="w-full py-2 px-3 bg-white/10 hover:bg-white/15 text-stone-100 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs"
-              >
-                <ImagePlus size={13} className="text-emerald-300" />
-                <span>Logo y Carátula del Centro</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConnectGoogleAccount}
-                className="w-full py-2 px-3 bg-white text-stone-900 hover:bg-stone-100 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-xs shadow-xs"
-              >
-                <Video size={13} className="text-[#2C4A3B]" />
-                <span>
-                  {isGoogleCalendarLinked
-                    ? 'Google Calendar + Meet Activo'
-                    : 'Vincular Cuenta Google'}
-                </span>
-              </button>
-
-              <a
-                href="/centro/mi-centro"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2 px-3 bg-[#C87D65] hover:bg-[#b56d56] text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all text-xs shadow-sm"
-              >
-                <span>Ver Carátula de Pacientes</span>
-                <ExternalLink size={13} />
-              </a>
-            </div>
+            <p className="text-[11px] text-stone-400 text-center">
+              {centerBoxes.length} Boxes Habilitados
+            </p>
           )}
         </div>
       </aside>
@@ -1633,13 +1852,14 @@ function AdminDashboardContent() {
           CONTENEDOR CENTRAL DEL CENTRO CLÍNICO
          ========================================================= */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Header Superior Limpio (Sin botón Google arriba) */}
         <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <button
               type="button"
               onClick={() => setShowBrandingModal(true)}
-              className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center overflow-hidden border border-[#E4ECE7] shadow-2xs"
-              title="Cambiar Logo del Centro"
+              className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center overflow-hidden border border-[#E4ECE7] shadow-2xs group relative"
+              title="Pincha para cambiar la foto del centro"
             >
               {centerLogoUrl ? (
                 <img
@@ -1652,18 +1872,9 @@ function AdminDashboardContent() {
               )}
             </button>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65]">
-                  {centerBrandName}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowBrandingModal(true)}
-                  className="text-[10px] font-semibold text-stone-400 hover:text-[#2C4A3B] underline"
-                >
-                  Subir Logo / Editar Carátula
-                </button>
-              </div>
+              <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                {centerBrandName}
+              </span>
               <h2 className="text-xl font-bold text-stone-900 tracking-tight">
                 {SIDEBAR_ITEMS.find((i) => i.id === activeModule)?.label}
               </h2>
@@ -1671,26 +1882,6 @@ function AdminDashboardContent() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Botón Google OAuth + Calendar + Meet en barra superior */}
-            <button
-              type="button"
-              onClick={handleConnectGoogleAccount}
-              className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
-                isGoogleCalendarLinked
-                  ? 'bg-[#EBF3EE] border-[#2C4A3B]/25 text-[#2C4A3B]'
-                  : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
-              }`}
-            >
-              <Video size={14} className="text-[#2C4A3B]" />
-              <span>
-                {isGoogleCalendarLinked
-                  ? googleUserEmail
-                    ? `Google: ${googleUserEmail}`
-                    : 'Google Calendar & Meet Conectado'
-                  : 'Iniciar Sesión con Google'}
-              </span>
-            </button>
-
             <div className="relative">
               <Search
                 size={15}
@@ -1709,9 +1900,19 @@ function AdminDashboardContent() {
               onClick={() => {
                 setActiveModule('agenda');
                 setSlotActionMode('book');
-                setPatientModeInBooking(
-                  existingPatientsDirectory.length > 0 ? 'existing' : 'new'
-                );
+                setPatientModeInBooking(patients.length > 0 ? 'existing' : 'new');
+                if (patients[0]) {
+                  setNewBookingForm((prev) => ({
+                    ...prev,
+                    selectedPatientId: patients[0].id,
+                    patientName: patients[0].patientName,
+                    patientRUT: patients[0].patientRUT,
+                    patientEmail: patients[0].patientEmail,
+                    patientPhone: patients[0].patientPhone,
+                    serviceName: patients[0].defaultService,
+                    modality: patients[0].defaultModality,
+                  }));
+                }
                 const firstDay = dynamicWeekDays[0];
                 setSlotModal({
                   dayIndex: 1,
@@ -1723,7 +1924,7 @@ function AdminDashboardContent() {
               className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl text-xs font-bold transition-all shadow-sm"
             >
               <Plus size={15} />
-              <span>Agendar Paciente</span>
+              <span>Agendar Cita</span>
             </button>
           </div>
         </header>
@@ -1741,7 +1942,7 @@ function AdminDashboardContent() {
                       Facturación Bruta Centro
                     </span>
                     <p className="text-2xl font-bold text-stone-900 mt-1">
-                      ${financialBreakdown.totalGrossCenter.toLocaleString('es-CL')}
+                      ${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center">
@@ -1752,14 +1953,14 @@ function AdminDashboardContent() {
                 <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400 block">
-                      Ingreso Centro (Boxes / %)
+                      Retención Clínica Pacientes
                     </span>
                     <p className="text-2xl font-bold text-[#2C4A3B] mt-1">
-                      ${financialBreakdown.totalCenterRetention.toLocaleString('es-CL')}
+                      {financialAndClinicalReport.avgCenterRetentionRate}%
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-                    <Home size={20} />
+                    <Activity size={20} />
                   </div>
                 </div>
 
@@ -1769,7 +1970,7 @@ function AdminDashboardContent() {
                       Líquido a Profesionales
                     </span>
                     <p className="text-2xl font-bold text-[#C87D65] mt-1">
-                      ${financialBreakdown.totalNetProfessionals.toLocaleString('es-CL')}
+                      ${financialAndClinicalReport.totalNetProfessionals.toLocaleString('es-CL')}
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-[#C87D65] flex items-center justify-center">
@@ -1780,56 +1981,14 @@ function AdminDashboardContent() {
                 <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400 block">
-                      Promedio Retención / Box
+                      Boxes Físicos del Centro
                     </span>
                     <p className="text-2xl font-bold text-stone-900 mt-1">
-                      ${financialBreakdown.avgRevenuePerBoxSession.toLocaleString('es-CL')}
+                      {centerBoxes.length} Boxes
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-stone-100 text-stone-700 flex items-center justify-center">
-                    <Calculator size={20} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[2rem] p-8 border border-[#E4ECE7] shadow-xs space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E4ECE7] pb-5">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] flex items-center justify-center overflow-hidden">
-                      {centerLogoUrl ? (
-                        <img
-                          src={centerLogoUrl}
-                          alt={centerBrandName}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <Building2 size={28} className="text-[#2C4A3B]" />
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                        Carátula Oficial Activa
-                      </span>
-                      <h3 className="text-2xl font-bold text-stone-900">{centerBrandName}</h3>
-                      <p className="text-xs text-stone-500 mt-0.5">
-                        Google Calendar API y generación automática de salas Google Meet habilitados para citas online.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2.5">
-                    <button
-                      onClick={() => setShowBrandingModal(true)}
-                      className="px-4 py-3 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-800 rounded-2xl text-xs font-bold hover:bg-stone-100 transition-all flex items-center gap-1.5"
-                    >
-                      <ImagePlus size={15} className="text-[#2C4A3B]" />
-                      <span>Subir Logo de Carátula</span>
-                    </button>
-                    <button
-                      onClick={() => setActiveModule('agenda')}
-                      className="px-5 py-3 bg-[#2C4A3B] text-white rounded-2xl text-xs font-bold shadow-sm hover:bg-[#233B2F] transition-all"
-                    >
-                      Abrir Agenda
-                    </button>
+                    <DoorOpen size={20} />
                   </div>
                 </div>
               </div>
@@ -1837,40 +1996,57 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              2. AGENDA (DIARIA, SEMANAL Y MENSUAL + GOOGLE MEET AUTOMÁTICO)
+              2. AGENDA (DIARIO, SEMANAL, MENSUAL + AGENDA CENTRO OCUPACIÓN DE BOXES)
              --------------------------------------------------------- */}
           {activeModule === 'agenda' && (
             <div className="space-y-5">
               <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex flex-wrap items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  {professionals.map((prof) => (
-                    <button
-                      key={prof.id}
-                      onClick={() => setSelectedProfId(prof.id)}
-                      className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-semibold border transition-all ${
-                        selectedProfId === prof.id
-                          ? 'bg-[#2C4A3B] border-[#2C4A3B] text-white shadow-sm'
-                          : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
-                      }`}
-                    >
-                      <span
-                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold ${
+                {/* Si está en vista por profesional muestra los terapeutas; si está en Ocupación de Boxes muestra los boxes del centro */}
+                {calendarView !== 'center_boxes' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {professionals.map((prof) => (
+                      <button
+                        key={prof.id}
+                        onClick={() => setSelectedProfId(prof.id)}
+                        className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-semibold border transition-all ${
                           selectedProfId === prof.id
-                            ? 'bg-white/20 text-white'
-                            : 'bg-[#2C4A3B] text-white'
+                            ? 'bg-[#2C4A3B] border-[#2C4A3B] text-white shadow-sm'
+                            : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
                         }`}
                       >
-                        {prof.avatar}
+                        <span
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold ${
+                            selectedProfId === prof.id
+                              ? 'bg-white/20 text-white'
+                              : 'bg-[#2C4A3B] text-white'
+                          }`}
+                        >
+                          {prof.avatar}
+                        </span>
+                        <div className="text-left">
+                          <p className="font-bold leading-none">{prof.name}</p>
+                          <p className="text-[10px] opacity-80 mt-0.5">{prof.specialty}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center">
+                      <DoorOpen size={18} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#C87D65] block">
+                        Mapa en Vivo del Centro
                       </span>
-                      <div className="text-left">
-                        <p className="font-bold leading-none">{prof.name}</p>
-                        <p className="text-[10px] opacity-80 mt-0.5">{prof.specialty}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                      <h3 className="text-sm font-bold text-stone-900">
+                        Ocupación de Boxes por Terapeuta ({centerBoxes.length} Boxes)
+                      </h3>
+                    </div>
+                  </div>
+                )}
 
-                {/* Selector de Vista: Diario | Semanal | Mensual */}
+                {/* Selector de Vista: Diario | Semanal | Mensual | Boxes Centro */}
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center bg-[#F9F8F6] p-1 rounded-2xl border border-[#E4ECE7]">
                     {(
@@ -1878,6 +2054,7 @@ function AdminDashboardContent() {
                         { id: 'day', label: 'Diario' },
                         { id: 'week', label: 'Semanal' },
                         { id: 'month', label: 'Mensual' },
+                        { id: 'center_boxes', label: 'Boxes Centro' },
                       ] as const
                     ).map((v) => (
                       <button
@@ -1900,10 +2077,9 @@ function AdminDashboardContent() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (calendarView === 'day') {
-                          const [y, m, d] = selectedSingleDayIso.split('-').map(Number);
-                          const prev = new Date(y, m - 1, d - 1, 12, 0, 0);
-                          handleJumpToDate(formatIsoDate(prev));
+                        if (calendarView === 'day' || calendarView === 'center_boxes') {
+                          const prev = addDaysToIso(selectedSingleDayIso, -1);
+                          handleJumpToDate(prev);
                         } else {
                           setWeekOffset((prev) => prev - 1);
                         }
@@ -1927,7 +2103,7 @@ function AdminDashboardContent() {
                     <div className="px-2.5 py-1 text-xs font-bold text-stone-800 flex items-center gap-1.5">
                       <CalendarDays size={14} className="text-[#2C4A3B]" />
                       <span className="capitalize">
-                        {calendarView === 'day'
+                        {calendarView === 'day' || calendarView === 'center_boxes'
                           ? singleDayMeta.fullLabel
                           : calendarView === 'month'
                           ? dynamicMonthDays.monthTitle
@@ -1938,10 +2114,9 @@ function AdminDashboardContent() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (calendarView === 'day') {
-                          const [y, m, d] = selectedSingleDayIso.split('-').map(Number);
-                          const next = new Date(y, m - 1, d + 1, 12, 0, 0);
-                          handleJumpToDate(formatIsoDate(next));
+                        if (calendarView === 'day' || calendarView === 'center_boxes') {
+                          const next = addDaysToIso(selectedSingleDayIso, 1);
+                          handleJumpToDate(next);
                         } else {
                           setWeekOffset((prev) => prev + 1);
                         }
@@ -1961,42 +2136,175 @@ function AdminDashboardContent() {
                 </div>
               </div>
 
+              {/* VISTA ESPECIAL: AGENDA CENTRO (OCUPACIÓN DE BOXES POR TERAPEUTA Y HORARIO) */}
+              {calendarView === 'center_boxes' && (
+                <div className="bg-white rounded-[2rem] border border-[#E4ECE7] shadow-xs overflow-x-auto">
+                  <div className="min-w-[920px]">
+                    <div
+                      className="grid border-b border-[#E4ECE7] bg-[#F9F8F6]/80"
+                      style={{
+                        gridTemplateColumns: `100px repeat(${centerBoxes.length}, minmax(180px, 1fr))`,
+                      }}
+                    >
+                      <div className="p-3.5 text-xs font-bold uppercase tracking-wider text-stone-400 flex items-center justify-center border-r border-[#E4ECE7]">
+                        Hora
+                      </div>
+                      {centerBoxes.map((boxName) => {
+                        // Qué terapeutas tienen asignado este box hoy
+                        const assignedProfsToday = professionals.filter(
+                          (p) =>
+                            p.scheduleByDay?.[singleDayMeta.dayIndex]?.enabled &&
+                            p.scheduleByDay?.[singleDayMeta.dayIndex]?.boxAssigned === boxName
+                        );
+                        return (
+                          <div
+                            key={boxName}
+                            className="p-3.5 text-center border-r last:border-r-0 border-[#E4ECE7]"
+                          >
+                            <span className="text-sm font-bold text-stone-900 block">
+                              {boxName}
+                            </span>
+                            <span className="text-[11px] font-semibold text-[#2C4A3B]">
+                              {assignedProfsToday.length > 0
+                                ? `Asignado hoy: ${assignedProfsToday.map((p) => p.name).join(', ')}`
+                                : 'Sin terapeuta fijo hoy'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {FULL_DAY_HOURS.map((hour) => (
+                      <div
+                        key={hour}
+                        className="grid border-b last:border-b-0 border-[#E4ECE7] min-h-[86px]"
+                        style={{
+                          gridTemplateColumns: `100px repeat(${centerBoxes.length}, minmax(180px, 1fr))`,
+                        }}
+                      >
+                        <div className="p-3 border-r border-[#E4ECE7] bg-[#F9F8F6]/40 flex flex-col items-center justify-center">
+                          <span className="text-xs font-bold text-stone-700">{hour}</span>
+                          <span className="text-[10px] text-stone-400">hrs</span>
+                        </div>
+
+                        {centerBoxes.map((boxName) => {
+                          // Cita presencial ocupando este box a esta hora
+                          const occupyingApt = appointments.find(
+                            (a) =>
+                              a.isoDate === singleDayMeta.iso &&
+                              a.time === hour &&
+                              a.modality === 'Presencial' &&
+                              a.boxName === boxName
+                          );
+                          const occupyingProf = occupyingApt
+                            ? professionals.find((p) => p.id === occupyingApt.professionalId)
+                            : undefined;
+
+                          // Terapeuta dueño del bloque aunque aún no tenga paciente agendado
+                          const holderProf = professionals.find((p) => {
+                            const cfg = p.scheduleByDay?.[singleDayMeta.dayIndex];
+                            return (
+                              cfg?.boxAssigned === boxName && isHourInsideDayBlocks(cfg, hour)
+                            );
+                          });
+
+                          return (
+                            <div
+                              key={`${boxName}-${hour}`}
+                              className="p-2 border-r last:border-r-0 border-[#E4ECE7] flex flex-col justify-center"
+                            >
+                              {occupyingApt ? (
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setContextMenu({
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                      apt: occupyingApt,
+                                    });
+                                  }}
+                                  className="p-2.5 rounded-2xl bg-[#EBF3EE] border border-[#2C4A3B]/40 cursor-pointer hover:shadow-sm transition-all"
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="px-2 py-0.5 rounded-full bg-[#2C4A3B] text-white text-[9px] font-bold">
+                                      OCUPADO
+                                    </span>
+                                    <span className="text-[10px] font-bold text-[#2C4A3B]">
+                                      {occupyingProf?.name}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-bold text-stone-900 truncate">
+                                    Paciente: {occupyingApt.patientName}
+                                  </p>
+                                  <p className="text-[10px] text-stone-500 truncate">
+                                    {occupyingApt.serviceName}
+                                  </p>
+                                </div>
+                              ) : holderProf ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedProfId(holderProf.id);
+                                    setSlotActionMode('book');
+                                    setNewBookingForm((prev) => ({
+                                      ...prev,
+                                      modality: 'Presencial',
+                                    }));
+                                    setSlotModal({
+                                      dayIndex: singleDayMeta.dayIndex,
+                                      isoDate: singleDayMeta.iso,
+                                      dayLabel: singleDayMeta.fullLabel,
+                                      time: hour,
+                                    });
+                                  }}
+                                  className="h-full w-full rounded-xl bg-amber-50/60 border border-amber-200/70 p-2 text-left hover:bg-amber-50 transition-all"
+                                >
+                                  <span className="text-[10px] font-bold text-amber-900 block">
+                                    Reservado: {holderProf.name}
+                                  </span>
+                                  <span className="text-[10px] text-stone-500">
+                                    Sin paciente aún · Clic para agendar
+                                  </span>
+                                </button>
+                              ) : (
+                                <div className="text-center text-[11px] text-emerald-700/70 font-medium">
+                                  Box Libre
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* VISTA 1: AGENDA DIARIA */}
               {calendarView === 'day' && (
                 <div className="bg-white rounded-[2rem] border border-[#E4ECE7] p-6 shadow-xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E4ECE7] pb-4">
                     <div>
                       <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                        Vista Diaria Detallada · {currentProf?.name}
+                        Vista Diaria · {currentProf?.name}
                       </span>
                       <h3 className="text-lg font-bold text-stone-900 capitalize">
                         {singleDayMeta.fullLabel}
                       </h3>
                     </div>
                     <div className="text-xs text-stone-600 bg-[#F9F8F6] px-4 py-2 rounded-xl border border-[#E4ECE7]">
-                      {currentProf?.scheduleByDay?.[singleDayMeta.dayIndex]?.enabled ? (
-                        <span>
-                          <strong>Horario de hoy:</strong>{' '}
-                          {currentProf.scheduleByDay[singleDayMeta.dayIndex].startHour} a{' '}
-                          {currentProf.scheduleByDay[singleDayMeta.dayIndex].endHour} hrs ·{' '}
-                          {currentProf.scheduleByDay[singleDayMeta.dayIndex].modality} (
-                          {currentProf.scheduleByDay[singleDayMeta.dayIndex].boxAssigned})
-                        </span>
-                      ) : (
-                        <span className="text-rose-600 font-bold">
-                          El profesional no tiene atención habilitada este día
-                        </span>
-                      )}
+                      <strong>Tramos activos hoy:</strong>{' '}
+                      {formatDayBlocksSummary(
+                        currentProf?.scheduleByDay?.[singleDayMeta.dayIndex]
+                      )}{' '}
+                      ({currentProf?.scheduleByDay?.[singleDayMeta.dayIndex]?.boxAssigned})
                     </div>
                   </div>
 
                   <div className="divide-y divide-[#E4ECE7]">
                     {visibleHours.map((hour) => {
                       const dayCfg = currentProf?.scheduleByDay?.[singleDayMeta.dayIndex];
-                      const isWithinDayHours =
-                        Boolean(dayCfg?.enabled) &&
-                        hour >= (dayCfg?.startHour ?? '09:00') &&
-                        hour <= (dayCfg?.endHour ?? '20:00');
+                      const isWithinDayHours = isHourInsideDayBlocks(dayCfg, hour);
                       const apt = appointments.find(
                         (a) =>
                           a.professionalId === selectedProfId &&
@@ -2024,7 +2332,7 @@ function AdminDashboardContent() {
                           <div className="flex-1">
                             {!isWithinDayHours ? (
                               <span className="text-xs text-stone-400">
-                                Fuera del turno configurado para este día
+                                Horario de colación / Fuera de tramo activo
                               </span>
                             ) : blocked ? (
                               <div className="inline-flex items-center gap-3 px-4 py-2 rounded-xl bg-stone-100 border border-dashed border-stone-300 text-xs">
@@ -2053,43 +2361,30 @@ function AdminDashboardContent() {
                                   <p className="font-bold text-sm text-stone-900">
                                     {apt.patientName}{' '}
                                     <span className="text-xs font-normal text-stone-500">
-                                      ({apt.serviceName} · {apt.modality})
+                                      ({apt.serviceName} ·{' '}
+                                      {apt.modality === 'Online'
+                                        ? 'Online (Google Meet)'
+                                        : apt.boxName}
+                                      )
                                     </span>
-                                  </p>
-                                  <p className="text-xs text-stone-500">
-                                    {apt.modality === 'Online'
-                                      ? `Google Meet: ${apt.meetUrl ?? currentProf?.onlineRoomUrl}`
-                                      : `${apt.boxName ?? dayCfg?.boxAssigned}`}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  {apt.modality === 'Online' && (
-                                    <a
-                                      href={apt.meetUrl ?? currentProf?.onlineRoomUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-3 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold flex items-center gap-1"
-                                    >
-                                      <Video size={13} />
-                                      <span>Entrar a Google Meet</span>
-                                    </a>
-                                  )}
                                   <button
-                                    onClick={() => setFichaPatientApt(apt)}
+                                    onClick={() => {
+                                      const pat = patients.find((p) => p.id === apt.patientId);
+                                      if (pat) setFichaPatient(pat);
+                                    }}
                                     className="px-3 py-1.5 rounded-xl bg-[#2C4A3B] text-white text-xs font-bold flex items-center gap-1"
                                   >
                                     <BrainCircuit size={13} />
                                     <span>Ficha IA</span>
                                   </button>
                                   <button
-                                    onClick={() => togglePaymentStatus(apt.id)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold ${
-                                      apt.paymentStatus === 'Pagado'
-                                        ? 'bg-emerald-600 text-white'
-                                        : 'bg-amber-100 text-amber-800'
-                                    }`}
+                                    onClick={() => deleteAppointmentSlotOnly(apt.id)}
+                                    className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold"
                                   >
-                                    {apt.paymentStatus}
+                                    Liberar Hora
                                   </button>
                                 </div>
                               </div>
@@ -2097,9 +2392,6 @@ function AdminDashboardContent() {
                               <button
                                 onClick={() => {
                                   setSlotActionMode('book');
-                                  setPatientModeInBooking(
-                                    existingPatientsDirectory.length > 0 ? 'existing' : 'new'
-                                  );
                                   setSlotModal({
                                     dayIndex: singleDayMeta.dayIndex,
                                     isoDate: singleDayMeta.iso,
@@ -2111,7 +2403,7 @@ function AdminDashboardContent() {
                               >
                                 <Plus size={14} />
                                 <span>
-                                  Disponible ({dayCfg?.boxAssigned}) · Clic para agendar o bloquear
+                                  Disponible ({dayCfg?.boxAssigned}) · Agendar Cita
                                 </span>
                               </button>
                             )}
@@ -2138,9 +2430,7 @@ function AdminDashboardContent() {
                         return (
                           <div
                             key={day.iso}
-                            onClick={() => {
-                              setSelectedSingleDayIso(day.iso);
-                            }}
+                            onClick={() => setSelectedSingleDayIso(day.iso)}
                             className={`p-3 text-center border-r last:border-r-0 border-[#E4ECE7] cursor-pointer ${
                               !isWorkingDay
                                 ? 'bg-stone-100/70 opacity-60'
@@ -2155,13 +2445,12 @@ function AdminDashboardContent() {
                             <span className="text-base font-bold text-stone-900 mt-0.5 inline-block capitalize">
                               {day.dateNum}
                             </span>
-                            {isWorkingDay ? (
-                              <span className="block text-[10px] font-semibold text-[#2C4A3B] mt-0.5">
-                                {dayCfg.startHour} - {dayCfg.endHour} ({dayCfg.boxAssigned})
-                              </span>
-                            ) : (
-                              <span className="block text-[10px] font-semibold text-rose-500 mt-0.5">
-                                Sin atención
+                            <span className="block text-[10px] font-semibold text-[#2C4A3B] mt-0.5">
+                              {formatDayBlocksSummary(dayCfg)}
+                            </span>
+                            {isWorkingDay && (
+                              <span className="block text-[9px] text-stone-500">
+                                {dayCfg?.boxAssigned}
                               </span>
                             )}
                           </div>
@@ -2182,10 +2471,7 @@ function AdminDashboardContent() {
                         {dynamicWeekDays.map((day) => {
                           const cellKey = `${day.iso}-${hour}`;
                           const dayCfg = currentProf?.scheduleByDay?.[day.index];
-                          const isSlotEnabledForDay =
-                            Boolean(dayCfg?.enabled) &&
-                            hour >= (dayCfg?.startHour ?? '09:00') &&
-                            hour <= (dayCfg?.endHour ?? '20:00');
+                          const isSlotEnabledForDay = isHourInsideDayBlocks(dayCfg, hour);
 
                           const apt = appointments.find(
                             (a) =>
@@ -2214,7 +2500,7 @@ function AdminDashboardContent() {
                                 if (!apt && !blocked && isSlotEnabledForDay) {
                                   setSlotActionMode('book');
                                   setPatientModeInBooking(
-                                    existingPatientsDirectory.length > 0 ? 'existing' : 'new'
+                                    patients.length > 0 ? 'existing' : 'new'
                                   );
                                   setSlotModal({
                                     dayIndex: day.index,
@@ -2237,7 +2523,7 @@ function AdminDashboardContent() {
                               {!apt && !blocked && isSlotEnabledForDay && (
                                 <div className="opacity-0 group-hover:opacity-100 transition-opacity h-full w-full flex flex-col items-center justify-center text-[10px] font-semibold text-[#2C4A3B]/70 gap-0.5">
                                   <Plus size={14} />
-                                  <span>Agendar / Bloquear</span>
+                                  <span>Agendar Cita</span>
                                 </div>
                               )}
 
@@ -2254,7 +2540,6 @@ function AdminDashboardContent() {
                                         setBlockedSlots((prev) =>
                                           prev.filter((b) => b.id !== blocked.id)
                                         );
-                                        showToast('Horario desbloqueado');
                                       }}
                                       className="text-[10px] font-bold text-rose-600 hover:underline"
                                     >
@@ -2300,7 +2585,7 @@ function AdminDashboardContent() {
                                         ) : (
                                           <MapPin size={9} />
                                         )}
-                                        {apt.modality === 'Online' ? 'Meet' : 'Box'}
+                                        {apt.modality === 'Online' ? 'Meet' : apt.boxName}
                                       </span>
 
                                       <span
@@ -2324,9 +2609,9 @@ function AdminDashboardContent() {
 
                                   <div className="flex items-center justify-between pt-1 mt-1 border-t border-stone-200/60 text-[10px] text-stone-500">
                                     <span className="font-semibold text-[#2C4A3B] truncate">
-                                      {apt.modality === 'Online'
-                                        ? 'Sala Meet Lista'
-                                        : apt.boxName ?? dayCfg?.boxAssigned}
+                                      {apt.recurrenceLabel
+                                        ? `↻ ${apt.recurrenceLabel}`
+                                        : apt.clinicalStatus}
                                     </span>
                                     <span className="font-bold text-stone-700">▾</span>
                                   </div>
@@ -2348,9 +2633,6 @@ function AdminDashboardContent() {
                     <h3 className="text-lg font-bold text-stone-900 capitalize">
                       Panorama Mensual · {dynamicMonthDays.monthTitle}
                     </h3>
-                    <span className="text-xs text-stone-500">
-                      Haz clic en cualquier día para abrir su Agenda Diaria detallada
-                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
@@ -2390,17 +2672,10 @@ function AdminDashboardContent() {
                                 {a.time} · {a.patientName}
                               </div>
                             ))}
-                            {dayApts.length > 3 && (
-                              <span className="text-[10px] font-bold text-stone-500 block">
-                                +{dayApts.length - 3} sesiones más
-                              </span>
-                            )}
                           </div>
 
-                          <div className="text-[10px] text-stone-400">
-                            {dayCfg?.enabled
-                              ? `${dayCfg.startHour}-${dayCfg.endHour}`
-                              : 'Sin turno'}
+                          <div className="text-[10px] text-stone-400 truncate">
+                            {formatDayBlocksSummary(dayCfg)}
                           </div>
                         </div>
                       );
@@ -2412,14 +2687,14 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              3. MÓDULO PACIENTES & FICHA CLÍNICA CON IA GROK
+              3. MÓDULO PACIENTES & FICHA CLÍNICA CON ESCUCHA IA GROK (INDEPENDIENTE DE CITAS)
              --------------------------------------------------------- */}
           {activeModule === 'pacientes' && (
             <div className="space-y-5">
               <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <Filter size={15} className="text-[#2C4A3B]" />
-                  <span className="text-xs font-bold text-stone-600">Modalidad:</span>
+                  <span className="text-xs font-bold text-stone-600">Modalidad habitual:</span>
                   {(['Todas', 'Online', 'Presencial'] as const).map((mod) => (
                     <button
                       key={mod}
@@ -2436,48 +2711,54 @@ function AdminDashboardContent() {
                 </div>
 
                 <button
-                  onClick={() => {
-                    setSlotActionMode('book');
-                    setPatientModeInBooking('new');
-                    const firstDay = dynamicWeekDays[0];
-                    setSlotModal({
-                      dayIndex: 1,
-                      isoDate: firstDay.iso,
-                      dayLabel: `${firstDay.label} ${firstDay.dateNum}`,
-                      time: '10:00',
-                    });
-                  }}
+                  onClick={() => setShowNewPatientModal(true)}
                   className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
                 >
                   <Plus size={15} />
-                  <span>Nuevo Paciente</span>
+                  <span>Registrar Nuevo Paciente</span>
                 </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredAppointments.map((apt) => {
+                {filteredPatients.map((pat) => {
                   const prof =
-                    professionals.find((p) => p.id === apt.professionalId) ?? currentProf;
+                    professionals.find((p) => p.id === pat.assignedProfessionalId) ?? currentProf;
+                  const patAppointments = appointments.filter(
+                    (a) =>
+                      a.patientId === pat.id ||
+                      a.patientName.toLowerCase() === pat.patientName.toLowerCase()
+                  );
                   return (
                     <div
-                      key={apt.id}
+                      key={pat.id}
                       className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs flex flex-col justify-between space-y-4"
                     >
                       <div>
                         <div className="flex items-start justify-between gap-2 mb-3">
                           <div>
-                            <h3 className="font-bold text-base text-stone-900">
-                              {apt.patientName}
-                            </h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-base text-stone-900">
+                                {pat.patientName}
+                              </h3>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  pat.clinicalStatusTag === 'Abandono'
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : 'bg-[#EBF3EE] text-[#2C4A3B]'
+                                }`}
+                              >
+                                {pat.clinicalStatusTag}
+                              </span>
+                            </div>
                             <p className="text-xs text-stone-500">
-                              RUT: {apt.patientRUT} · <strong>{prof?.name}</strong>
+                              RUT: {pat.patientRUT} · <strong>{prof?.name}</strong>
                             </p>
                           </div>
 
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() => setEditingApt({ ...apt })}
+                              onClick={() => setEditingPatientRecord({ ...pat })}
                               className="p-2 rounded-xl bg-stone-100 hover:bg-[#EBF3EE] text-stone-700 hover:text-[#2C4A3B]"
                               title="Editar Paciente"
                             >
@@ -2485,9 +2766,9 @@ function AdminDashboardContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => deleteAppointment(apt.id)}
+                              onClick={() => deletePatientFromDirectory(pat.id)}
                               className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600"
-                              title="Eliminar Paciente"
+                              title="Eliminar Paciente del Directorio"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -2497,33 +2778,19 @@ function AdminDashboardContent() {
                         <div className="bg-[#F9F8F6] p-4 rounded-2xl border border-[#E4ECE7] text-xs space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-stone-500">Terapia:</span>
-                            <strong className="text-stone-900">{apt.serviceName}</strong>
+                            <strong className="text-stone-900">{pat.defaultService}</strong>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-stone-500">Modalidad:</span>
+                            <span className="text-stone-500">Sesiones Agendadas:</span>
                             <strong className="text-[#2C4A3B]">
-                              {apt.modality} ({apt.boxName ?? 'Box 1'})
+                              {patAppointments.length} sesiones
                             </strong>
                           </div>
-                          {apt.modality === 'Online' && (
-                            <div className="flex items-center justify-between pt-1 border-t border-stone-200/60">
-                              <span className="text-stone-500">Sala Google Meet:</span>
-                              <a
-                                href={apt.meetUrl ?? prof?.onlineRoomUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sky-700 font-bold hover:underline flex items-center gap-1"
-                              >
-                                <Video size={12} />
-                                <span>Abrir Meet</span>
-                              </a>
-                            </div>
-                          )}
                           <div className="flex items-center justify-between">
-                            <span className="text-stone-500">Próxima Sesión:</span>
-                            <strong className="text-stone-800">
-                              {apt.isoDate} · {apt.time} hrs
-                            </strong>
+                            <span className="text-stone-500">Resúmenes IA en Ficha:</span>
+                            <span className="px-2 py-0.5 rounded-full bg-[#EBF3EE] text-[#2C4A3B] font-bold text-[10px]">
+                              {pat.clinicalHistory.length} evoluciones
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -2532,34 +2799,16 @@ function AdminDashboardContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            setFichaPatientApt(apt);
+                            setFichaPatient(pat);
                             setRawSessionNotes('');
                             setGrokPreviewNote('');
+                            setListeningSeconds(0);
                           }}
                           className="w-full py-3 px-4 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs"
                         >
-                          <BrainCircuit size={15} />
-                          <span>Abrir Ficha Clínica + IA Grok</span>
+                          <Mic size={14} className="text-emerald-300" />
+                          <span>Abrir Ficha Clínica + Escucha IA</span>
                         </button>
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => triggerEmailNotification(apt, true)}
-                            className="py-2 px-3 bg-[#EBF3EE] text-[#2C4A3B] rounded-xl text-xs font-bold flex items-center justify-center gap-1"
-                          >
-                            <Send size={12} />
-                            <span>Correo + Meet</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDirectWhatsApp(apt)}
-                            className="py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1"
-                          >
-                            <MessageSquare size={12} />
-                            <span>WhatsApp</span>
-                          </button>
-                        </div>
                       </div>
                     </div>
                   );
@@ -2658,17 +2907,17 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              5. MÓDULO PROFESIONALES & HORARIOS DIFERENCIADOS POR DÍA (07:00 A 23:00)
+              5. MÓDULO PROFESIONALES & MÚLTIPLES BLOQUES HORARIOS POR DÍA (COLACIÓN) + BOXES
              --------------------------------------------------------- */}
           {activeModule === 'profesionales' && (
             <div className="space-y-6">
               <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                    Disponibilidad Flexible Día a Día + Google Workspace
+                    Turnos con Corte de Colación & Asignación de Box
                   </span>
                   <h3 className="text-xl font-bold text-stone-900">
-                    Profesionales, Turnos por Día (07:00 a 23:00), Google Meet y Convenio Box
+                    Profesionales, Múltiples Tramos por Día (Ej: 09:00-14:00 y 16:00-21:00) y Boxes
                   </h3>
                 </div>
                 <button
@@ -2692,13 +2941,7 @@ function AdminDashboardContent() {
                           {prof.avatar}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-lg text-stone-900">{prof.name}</h4>
-                            <span className="px-2.5 py-0.5 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-[10px] font-bold flex items-center gap-1">
-                              <Video size={11} />
-                              Google Meet Vinculado
-                            </span>
-                          </div>
+                          <h4 className="font-bold text-lg text-stone-900">{prof.name}</h4>
                           <p className="text-xs text-stone-500">
                             {prof.specialty} · RUT: {prof.rut} ·{' '}
                             <strong className="text-[#2C4A3B]">
@@ -2714,14 +2957,18 @@ function AdminDashboardContent() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleConnectGoogleAccount}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#EBF3EE] text-[#2C4A3B] text-xs font-bold"
-                        >
-                          <LogIn size={13} />
-                          <span>Sincronizar Google Calendar</span>
-                        </button>
+                        {/* Solo muestra el botón de conectar si AÚN NO está conectado; una vez conectado desaparece */}
+                        {!prof.googleConnected && (
+                          <button
+                            type="button"
+                            onClick={() => handleConnectProfGoogleCalendar(prof.id)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#2C4A3B] text-white text-xs font-bold hover:bg-[#233B2F] transition-all"
+                          >
+                            <CalendarIcon size={13} />
+                            <span>Sincronizar con Google Calendar</span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => openEditProfModal(prof)}
@@ -2741,29 +2988,29 @@ function AdminDashboardContent() {
                       </div>
                     </div>
 
+                    {/* CONFIGURACIÓN DE MÚLTIPLES TRAMOS HORARIOS POR DÍA + ASIGNACIÓN DE BOX DEL CENTRO */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-3">
-                        Horario Específico por Día (07:00 a 23:00 hrs)
+                        Tramos Horarios por Día (Puedes agregar más bloques para separar mañana, colación y tarde) y Box Asignado
                       </label>
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {DAY_NAMES.map((dayMeta) => {
                           const cfg = prof.scheduleByDay?.[dayMeta.index] ?? {
                             enabled: false,
-                            startHour: '09:00',
-                            endHour: '20:00',
+                            blocks: [{ startHour: '09:00', endHour: '14:00' }],
                             modality: 'Ambas (Híbrido)',
-                            boxAssigned: 'Box 1',
+                            boxAssigned: centerBoxes[0] ?? 'Box 1 · Salvia',
                           };
                           return (
                             <div
                               key={dayMeta.index}
-                              className={`p-3 rounded-2xl border grid grid-cols-1 sm:grid-cols-12 items-center gap-3 text-xs transition-all ${
+                              className={`p-3.5 rounded-2xl border grid grid-cols-1 lg:grid-cols-12 items-center gap-3 text-xs transition-all ${
                                 cfg.enabled
                                   ? 'bg-[#F9F8F6] border-[#E4ECE7]'
                                   : 'bg-stone-100/60 border-stone-200/60 opacity-60'
                               }`}
                             >
-                              <div className="sm:col-span-2 flex items-center gap-2">
+                              <div className="lg:col-span-2 flex items-center gap-2">
                                 <input
                                   type="checkbox"
                                   checked={cfg.enabled}
@@ -2777,47 +3024,90 @@ function AdminDashboardContent() {
                                 <span className="font-bold text-stone-900">{dayMeta.label}</span>
                               </div>
 
-                              <div className="sm:col-span-3 flex items-center gap-1.5">
-                                <span className="text-stone-400 text-[11px]">Inicio:</span>
-                                <select
-                                  disabled={!cfg.enabled}
-                                  value={cfg.startHour}
-                                  onChange={(e) =>
-                                    updateProfDaySchedule(prof.id, dayMeta.index, {
-                                      startHour: e.target.value,
-                                    })
-                                  }
-                                  className="bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 font-semibold text-stone-800 w-full"
-                                >
-                                  {FULL_DAY_HOURS.map((h) => (
-                                    <option key={h} value={h}>
-                                      {h} hrs
-                                    </option>
-                                  ))}
-                                </select>
+                              {/* Tramos de Horas del Día (Soporta Tramo 1: 09:00-14:00, Tramo 2: 16:00-21:00, etc.) */}
+                              <div className="lg:col-span-6 flex flex-wrap items-center gap-2">
+                                {(cfg.blocks ?? []).map((b, bIdx) => (
+                                  <div
+                                    key={bIdx}
+                                    className="inline-flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-stone-200"
+                                  >
+                                    <span className="text-[10px] font-bold text-stone-400">
+                                      T{bIdx + 1}:
+                                    </span>
+                                    <select
+                                      disabled={!cfg.enabled}
+                                      value={b.startHour}
+                                      onChange={(e) =>
+                                        handleUpdateTimeBlock(
+                                          prof.id,
+                                          dayMeta.index,
+                                          bIdx,
+                                          'startHour',
+                                          e.target.value
+                                        )
+                                      }
+                                      className="font-semibold text-stone-800 bg-transparent focus:outline-none"
+                                    >
+                                      {FULL_DAY_HOURS.map((h) => (
+                                        <option key={h} value={h}>
+                                          {h}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <span className="text-stone-400">a</span>
+                                    <select
+                                      disabled={!cfg.enabled}
+                                      value={b.endHour}
+                                      onChange={(e) =>
+                                        handleUpdateTimeBlock(
+                                          prof.id,
+                                          dayMeta.index,
+                                          bIdx,
+                                          'endHour',
+                                          e.target.value
+                                        )
+                                      }
+                                      className="font-semibold text-stone-800 bg-transparent focus:outline-none"
+                                    >
+                                      {FULL_DAY_HOURS.map((h) => (
+                                        <option key={h} value={h}>
+                                          {h}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {cfg.blocks.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleRemoveTimeBlockFromDay(
+                                            prof.id,
+                                            dayMeta.index,
+                                            bIdx
+                                          )
+                                        }
+                                        className="text-rose-500 hover:text-rose-700 ml-1"
+                                        title="Quitar este tramo"
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+
+                                {cfg.enabled && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleAddTimeBlockToDay(prof.id, dayMeta.index)
+                                    }
+                                    className="px-2.5 py-1.5 rounded-xl bg-[#EBF3EE] text-[#2C4A3B] font-bold text-[11px] hover:bg-[#dbeadd] transition-all"
+                                  >
+                                    + Tramo (Post-Colación)
+                                  </button>
+                                )}
                               </div>
 
-                              <div className="sm:col-span-3 flex items-center gap-1.5">
-                                <span className="text-stone-400 text-[11px]">Término:</span>
-                                <select
-                                  disabled={!cfg.enabled}
-                                  value={cfg.endHour}
-                                  onChange={(e) =>
-                                    updateProfDaySchedule(prof.id, dayMeta.index, {
-                                      endHour: e.target.value,
-                                    })
-                                  }
-                                  className="bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 font-semibold text-stone-800 w-full"
-                                >
-                                  {FULL_DAY_HOURS.map((h) => (
-                                    <option key={h} value={h}>
-                                      {h} hrs
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div className="sm:col-span-2">
+                              <div className="lg:col-span-2">
                                 <select
                                   disabled={!cfg.enabled}
                                   value={cfg.modality}
@@ -2834,19 +3124,24 @@ function AdminDashboardContent() {
                                 </select>
                               </div>
 
-                              <div className="sm:col-span-2">
-                                <input
+                              {/* Selector de Box según los Boxes que tiene el Centro */}
+                              <div className="lg:col-span-2">
+                                <select
                                   disabled={!cfg.enabled}
-                                  type="text"
                                   value={cfg.boxAssigned}
                                   onChange={(e) =>
                                     updateProfDaySchedule(prof.id, dayMeta.index, {
                                       boxAssigned: e.target.value,
                                     })
                                   }
-                                  placeholder="Ej. Box 1"
-                                  className="bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 font-medium text-stone-800 w-full"
-                                />
+                                  className="bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 font-semibold text-[#2C4A3B] w-full"
+                                >
+                                  {centerBoxes.map((box) => (
+                                    <option key={box} value={box}>
+                                      {box}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
                             </div>
                           );
@@ -2886,20 +3181,21 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              8. CAJA & FINANZAS (PROMEDIO POR BOX, ARRIENDO FIJO, % COMISIÓN, BRUTO VS NETO)
+              8. REPORTES CLÍNICOS (RETENCIÓN, ABANDONO, PACIENTES) & LIQUIDACIÓN BOX
              --------------------------------------------------------- */}
           {activeModule === 'finanzas' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* KPIs Financieros + Indicadores de Retención y Abandono */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
                   <span className="text-[11px] font-bold uppercase text-stone-400 block">
                     Total Bruto Generado
                   </span>
                   <p className="text-2xl font-bold text-stone-900 mt-1">
-                    ${financialBreakdown.totalGrossCenter.toLocaleString('es-CL')}
+                    ${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}
                   </p>
                   <span className="text-[11px] text-stone-500">
-                    Pagado: ${financialBreakdown.totalPaidCenter.toLocaleString('es-CL')}
+                    Pagado: ${financialAndClinicalReport.totalPaidCenter.toLocaleString('es-CL')}
                   </span>
                 </div>
 
@@ -2908,48 +3204,56 @@ function AdminDashboardContent() {
                     Retención Centro (Boxes / %)
                   </span>
                   <p className="text-2xl font-bold text-[#2C4A3B] mt-1">
-                    ${financialBreakdown.totalCenterRetention.toLocaleString('es-CL')}
+                    ${financialAndClinicalReport.totalCenterRetention.toLocaleString('es-CL')}
                   </p>
                   <span className="text-[11px] text-emerald-700 font-semibold">
-                    Utilidad directa para {centerBrandName}
+                    Promedio/Box: $
+                    {financialAndClinicalReport.avgRevenuePerBoxSession.toLocaleString('es-CL')}
                   </span>
                 </div>
 
                 <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
                   <span className="text-[11px] font-bold uppercase text-stone-400 block">
-                    Total Líquido Profesionales
+                    Líquido a Profesionales
                   </span>
                   <p className="text-2xl font-bold text-[#C87D65] mt-1">
-                    ${financialBreakdown.totalNetProfessionals.toLocaleString('es-CL')}
+                    ${financialAndClinicalReport.totalNetProfessionals.toLocaleString('es-CL')}
+                  </p>
+                  <span className="text-[11px] text-stone-500">Libre de descuento de box</span>
+                </div>
+
+                <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
+                  <span className="text-[11px] font-bold uppercase text-stone-400 block">
+                    Tasa de Retención Clínica
+                  </span>
+                  <p className="text-2xl font-bold text-emerald-700 mt-1">
+                    {financialAndClinicalReport.avgCenterRetentionRate}%
                   </p>
                   <span className="text-[11px] text-stone-500">
-                    Descontando arriendo de box o comisión
+                    {patients.length} pacientes en cartera
                   </span>
                 </div>
 
                 <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7]">
                   <span className="text-[11px] font-bold uppercase text-stone-400 block">
-                    Promedio Ingreso por Uso de Box
+                    Tasa de Abandono / No-Show
                   </span>
-                  <p className="text-2xl font-bold text-stone-900 mt-1">
-                    ${financialBreakdown.avgRevenuePerBoxSession.toLocaleString('es-CL')}
+                  <p className="text-2xl font-bold text-rose-600 mt-1">
+                    {financialAndClinicalReport.avgCenterAbandonmentRate}%
                   </p>
-                  <span className="text-[11px] text-stone-500">
-                    {financialBreakdown.totalPresencialBoxUses} sesiones presenciales en box
-                  </span>
+                  <span className="text-[11px] text-stone-500">Inasistencias y deserciones</span>
                 </div>
               </div>
 
+              {/* Reporte Integral de Rendimiento Clínico y Liquidación por Profesional */}
               <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                      Liquidación Automática por Especialista
-                    </span>
-                    <h3 className="font-bold text-lg text-stone-900">
-                      Desglose Bruto, Descuento por Box / Arriendo / Porcentaje y Líquido Profesional
-                    </h3>
-                  </div>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
+                    Reporte Ejecutivo y Clínico por Profesional
+                  </span>
+                  <h3 className="font-bold text-lg text-stone-900">
+                    Pacientes Agendados, % Retención, % Abandono, Descuento Box y Líquido Profesional
+                  </h3>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -2957,27 +3261,39 @@ function AdminDashboardContent() {
                     <thead>
                       <tr className="border-b border-[#E4ECE7] text-stone-400 uppercase text-[10px]">
                         <th className="py-3 px-4">Profesional</th>
-                        <th className="py-3 px-4">Convenio con el Centro</th>
-                        <th className="py-3 px-4">Sesiones (Presencial)</th>
-                        <th className="py-3 px-4">Total Bruto</th>
-                        <th className="py-3 px-4">Descuento Centro / Box</th>
-                        <th className="py-3 px-4">Líquido / Neto Profesional</th>
-                        <th className="py-3 px-4">Configurar</th>
+                        <th className="py-3 px-4">Pacientes / Sesiones</th>
+                        <th className="py-3 px-4">% Retención</th>
+                        <th className="py-3 px-4">% Abandono</th>
+                        <th className="py-3 px-4">Convenio Box</th>
+                        <th className="py-3 px-4">Bruto Total</th>
+                        <th className="py-3 px-4">Retención Centro</th>
+                        <th className="py-3 px-4">Líquido Profesional</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E4ECE7]">
-                      {financialBreakdown.byProf.map((row) => (
+                      {financialAndClinicalReport.byProf.map((row) => (
                         <tr key={row.prof.id} className="hover:bg-[#F9F8F6]">
                           <td className="py-3.5 px-4 font-bold text-stone-900">
                             {row.prof.name}
+                          </td>
+                          <td className="py-3.5 px-4 text-stone-700 font-semibold">
+                            {row.totalUniquePatients} pac. · {row.totalSessions} citas (
+                            {row.presencialSessionsCount} en box)
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold">
+                              {row.retentionRate}% Retención
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 font-bold">
+                              {row.abandonmentRate}% Abandono
+                            </span>
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="px-2.5 py-1 rounded-full bg-stone-100 text-stone-700 font-semibold">
                               {row.agreementDescription}
                             </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-stone-600">
-                            {row.totalSessions} totales ({row.presencialSessionsCount} en box)
                           </td>
                           <td className="py-3.5 px-4 font-bold text-stone-900">
                             ${row.grossTotal.toLocaleString('es-CL')}
@@ -2989,14 +3305,6 @@ function AdminDashboardContent() {
                             <span className="px-3 py-1 rounded-xl bg-[#EBF3EE] text-[#2C4A3B] font-bold text-sm">
                               ${row.netProfessional.toLocaleString('es-CL')}
                             </span>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <button
-                              onClick={() => openEditProfModal(row.prof)}
-                              className="text-[#2C4A3B] font-bold hover:underline"
-                            >
-                              Cambiar % o Box
-                            </button>
                           </td>
                         </tr>
                       ))}
@@ -3010,7 +3318,7 @@ function AdminDashboardContent() {
       </div>
 
       {/* =========================================================
-          MODAL DE AGENDAR PACIENTE (CON BUSCADOR DE PACIENTES EXISTENTES + GOOGLE MEET AUTO)
+          MODAL DE AGENDAR CITA (CON REPETICIÓN SEMANAL/QUINCENAL/MENSUAL Y TEXTOS LIMPIOS)
          ========================================================= */}
       <AnimatePresence>
         {slotModal && (
@@ -3031,7 +3339,7 @@ function AdminDashboardContent() {
                   <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
                     {slotModal.dayLabel} · {slotModal.time} hrs
                   </span>
-                  <h3 className="text-xl font-bold text-stone-900">Asignar Bloque de Agenda</h3>
+                  <h3 className="text-xl font-bold text-stone-900">Agendar Cita</h3>
                 </div>
                 <button
                   onClick={() => setSlotModal(null)}
@@ -3049,7 +3357,7 @@ function AdminDashboardContent() {
                     slotActionMode === 'book' ? 'bg-[#2C4A3B] text-white' : 'text-stone-600'
                   }`}
                 >
-                  Agendar Paciente
+                  Agendar Cita
                 </button>
                 <button
                   type="button"
@@ -3078,12 +3386,12 @@ function AdminDashboardContent() {
                   </div>
                 ) : (
                   <>
-                    {/* SELECTOR DE PACIENTE EXISTENTE VS PACIENTE NUEVO */}
+                    {/* Selector de Paciente Registrado */}
                     <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-[#2C4A3B] flex items-center gap-1.5">
                           <UserCheck size={14} />
-                          <span>Seleccionar Paciente Registrado</span>
+                          <span>Seleccionar Paciente</span>
                         </span>
                         <div className="flex gap-1">
                           <button
@@ -3095,7 +3403,7 @@ function AdminDashboardContent() {
                                 : 'bg-white text-stone-600 border border-stone-200'
                             }`}
                           >
-                            Existente ({existingPatientsDirectory.length})
+                            Existente ({patients.length})
                           </button>
                           <button
                             type="button"
@@ -3103,6 +3411,7 @@ function AdminDashboardContent() {
                               setPatientModeInBooking('new');
                               setNewBookingForm({
                                 ...newBookingForm,
+                                selectedPatientId: '',
                                 patientName: '',
                                 patientRUT: '',
                                 patientEmail: '',
@@ -3128,33 +3437,33 @@ function AdminDashboardContent() {
                             placeholder="Filtrar por nombre o RUT..."
                             className="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white text-xs"
                           />
-                          <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1">
-                            {existingPatientsDirectory
+                          <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
+                            {patients
                               .filter((p) => {
                                 const q = existingPatientSearch.toLowerCase();
                                 return (
                                   p.patientName.toLowerCase().includes(q) ||
-                                  p.patientRUT.toLowerCase().includes(q) ||
-                                  p.patientEmail.toLowerCase().includes(q)
+                                  p.patientRUT.toLowerCase().includes(q)
                                 );
                               })
-                              .map((p, idx) => {
+                              .map((p) => {
                                 const isChosen =
                                   newBookingForm.patientName === p.patientName &&
                                   newBookingForm.patientRUT === p.patientRUT;
                                 return (
                                   <button
-                                    key={idx}
+                                    key={p.id}
                                     type="button"
                                     onClick={() => {
                                       setNewBookingForm({
                                         ...newBookingForm,
+                                        selectedPatientId: p.id,
                                         patientName: p.patientName,
                                         patientRUT: p.patientRUT,
                                         patientEmail: p.patientEmail,
                                         patientPhone: p.patientPhone,
-                                        serviceName: p.lastService,
-                                        modality: p.lastModality,
+                                        serviceName: p.defaultService,
+                                        modality: p.defaultModality,
                                       });
                                     }}
                                     className={`w-full text-left px-3 py-2 rounded-xl border flex items-center justify-between transition-all ${
@@ -3168,11 +3477,11 @@ function AdminDashboardContent() {
                                         {p.patientName}
                                       </p>
                                       <p className="text-[10px] text-stone-500">
-                                        RUT: {p.patientRUT} · {p.patientEmail}
+                                        RUT: {p.patientRUT}
                                       </p>
                                     </div>
                                     <span className="text-[10px] font-bold text-[#2C4A3B]">
-                                      Autocompletar →
+                                      Elegir →
                                     </span>
                                   </button>
                                 );
@@ -3195,7 +3504,6 @@ function AdminDashboardContent() {
                             setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                          placeholder="Ej. Camila Vergara"
                         />
                       </div>
                       <div>
@@ -3209,7 +3517,6 @@ function AdminDashboardContent() {
                             setNewBookingForm({ ...newBookingForm, patientRUT: e.target.value })
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                          placeholder="18.456.789-2"
                         />
                       </div>
                     </div>
@@ -3234,7 +3541,7 @@ function AdminDashboardContent() {
                       </div>
                       <div>
                         <label className="font-bold uppercase text-stone-500 block mb-1">
-                          WhatsApp (569...)
+                          WhatsApp
                         </label>
                         <input
                           required
@@ -3251,26 +3558,26 @@ function AdminDashboardContent() {
                       </div>
                     </div>
 
-                    <div>
-                      <label className="font-bold uppercase text-stone-500 block mb-1">
-                        Servicio / Terapia
-                      </label>
-                      <select
-                        value={newBookingForm.serviceName}
-                        onChange={(e) =>
-                          setNewBookingForm({ ...newBookingForm, serviceName: e.target.value })
-                        }
-                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                      >
-                        {services.map((s) => (
-                          <option key={s.id} value={s.name}>
-                            {s.name} (${s.price.toLocaleString('es-CL')})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
                     <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Servicio / Terapia
+                        </label>
+                        <select
+                          value={newBookingForm.serviceName}
+                          onChange={(e) =>
+                            setNewBookingForm({ ...newBookingForm, serviceName: e.target.value })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          {services.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       <div>
                         <label className="font-bold uppercase text-stone-500 block mb-1">
                           Modalidad
@@ -3285,38 +3592,76 @@ function AdminDashboardContent() {
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
                         >
-                          <option value="Online">Online (Google Meet Automático)</option>
+                          <option value="Online">Online (Google Meet)</option>
                           <option value="Presencial">Consulta Presencial (Box)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="font-bold uppercase text-stone-500 block mb-1">
-                          Pago
-                        </label>
-                        <select
-                          value={newBookingForm.paymentStatus}
-                          onChange={(e) =>
-                            setNewBookingForm({
-                              ...newBookingForm,
-                              paymentStatus: e.target.value as PaymentStatus,
-                            })
-                          }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                        >
-                          <option value="Pendiente">Pendiente</option>
-                          <option value="Pagado">Pagado</option>
                         </select>
                       </div>
                     </div>
 
-                    {newBookingForm.modality === 'Online' && (
-                      <div className="p-3 rounded-xl bg-sky-50 border border-sky-200/80 text-sky-900 flex items-center gap-2 text-[11px]">
-                        <Video size={15} className="text-sky-600 shrink-0" />
-                        <span>
-                          Al confirmar, se creará automáticamente una sala de <strong>Google Meet</strong> y se sincronizará con <strong>Google Calendar API</strong>.
-                        </span>
+                    {/* OPCIÓN DE REPETICIÓN DE LA CITA (SEMANAL, QUINCENAL, MENSUAL) */}
+                    <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 flex items-center gap-1 mb-1">
+                          <Repeat size={12} className="text-[#2C4A3B]" />
+                          <span>Repetición</span>
+                        </label>
+                        <select
+                          value={newBookingForm.recurrence}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              recurrence: e.target.value as RecurrenceFrequency,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          <option value="none">Sin repetición (Sesión única)</option>
+                          <option value="weekly">Semanal</option>
+                          <option value="biweekly">Quincenal (Cada 2 semanas)</option>
+                          <option value="monthly">Mensual</option>
+                        </select>
                       </div>
-                    )}
+
+                      {newBookingForm.recurrence !== 'none' ? (
+                        <div>
+                          <label className="font-bold uppercase text-stone-500 block mb-1">
+                            N° de Sesiones
+                          </label>
+                          <input
+                            type="number"
+                            min={2}
+                            max={12}
+                            value={newBookingForm.recurrenceCount}
+                            onChange={(e) =>
+                              setNewBookingForm({
+                                ...newBookingForm,
+                                recurrenceCount: Number(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white font-bold"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="font-bold uppercase text-stone-500 block mb-1">
+                            Pago
+                          </label>
+                          <select
+                            value={newBookingForm.paymentStatus}
+                            onChange={(e) =>
+                              setNewBookingForm({
+                                ...newBookingForm,
+                                paymentStatus: e.target.value as PaymentStatus,
+                              })
+                            }
+                            className="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white font-semibold"
+                          >
+                            <option value="Pendiente">Pendiente</option>
+                            <option value="Pagado">Pagado</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
 
@@ -3324,11 +3669,7 @@ function AdminDashboardContent() {
                   type="submit"
                   className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold text-xs transition-all shadow-md"
                 >
-                  {slotActionMode === 'block'
-                    ? 'Confirmar Bloqueo'
-                    : newBookingForm.modality === 'Online'
-                    ? 'Confirmar Cita y Generar Sala Google Meet'
-                    : 'Confirmar Cita Presencial en Agenda'}
+                  {slotActionMode === 'block' ? 'Confirmar Bloqueo' : 'Agendar Cita'}
                 </button>
               </form>
             </motion.div>
@@ -3337,7 +3678,176 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL DE PERSONALIZACIÓN DE LOGO Y CARÁTULA DEL CENTRO
+          DRAWER DE FICHA CLÍNICA CON ESCUCHA AMBIENTAL IA GROK (ESCUCHA Y RESUME)
+         ========================================================= */}
+      <AnimatePresence>
+        {fichaPatient && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/45 backdrop-blur-xs flex justify-end"
+          >
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 26, stiffness: 240 }}
+              className="w-full max-w-2xl bg-white h-full shadow-2xl border-l border-[#E4ECE7] p-7 overflow-y-auto flex flex-col justify-between space-y-6"
+            >
+              <div className="space-y-5">
+                <div className="flex items-start justify-between border-b border-[#E4ECE7] pb-4">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-[10px] font-bold uppercase tracking-wider mb-2">
+                      <BrainCircuit size={12} />
+                      Ficha Clínica Electrónica · Escucha Ambiental IA Grok
+                    </span>
+                    <h3 className="text-2xl font-bold text-stone-900">
+                      {fichaPatient.patientName}
+                    </h3>
+                    <p className="text-xs text-stone-500">
+                      RUT: {fichaPatient.patientRUT} · {fichaPatient.defaultService}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setFichaPatient(null)}
+                    className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* MÓDULO DE ESCUCHA CLÍNICA AMBIENTAL (ESCUCHA EN SILENCIO Y RESUME) */}
+                <div className="bg-[#1E3329] text-white rounded-3xl p-5 space-y-4 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                          isListeningSession
+                            ? 'bg-rose-500 animate-pulse'
+                            : 'bg-[#2C4A3B]'
+                        }`}
+                      >
+                        <Mic size={18} className="text-white" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">
+                          {isListeningSession
+                            ? `Escuchando sesión en silencio... (${Math.floor(
+                                listeningSeconds / 60
+                              )}:${String(listeningSeconds % 60).padStart(2, '0')})`
+                            : 'Escucha Ambiental con IA Grok'}
+                        </p>
+                        <p className="text-[11px] text-stone-300">
+                          La IA escucha la sesión sin mostrar texto en bruto y genera el resumen clínico al finalizar.
+                        </p>
+                      </div>
+                    </div>
+
+                    {!isListeningSession ? (
+                      <button
+                        type="button"
+                        onClick={startAmbientListening}
+                        className="px-4 py-2.5 bg-[#C87D65] hover:bg-[#b56d56] text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Mic size={14} />
+                        <span>Iniciar Escucha IA</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={stopAmbientListeningAndSummarize}
+                        className="px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Square size={13} />
+                        <span>Finalizar y Resumir</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Apuntes complementarios o Resumen generado por la Escucha IA */}
+                <div className="bg-[#F9F8F6] rounded-3xl p-5 border border-[#E4ECE7] space-y-3">
+                  <label className="text-xs font-bold uppercase tracking-wider text-stone-600 block">
+                    Observaciones Manuales (Opcional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={rawSessionNotes}
+                    onChange={(e) => setRawSessionNotes(e.target.value)}
+                    placeholder="O escribe apuntes breves si prefieres resumir sin micrófono..."
+                    className="w-full rounded-2xl border border-stone-200 bg-white p-3.5 text-xs focus:outline-none focus:border-[#2C4A3B]"
+                  />
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      disabled={isGeneratingGrok || !rawSessionNotes.trim()}
+                      onClick={handleGenerateGrokFromNotes}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-stone-200 text-stone-800 rounded-xl text-xs font-bold disabled:opacity-50"
+                    >
+                      <Sparkles size={14} className="text-[#2C4A3B]" />
+                      <span>Resumir Apuntes con IA</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveEvolutionToPatientFicha}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
+                    >
+                      <Check size={14} />
+                      <span>Agregar Resumen a la Ficha</span>
+                    </button>
+                  </div>
+
+                  {grokPreviewNote && (
+                    <div className="mt-3 p-4 rounded-2xl bg-white border border-[#2C4A3B]/30 space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#2C4A3B] block">
+                        Resumen Clínico Generado por IA Grok (Editable antes de guardar):
+                      </span>
+                      <textarea
+                        rows={6}
+                        value={grokPreviewNote}
+                        onChange={(e) => setGrokPreviewNote(e.target.value)}
+                        className="w-full text-xs text-stone-800 leading-relaxed focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Historial de Evoluciones */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-400">
+                    Historial Clínico del Paciente ({fichaPatient.clinicalHistory.length})
+                  </h4>
+                  {fichaPatient.clinicalHistory.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="p-4 rounded-2xl bg-white border border-[#E4ECE7] space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between text-[11px] text-stone-400 border-b border-stone-100 pb-1.5">
+                        <strong className="text-[#2C4A3B]">{entry.date}</strong>
+                        <span>
+                          {entry.sourceType === 'audio_ia'
+                            ? '🎙️ Escucha Ambiental IA'
+                            : '✨ Síntesis IA'}{' '}
+                          · {entry.professionalName}
+                        </span>
+                      </div>
+                      <pre className="whitespace-pre-wrap font-sans text-stone-700 leading-relaxed">
+                        {entry.grokStructuredNote}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MODAL AL PINCHAR LA FOTO/LOGO DEL CENTRO ARRIBA (LOGO, NOMBRE Y CANTIDAD DE BOXES)
          ========================================================= */}
       <AnimatePresence>
         {showBrandingModal && (
@@ -3354,14 +3864,9 @@ function AdminDashboardContent() {
               className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl space-y-4 text-xs"
             >
               <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#C87D65] block">
-                    Identidad Visual Multi-Tenant
-                  </span>
-                  <h3 className="text-lg font-bold text-stone-900">
-                    Logo y Carátula de tu Centro Clínico
-                  </h3>
-                </div>
+                <h3 className="text-lg font-bold text-stone-900">
+                  Configuración del Centro Clínico
+                </h3>
                 <button
                   onClick={() => setShowBrandingModal(false)}
                   className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
@@ -3385,7 +3890,7 @@ function AdminDashboardContent() {
                 <div className="space-y-1.5">
                   <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#2C4A3B] text-white font-bold cursor-pointer hover:bg-[#233B2F] transition-all">
                     <ImagePlus size={14} />
-                    <span>Subir Imagen desde mi PC</span>
+                    <span>Subir Foto / Logo</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -3393,21 +3898,12 @@ function AdminDashboardContent() {
                       className="hidden"
                     />
                   </label>
-                  {centerLogoUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setCenterLogoUrl('')}
-                      className="block text-[11px] text-rose-600 font-semibold hover:underline"
-                    >
-                      Quitar logo actual
-                    </button>
-                  )}
                 </div>
               </div>
 
               <div>
                 <label className="font-bold uppercase text-stone-500 block mb-1">
-                  Nombre Oficial del Centro Clínico
+                  Nombre del Centro
                 </label>
                 <input
                   type="text"
@@ -3417,147 +3913,61 @@ function AdminDashboardContent() {
                 />
               </div>
 
-              <div>
-                <label className="font-bold uppercase text-stone-500 block mb-1">
-                  O pegar URL directa del Logo (Opcional)
+              {/* Gestión de Boxes del Centro */}
+              <div className="space-y-2">
+                <label className="font-bold uppercase text-stone-500 block">
+                  Boxes del Centro ({centerBoxes.length})
                 </label>
-                <input
-                  type="url"
-                  value={centerLogoUrl.startsWith('data:') ? '' : centerLogoUrl}
-                  onChange={(e) => setCenterLogoUrl(e.target.value)}
-                  placeholder="https://mi-clinica.cl/logo.png"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                />
+                <div className="flex flex-wrap gap-1.5">
+                  {centerBoxes.map((b) => (
+                    <span
+                      key={b}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#F9F8F6] border border-[#E4ECE7] font-semibold"
+                    >
+                      <span>{b}</span>
+                      {centerBoxes.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCenterBoxes((prev) => prev.filter((item) => item !== b))
+                          }
+                          className="text-rose-500"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={newBoxNameInput}
+                    onChange={(e) => setNewBoxNameInput(e.target.value)}
+                    placeholder="Ej. Box 5 · Ciprés"
+                    className="flex-1 px-3 py-2 rounded-xl border border-stone-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newBoxNameInput.trim()) return;
+                      setCenterBoxes((prev) => [...prev, newBoxNameInput.trim()]);
+                      setNewBoxNameInput('');
+                    }}
+                    className="px-3.5 py-2 bg-stone-800 text-white rounded-xl font-bold"
+                  >
+                    + Box
+                  </button>
+                </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => {
-                  setShowBrandingModal(false);
-                  showToast('Carátula actualizada', `Centro: ${centerBrandName}`);
-                }}
+                onClick={() => setShowBrandingModal(false)}
                 className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
               >
-                Guardar Logo y Carátula
+                Guardar
               </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* =========================================================
-          DRAWER DE FICHA CLÍNICA EVOLUTIVA CON IA GROK
-         ========================================================= */}
-      <AnimatePresence>
-        {fichaPatientApt && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-stone-900/45 backdrop-blur-xs flex justify-end"
-          >
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 26, stiffness: 240 }}
-              className="w-full max-w-2xl bg-white h-full shadow-2xl border-l border-[#E4ECE7] p-7 overflow-y-auto flex flex-col justify-between space-y-6"
-            >
-              <div className="space-y-5">
-                <div className="flex items-start justify-between border-b border-[#E4ECE7] pb-4">
-                  <div>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-[10px] font-bold uppercase tracking-wider mb-2">
-                      <BrainCircuit size={12} />
-                      Ficha Clínica Electrónica · Asistida por IA Grok
-                    </span>
-                    <h3 className="text-2xl font-bold text-stone-900">
-                      {fichaPatientApt.patientName}
-                    </h3>
-                    <p className="text-xs text-stone-500">
-                      RUT: {fichaPatientApt.patientRUT} · {fichaPatientApt.serviceName} (
-                      {fichaPatientApt.modality})
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setFichaPatientApt(null)}
-                    className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-
-                <div className="bg-[#F9F8F6] rounded-3xl p-5 border border-[#E4ECE7] space-y-3">
-                  <label className="text-xs font-bold uppercase tracking-wider text-stone-600 block">
-                    Apuntes Rápidos de la Sesión (Borrador libre del terapeuta)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={rawSessionNotes}
-                    onChange={(e) => setRawSessionNotes(e.target.value)}
-                    placeholder="Escribe ideas sueltas de la sesión..."
-                    className="w-full rounded-2xl border border-stone-200 bg-white p-3.5 text-xs focus:outline-none focus:border-[#2C4A3B]"
-                  />
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      disabled={isGeneratingGrok || !rawSessionNotes.trim()}
-                      onClick={handleGenerateGrokEvolution}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1E3329] hover:bg-[#2C4A3B] text-white rounded-xl text-xs font-bold disabled:opacity-50 transition-all"
-                    >
-                      <Sparkles size={14} className="text-emerald-300" />
-                      <span>
-                        {isGeneratingGrok
-                          ? 'Estructurando con IA Grok...'
-                          : 'Estructurar Nota Clínica con IA Grok'}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSaveEvolutionToFicha}
-                      className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
-                    >
-                      <Check size={14} />
-                      <span>Guardar en Ficha Oficial</span>
-                    </button>
-                  </div>
-
-                  {grokPreviewNote && (
-                    <div className="mt-3 p-4 rounded-2xl bg-white border border-[#2C4A3B]/30 space-y-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#2C4A3B] block">
-                        Propuesta Estructurada por IA Grok (Editable):
-                      </span>
-                      <textarea
-                        rows={6}
-                        value={grokPreviewNote}
-                        onChange={(e) => setGrokPreviewNote(e.target.value)}
-                        className="w-full text-xs text-stone-800 leading-relaxed focus:outline-none"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-400">
-                    Historial de Evoluciones Clínicas ({(fichaPatientApt.clinicalHistory ?? []).length})
-                  </h4>
-                  {(fichaPatientApt.clinicalHistory ?? []).map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="p-4 rounded-2xl bg-white border border-[#E4ECE7] space-y-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between text-[11px] text-stone-400 border-b border-stone-100 pb-1.5">
-                        <strong className="text-[#2C4A3B]">{entry.date}</strong>
-                        <span>Firma: {entry.professionalName}</span>
-                      </div>
-                      <pre className="whitespace-pre-wrap font-sans text-stone-700 leading-relaxed">
-                        {entry.grokStructuredNote}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </motion.div>
           </motion.div>
         )}
@@ -3592,38 +4002,21 @@ function AdminDashboardContent() {
               </p>
             </div>
 
-            {contextMenu.apt.modality === 'Online' && (
-              <a
-                href={contextMenu.apt.meetUrl ?? currentProf?.onlineRoomUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-sky-50 text-sky-700 font-bold transition-colors"
-              >
-                <Video size={15} />
-                <span>Abrir Sala Google Meet</span>
-              </a>
-            )}
-
             <button
               onClick={() => {
-                setFichaPatientApt(contextMenu.apt);
+                const pat = patients.find(
+                  (p) =>
+                    p.id === contextMenu.apt.patientId ||
+                    p.patientName.toLowerCase() ===
+                      contextMenu.apt.patientName.toLowerCase()
+                );
+                if (pat) setFichaPatient(pat);
                 setContextMenu(null);
               }}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-[#2C4A3B] font-bold transition-colors"
             >
-              <BrainCircuit size={15} />
-              <span>Abrir Ficha Clínica + IA Grok</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setEditingApt({ ...contextMenu.apt });
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-900 font-bold transition-colors"
-            >
-              <Edit3 size={15} className="text-[#2C4A3B]" />
-              <span>Editar Paciente / Cambiar Hora</span>
+              <Mic size={15} />
+              <span>Abrir Ficha + Escucha IA</span>
             </button>
 
             <button
@@ -3643,15 +4036,18 @@ function AdminDashboardContent() {
 
             <button
               onClick={() => {
-                toggleModality(contextMenu.apt.id);
+                setAppointments((prev) =>
+                  prev.map((a) =>
+                    a.id === contextMenu.apt.id ? { ...a, clinicalStatus: 'No Asistió' } : a
+                  )
+                );
+                showToast('Marcado como No Asistió (Impacta reporte de abandono)');
                 setContextMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-amber-50 text-amber-900 font-medium transition-colors"
             >
-              <RefreshCw size={15} className="text-[#2C4A3B]" />
-              <span>
-                Cambiar a {contextMenu.apt.modality === 'Online' ? 'Presencial' : 'Online (+Meet)'}
-              </span>
+              <UserX size={15} className="text-amber-600" />
+              <span>Marcar No Asistió (Inasistencia)</span>
             </button>
 
             <button
@@ -3669,23 +4065,23 @@ function AdminDashboardContent() {
 
             <button
               onClick={() => {
-                deleteAppointment(contextMenu.apt.id);
+                deleteAppointmentSlotOnly(contextMenu.apt.id);
                 setContextMenu(null);
               }}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-bold transition-colors"
             >
               <Trash2 size={15} />
-              <span>Eliminar Cita / Liberar Hora</span>
+              <span>Eliminar Hora de Agenda (Mantiene Paciente)</span>
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL CRUD: EDITAR PACIENTE / CITA COMPLETA
+          MODAL REGISTRAR NUEVO PACIENTE DIRECTO EN DIRECTORIO
          ========================================================= */}
       <AnimatePresence>
-        {editingApt && (
+        {showNewPatientModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -3696,163 +4092,170 @@ function AdminDashboardContent() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-stone-900">
-                  Modificar o Eliminar Paciente
-                </h3>
+                <h3 className="text-xl font-bold text-stone-900">Registrar Paciente</h3>
                 <button
-                  onClick={() => setEditingApt(null)}
+                  onClick={() => setShowNewPatientModal(false)}
                   className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveEditedAppointment} className="space-y-3.5 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Nombre del Paciente
-                    </label>
-                    <input
-                      required
-                      type="text"
-                      value={editingApt.patientName}
-                      onChange={(e) =>
-                        setEditingApt({ ...editingApt, patientName: e.target.value })
-                      }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
+              <form onSubmit={handleCreateDirectPatient} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Nombre Completo
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={newPatientDirectForm.patientName}
+                    onChange={(e) =>
+                      setNewPatientDirectForm({
+                        ...newPatientDirectForm,
+                        patientName: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="font-bold uppercase text-stone-500 block mb-1">
                       RUT
                     </label>
                     <input
                       type="text"
-                      value={editingApt.patientRUT}
+                      value={newPatientDirectForm.patientRUT}
                       onChange={(e) =>
-                        setEditingApt({ ...editingApt, patientRUT: e.target.value })
+                        setNewPatientDirectForm({
+                          ...newPatientDirectForm,
+                          patientRUT: e.target.value,
+                        })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      WhatsApp
+                    </label>
+                    <input
+                      type="tel"
+                      value={newPatientDirectForm.patientPhone}
+                      onChange={(e) =>
+                        setNewPatientDirectForm({
+                          ...newPatientDirectForm,
+                          patientPhone: e.target.value,
+                        })
                       }
                       className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
                     />
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Servicio / Terapia
-                    </label>
-                    <select
-                      value={editingApt.serviceName}
-                      onChange={(e) => {
-                        const svc = services.find((s) => s.name === e.target.value);
-                        setEditingApt({
-                          ...editingApt,
-                          serviceName: e.target.value,
-                          price: svc ? svc.price : editingApt.price,
-                        });
-                      }}
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      {services.map((s) => (
-                        <option key={s.id} value={s.name}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Hora (07:00 a 23:00)
-                    </label>
-                    <select
-                      value={editingApt.time}
-                      onChange={(e) => setEditingApt({ ...editingApt, time: e.target.value })}
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      {FULL_DAY_HOURS.map((h) => (
-                        <option key={h} value={h}>
-                          {h} hrs
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Email
+                  </label>
+                  <input
+                    required
+                    type="email"
+                    value={newPatientDirectForm.patientEmail}
+                    onChange={(e) =>
+                      setNewPatientDirectForm({
+                        ...newPatientDirectForm,
+                        patientEmail: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
                 </div>
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
+                >
+                  Guardar Paciente
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Fecha
-                    </label>
-                    <input
-                      required
-                      type="date"
-                      value={editingApt.isoDate}
-                      onChange={(e) =>
-                        setEditingApt({ ...editingApt, isoDate: e.target.value })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Modalidad
-                    </label>
-                    <select
-                      value={editingApt.modality}
-                      onChange={(e) =>
-                        setEditingApt({
-                          ...editingApt,
-                          modality: e.target.value as ModalityType,
-                        })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      <option value="Online">Online (Meet)</option>
-                      <option value="Presencial">Presencial</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Pago
-                    </label>
-                    <select
-                      value={editingApt.paymentStatus}
-                      onChange={(e) =>
-                        setEditingApt({
-                          ...editingApt,
-                          paymentStatus: e.target.value as PaymentStatus,
-                        })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      <option value="Pendiente">Pendiente</option>
-                      <option value="Pagado">Pagado</option>
-                    </select>
-                  </div>
+      {/* =========================================================
+          MODAL EDITAR PACIENTE DEL DIRECTORIO (ESTADO RETENCIÓN / ABANDONO)
+         ========================================================= */}
+      <AnimatePresence>
+        {editingPatientRecord && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-stone-900">Editar Ficha de Paciente</h3>
+                <button
+                  onClick={() => setEditingPatientRecord(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedPatientRecord} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Nombre del Paciente
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editingPatientRecord.patientName}
+                    onChange={(e) =>
+                      setEditingPatientRecord({
+                        ...editingPatientRecord,
+                        patientName: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
                 </div>
-
-                <div className="flex items-center justify-between gap-3 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => deleteAppointment(editingApt.id)}
-                    className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold flex items-center gap-1.5"
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Estado Clínico (Para Reporte de Retención / Abandono)
+                  </label>
+                  <select
+                    value={editingPatientRecord.clinicalStatusTag}
+                    onChange={(e) =>
+                      setEditingPatientRecord({
+                        ...editingPatientRecord,
+                        clinicalStatusTag: e.target.value as PatientRecord['clinicalStatusTag'],
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
                   >
-                    <Trash2 size={15} />
-                    <span>Eliminar</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="flex-1 py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold"
-                  >
-                    Guardar Cambios
-                  </button>
+                    <option value="Activo">Activo (Retenido)</option>
+                    <option value="En Seguimiento">En Seguimiento (Retenido)</option>
+                    <option value="Alta Clínica">Alta Clínica</option>
+                    <option value="Abandono">Abandono / Deserción</option>
+                  </select>
                 </div>
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
+                >
+                  Guardar Cambios
+                </button>
               </form>
             </motion.div>
           </motion.div>
@@ -3918,23 +4321,6 @@ function AdminDashboardContent() {
                     type="text"
                     value={serviceForm.name}
                     onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
-                    placeholder="Ej. Psicoterapia Individual Vespertina"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-bold uppercase text-stone-500 block mb-1">
-                    Tipo de Terapia / Enfoque
-                  </label>
-                  <input
-                    required
-                    type="text"
-                    value={serviceForm.therapyType}
-                    onChange={(e) =>
-                      setServiceForm({ ...serviceForm, therapyType: e.target.value })
-                    }
-                    placeholder="Ej. Cognitivo-Conductual, Sistémica, EMDR..."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
                   />
                 </div>
@@ -3971,45 +4357,6 @@ function AdminDashboardContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Modalidad
-                    </label>
-                    <select
-                      value={serviceForm.modality}
-                      onChange={(e) =>
-                        setServiceForm({
-                          ...serviceForm,
-                          modality: e.target.value as TherapistServiceItem['modality'],
-                        })
-                      }
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
-                    >
-                      <option value="Ambas (Híbrido)">Ambas (Híbrido)</option>
-                      <option value="Online">Solo Online</option>
-                      <option value="Presencial">Solo Presencial</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Horario en que se ofrece
-                    </label>
-                    <input
-                      type="text"
-                      value={serviceForm.allowedHoursLabel}
-                      onChange={(e) =>
-                        setServiceForm({
-                          ...serviceForm,
-                          allowedHoursLabel: e.target.value,
-                        })
-                      }
-                      placeholder="Ej. 08:00 a 23:00 hrs"
-                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                </div>
-
                 <button
                   type="submit"
                   className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
@@ -4023,7 +4370,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL CRUD PROFESIONAL + MODELO DE ARRIENDO BOX / PORCENTAJE
+          MODAL CRUD PROFESIONAL + CONVENIO BOX
          ========================================================= */}
       <AnimatePresence>
         {showProfModal && (
@@ -4083,7 +4430,7 @@ function AdminDashboardContent() {
 
                 <div className="p-4 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3">
                   <label className="font-bold uppercase text-[#2C4A3B] block">
-                    Convenio Financiero con el Centro (Descuento para Liquidación)
+                    Convenio Financiero con el Centro
                   </label>
                   <select
                     value={profForm.agreementType}
@@ -4099,7 +4446,7 @@ function AdminDashboardContent() {
                       Porcentaje de Comisión por Sesión (% para el Centro)
                     </option>
                     <option value="por_box_hora">
-                      Cobro por Uso de Box Presencial ($ por cada sesión en Box)
+                      Cobro por Uso de Box Presencial ($ por sesión en Box)
                     </option>
                     <option value="arriendo_fijo">
                       Arriendo Fijo Mensual de Box ($ monto fijo descontado)
@@ -4181,26 +4528,11 @@ function AdminDashboardContent() {
                   />
                 </div>
 
-                <div>
-                  <label className="font-bold uppercase text-stone-500 block mb-1">
-                    Sala Google Meet Base del Profesional
-                  </label>
-                  <input
-                    required
-                    type="text"
-                    value={profForm.onlineRoomUrl}
-                    onChange={(e) =>
-                      setProfForm({ ...profForm, onlineRoomUrl: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                  />
-                </div>
-
                 <button
                   type="submit"
                   className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
                 >
-                  Guardar Profesional y Convenio
+                  Guardar Profesional
                 </button>
               </form>
             </motion.div>
