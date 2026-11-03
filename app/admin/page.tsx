@@ -22,8 +22,6 @@ import {
   Trash2,
   Check,
   X,
-  Phone,
-  Mail,
   Building2,
   GripVertical,
   AlertCircle,
@@ -32,13 +30,15 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  Sparkles,
   ExternalLink,
   UserPlus,
   Filter,
+  Edit3,
+  KeyRound,
+  BellRing,
+  CalendarDays,
 } from 'lucide-react';
 
-// Importación de tus módulos existentes en components/admin
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
 import ComunicacionesTabRaw from '@/components/admin/ComunicacionesTab';
 
@@ -90,8 +90,7 @@ interface AppointmentItem {
   professionalId: string;
   serviceName: string;
   modality: ModalityType;
-  dayIndex: number; // 1 = Lun ... 6 = Sáb
-  isoDate: string;
+  isoDate: string; // YYYY-MM-DD real para soportar cualquier semana del año
   time: string;
   price: number;
   paymentStatus: PaymentStatus;
@@ -102,7 +101,7 @@ interface AppointmentItem {
 interface BlockedSlot {
   id: string;
   professionalId: string;
-  dayIndex: number;
+  isoDate: string; // YYYY-MM-DD real
   time: string;
   reason: string;
 }
@@ -113,15 +112,6 @@ const CLINICAL_SERVICES = [
   { name: 'Evaluación Psicodiagnóstica', price: 55000, duration: '60 min' },
   { name: 'Consulta Psiquiátrica', price: 75000, duration: '45 min' },
   { name: 'Psicoterapia Infanto-Juvenil', price: 48000, duration: '50 min' },
-];
-
-const WEEK_DAYS = [
-  { index: 1, short: 'Lun', label: 'Lunes', dateNum: '09', iso: '2026-11-09' },
-  { index: 2, short: 'Mar', label: 'Martes', dateNum: '10', iso: '2026-11-10' },
-  { index: 3, short: 'Mié', label: 'Miércoles', dateNum: '11', iso: '2026-11-11' },
-  { index: 4, short: 'Jue', label: 'Jueves', dateNum: '12', iso: '2026-11-12' },
-  { index: 5, short: 'Vie', label: 'Viernes', dateNum: '13', iso: '2026-11-13' },
-  { index: 6, short: 'Sáb', label: 'Sábado', dateNum: '14', iso: '2026-11-14' },
 ];
 
 const ALL_HOURS = [
@@ -139,6 +129,24 @@ const ALL_HOURS = [
   '19:00',
   '20:00',
 ];
+
+// Utilidades de fechas reales para mover semanas libremente
+function getMondayOfCurrentWeek(offsetWeeks: number = 0): Date {
+  const now = new Date();
+  const day = now.getDay(); // 0 = Dom, 1 = Lun ...
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setHours(12, 0, 0, 0);
+  monday.setDate(now.getDate() + diffToMonday + offsetWeeks * 7);
+  return monday;
+}
+
+function formatIsoDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
   {
@@ -188,93 +196,147 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
   },
 ];
 
-const INITIAL_APPOINTMENTS: AppointmentItem[] = [
-  {
-    id: 'apt-101',
-    patientName: 'Camila Vergara',
-    patientRUT: '18.456.789-2',
-    patientEmail: 'camila@ejemplo.cl',
-    patientPhone: '56961699991',
-    professionalId: 'prof-1',
-    serviceName: 'Psicoterapia Individual',
-    modality: 'Presencial',
-    dayIndex: 1,
-    isoDate: '2026-11-09',
-    time: '10:00',
-    price: 45000,
-    paymentStatus: 'Pagado',
-    clinicalStatus: 'Confirmada',
-    notes: 'Primera sesión presencial en box 1204.',
-  },
-  {
-    id: 'apt-102',
-    patientName: 'Matías Errázuriz',
-    patientRUT: '16.789.234-5',
-    patientEmail: 'matias@ejemplo.cl',
-    patientPhone: '56961699991',
-    professionalId: 'prof-1',
-    serviceName: 'Terapia de Pareja / Familiar',
-    modality: 'Online',
-    dayIndex: 2,
-    isoDate: '2026-11-10',
-    time: '11:00',
-    price: 60000,
-    paymentStatus: 'Pendiente',
-    clinicalStatus: 'Confirmada',
-    notes: 'Enviar link de Google Meet 15 min antes.',
-  },
-  {
-    id: 'apt-103',
-    patientName: 'Sofía Domínguez',
-    patientRUT: '19.321.654-8',
-    patientEmail: 'sofia@ejemplo.cl',
-    patientPhone: '56961699991',
-    professionalId: 'prof-1',
-    serviceName: 'Evaluación Psicodiagnóstica',
-    modality: 'Presencial',
-    dayIndex: 4,
-    isoDate: '2026-11-12',
-    time: '16:00',
-    price: 55000,
-    paymentStatus: 'Pendiente',
-    clinicalStatus: 'En Espera',
-    notes: 'Aplicación de batería diagnóstica.',
-  },
-];
-
 export default function AdminDashboardPage() {
-  // Navegación de la Barra Lateral
   const [activeModule, setActiveModule] = useState<AdminModule>('agenda');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [patientModalityFilter, setPatientModalityFilter] = useState<'Todas' | ModalityType>('Todas');
 
-  // Datos principales
+  // Control dinámico de semanas en el calendario (-1, 0, +1, +2...)
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+
+  // Días de la semana calculados dinámicamente según weekOffset
+  const dynamicWeekDays = useMemo(() => {
+    const monday = getMondayOfCurrentWeek(weekOffset);
+    const shortNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const fullNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const monthFormatter = new Intl.DateTimeFormat('es-CL', { month: 'short' });
+
+    return [0, 1, 2, 3, 4, 5].map((i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const iso = formatIsoDate(d);
+      const dayNum = String(d.getDate()).padStart(2, '0');
+      const monthShort = monthFormatter.format(d).replace('.', '');
+      return {
+        index: i + 1, // 1 = Lun ... 6 = Sáb
+        short: shortNames[i],
+        label: fullNames[i],
+        dateNum: `${dayNum} ${monthShort}`,
+        iso,
+      };
+    });
+  }, [weekOffset]);
+
+  const weekRangeLabel = useMemo(() => {
+    if (dynamicWeekDays.length === 0) return '';
+    const first = dynamicWeekDays[0];
+    const last = dynamicWeekDays[dynamicWeekDays.length - 1];
+    const year = first.iso.split('-')[0];
+    return `${first.dateNum} – ${last.dateNum} ${year}`;
+  }, [dynamicWeekDays]);
+
   const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(INITIAL_PROFESSIONALS);
   const [selectedProfId, setSelectedProfId] = useState<string>(INITIAL_PROFESSIONALS[0].id);
-  const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
-  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([
-    {
-      id: 'blk-1',
-      professionalId: 'prof-1',
-      dayIndex: 3,
-      time: '13:00',
-      reason: 'Almuerzo / Supervisión Clínica',
-    },
-  ]);
+
+  // Inicializar citas en la semana actual para que siempre sean visibles al abrir
+  const [appointments, setAppointments] = useState<AppointmentItem[]>(() => {
+    const mon = getMondayOfCurrentWeek(0);
+    const d1 = formatIsoDate(mon);
+    const tue = new Date(mon);
+    tue.setDate(mon.getDate() + 1);
+    const d2 = formatIsoDate(tue);
+    const thu = new Date(mon);
+    thu.setDate(mon.getDate() + 3);
+    const d4 = formatIsoDate(thu);
+
+    return [
+      {
+        id: 'apt-101',
+        patientName: 'Camila Vergara',
+        patientRUT: '18.456.789-2',
+        patientEmail: 'camila@ejemplo.cl',
+        patientPhone: '56961699991',
+        professionalId: 'prof-1',
+        serviceName: 'Psicoterapia Individual',
+        modality: 'Presencial',
+        isoDate: d1,
+        time: '10:00',
+        price: 45000,
+        paymentStatus: 'Pagado',
+        clinicalStatus: 'Confirmada',
+        notes: 'Primera sesión presencial en box 1204.',
+      },
+      {
+        id: 'apt-102',
+        patientName: 'Matías Errázuriz',
+        patientRUT: '16.789.234-5',
+        patientEmail: 'matias@ejemplo.cl',
+        patientPhone: '56961699991',
+        professionalId: 'prof-1',
+        serviceName: 'Terapia de Pareja / Familiar',
+        modality: 'Online',
+        isoDate: d2,
+        time: '11:00',
+        price: 60000,
+        paymentStatus: 'Pendiente',
+        clinicalStatus: 'Confirmada',
+        notes: 'Enviar link de Google Meet 15 min antes.',
+      },
+      {
+        id: 'apt-103',
+        patientName: 'Sofía Domínguez',
+        patientRUT: '19.321.654-8',
+        patientEmail: 'sofia@ejemplo.cl',
+        patientPhone: '56961699991',
+        professionalId: 'prof-1',
+        serviceName: 'Evaluación Psicodiagnóstica',
+        modality: 'Presencial',
+        isoDate: d4,
+        time: '16:00',
+        price: 55000,
+        paymentStatus: 'Pendiente',
+        clinicalStatus: 'En Espera',
+        notes: 'Aplicación de batería diagnóstica.',
+      },
+    ];
+  });
+
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(() => {
+    const mon = getMondayOfCurrentWeek(0);
+    const wed = new Date(mon);
+    wed.setDate(mon.getDate() + 2);
+    return [
+      {
+        id: 'blk-1',
+        professionalId: 'prof-1',
+        isoDate: formatIsoDate(wed),
+        time: '13:00',
+        reason: 'Almuerzo / Supervisión Clínica',
+      },
+    ];
+  });
+
+  // Credenciales en caliente para destrabar Meta / Resend sin esperar Redeploy
+  const [showApiConfigModal, setShowApiConfigModal] = useState(false);
+  const [apiOverrides, setApiOverrides] = useState({
+    whatsappToken: '',
+    whatsappPhoneId: '1409350122262116',
+    adminVerifiedEmail: '',
+  });
 
   // Estado Drag & Drop
   const [draggedAptId, setDraggedAptId] = useState<string | null>(null);
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
 
-  // Estado Menú Contextual (Clic Derecho en el Calendario)
+  // Menú Contextual (Clic Derecho en Calendario)
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     apt: AppointmentItem;
   } | null>(null);
 
-  // Modal de Celda Vacía (Agendar Paciente o Bloquear Horario)
+  // Modal de Celda Vacía (Crear Cita o Bloquear Horario)
   const [slotModal, setSlotModal] = useState<{
     dayIndex: number;
     isoDate: string;
@@ -284,13 +346,19 @@ export default function AdminDashboardPage() {
   const [slotActionMode, setSlotActionMode] = useState<'book' | 'block'>('book');
   const [blockReasonInput, setBlockReasonInput] = useState('Bloqueo Personal / Almuerzo');
 
-  // Modal de Nuevo Profesional
-  const [showNewProfModal, setShowNewProfModal] = useState(false);
-  const [newProfForm, setNewProfForm] = useState({
+  // Modal de EDICIÓN COMPLETA de Paciente / Cita (CRUD)
+  const [editingApt, setEditingApt] = useState<AppointmentItem | null>(null);
+
+  // Modal de CREACIÓN y EDICIÓN de Profesional (CRUD)
+  const [showProfModal, setShowProfModal] = useState(false);
+  const [editingProfId, setEditingProfId] = useState<string | null>(null);
+  const [profForm, setProfForm] = useState({
     name: '',
     specialty: 'Psicoterapia Clínica',
     rut: '',
     email: '',
+    startHour: '09:00',
+    endHour: '18:00',
     modalityMode: 'Ambas (Híbrido)' as ProfessionalConfig['modalityMode'],
     presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
     onlineRoomUrl: 'https://meet.google.com/kairos-sala',
@@ -308,7 +376,7 @@ export default function AdminDashboardPage() {
     notes: '',
   });
 
-  // Notificación Toast
+  // Toast de Feedback
   const [toastMessage, setToastMessage] = useState<{
     title: string;
     detail?: string;
@@ -317,30 +385,36 @@ export default function AdminDashboardPage() {
 
   const showToast = (title: string, detail?: string, type: 'success' | 'warn' = 'success') => {
     setToastMessage({ title, detail, type });
-    setTimeout(() => setToastMessage(null), 5000);
+    setTimeout(() => setToastMessage(null), 5500);
   };
 
-  // Carga y sincronización local + Supabase
+  // Persistencia local
   useEffect(() => {
-    const savedProfs = localStorage.getItem('kairos_profs_v3');
-    const savedApts = localStorage.getItem('kairos_apts_v3');
-    const savedBlocks = localStorage.getItem('kairos_blocks_v3');
+    const savedProfs = localStorage.getItem('kairos_profs_v4');
+    const savedApts = localStorage.getItem('kairos_apts_v4');
+    const savedBlocks = localStorage.getItem('kairos_blocks_v4');
+    const savedApi = localStorage.getItem('kairos_api_overrides_v4');
     if (savedProfs) setProfessionals(JSON.parse(savedProfs));
     if (savedApts) setAppointments(JSON.parse(savedApts));
     if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
+    if (savedApi) setApiOverrides(JSON.parse(savedApi));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('kairos_profs_v3', JSON.stringify(professionals));
+    localStorage.setItem('kairos_profs_v4', JSON.stringify(professionals));
   }, [professionals]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_apts_v3', JSON.stringify(appointments));
+    localStorage.setItem('kairos_apts_v4', JSON.stringify(appointments));
   }, [appointments]);
 
   useEffect(() => {
-    localStorage.setItem('kairos_blocks_v3', JSON.stringify(blockedSlots));
+    localStorage.setItem('kairos_blocks_v4', JSON.stringify(blockedSlots));
   }, [blockedSlots]);
+
+  useEffect(() => {
+    localStorage.setItem('kairos_api_overrides_v4', JSON.stringify(apiOverrides));
+  }, [apiOverrides]);
 
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null);
@@ -354,23 +428,23 @@ export default function AdminDashboardPage() {
   );
 
   const visibleHours = useMemo(() => {
+    if (!currentProf) return ALL_HOURS;
     return ALL_HOURS.filter((h) => h >= currentProf.startHour && h <= currentProf.endHour);
   }, [currentProf]);
 
-  // Filtro de pacientes para el directorio
   const filteredAppointments = useMemo(() => {
     return appointments.filter((a) => {
       const matchesSearch =
         a.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.serviceName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.patientEmail.toLowerCase().includes(searchQuery.toLowerCase());
+        a.patientEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.patientRUT.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesModality =
         patientModalityFilter === 'Todas' || a.modality === patientModalityFilter;
       return matchesSearch && matchesModality;
     });
   }, [appointments, searchQuery, patientModalityFilter]);
 
-  // Métricas financieras y operativas
   const metrics = useMemo(() => {
     const totalPagado = appointments
       .filter((a) => a.paymentStatus === 'Pagado')
@@ -383,15 +457,31 @@ export default function AdminDashboardPage() {
     return { totalPagado, totalPendiente, onlineCount, presencialCount };
   }, [appointments]);
 
-  // Disparador de confirmación transaccional (Email + WhatsApp API v25.0)
-  const triggerNotificationForApt = async (apt: AppointmentItem) => {
+  // Saltar a cualquier fecha elegida en el Date Picker del calendario
+  const handleJumpToDate = (isoString: string) => {
+    if (!isoString) return;
+    const [y, m, d] = isoString.split('-').map(Number);
+    const target = new Date(y, m - 1, d, 12, 0, 0);
+    const currentMon = getMondayOfCurrentWeek(0);
+    const targetDay = target.getDay();
+    const diffTargetMon = targetDay === 0 ? -6 : 1 - targetDay;
+    const targetMon = new Date(target);
+    targetMon.setDate(target.getDate() + diffTargetMon);
+
+    const diffTime = targetMon.getTime() - currentMon.getTime();
+    const diffWeeks = Math.round(diffTime / (1000 * 60 * 60 * 24 * 7));
+    setWeekOffset(diffWeeks);
+  };
+
+  // DISPARADOR DE NOTIFICACIÓN Y RECORDATORIO AUTOMÁTICO (API + FALLBACK)
+  const triggerNotificationForApt = async (apt: AppointmentItem, isReminder: boolean = false) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) || currentProf;
     const locationAddress =
       apt.modality === 'Presencial' ? prof.presencialAddress : prof.onlineRoomUrl;
 
     showToast(
-      'Despachando confirmación omnicanal...',
-      `Enviando correo y WhatsApp a ${apt.patientName}`
+      isReminder ? 'Enviando recordatorio de sesión...' : 'Enviando confirmación automática...',
+      `Paciente: ${apt.patientName} (+${apt.patientPhone})`
     );
 
     try {
@@ -402,7 +492,7 @@ export default function AdminDashboardPage() {
           patientName: apt.patientName,
           patientEmail: apt.patientEmail,
           patientPhone: apt.patientPhone,
-          date: `${WEEK_DAYS.find((d) => d.index === apt.dayIndex)?.label || ''} ${apt.isoDate}`,
+          date: apt.isoDate,
           isoDate: apt.isoDate,
           time: apt.time,
           serviceName: apt.serviceName,
@@ -411,6 +501,9 @@ export default function AdminDashboardPage() {
           locationAddress,
           professionalName: prof.name,
           centerName: 'Kairós Clínico',
+          overrideWhatsappToken: apiOverrides.whatsappToken,
+          overrideWhatsappPhoneId: apiOverrides.whatsappPhoneId,
+          overrideAdminEmail: apiOverrides.adminVerifiedEmail,
         }),
       });
 
@@ -419,32 +512,48 @@ export default function AdminDashboardPage() {
         const { emailSent, emailError, whatsappSent, whatsappError } = data.diagnostics;
         if (emailSent && whatsappSent) {
           showToast(
-            'WhatsApp y Correo entregados',
-            `Ubicación enviada: ${locationAddress}`,
+            '¡WhatsApp y Correo enviados con éxito!',
+            `Recibido en +${apt.patientPhone} y ${apt.patientEmail}`,
             'success'
           );
         } else if (emailSent && !whatsappSent) {
           showToast(
-            'Correo entregado · Revisar Token WhatsApp',
-            `Meta API: ${whatsappError}. Usa "WhatsApp Directo" en el menú contextual.`,
+            'Correo enviado · Token de WhatsApp requiere actualización',
+            `Meta respondió: "${whatsappError}". Haz clic en el botón superior "Credenciales API" para pegar tu token fresco.`,
             'warn'
           );
         } else if (!emailSent && whatsappSent) {
-          showToast('WhatsApp entregado · Alerta en Resend', `${emailError}`, 'warn');
+          showToast(
+            'WhatsApp enviado · Aviso de Resend',
+            `Resend: "${emailError}". (En cuentas gratis de Resend, pon tu propio correo en "Credenciales API").`,
+            'warn'
+          );
         } else {
           showToast(
-            'Atención en credenciales API',
-            `Email: ${emailError || 'Error'} | Meta: ${whatsappError || 'Renovar token'}`,
+            'Fallo en credenciales de envío',
+            `Email: ${emailError || 'Error'} | Meta: ${whatsappError || 'Token expirado'}`,
             'warn'
           );
         }
       }
     } catch (error) {
-      showToast('Error de conexión con el endpoint', 'Verifica las variables en Vercel', 'warn');
+      showToast('Error de red al conectar con la API', 'Revisa tu conexión local o Vercel', 'warn');
     }
   };
 
-  // Envío por WhatsApp Web con mensaje clínico y dirección presencial / link
+  // Enviar recordatorio masivo a todos los pacientes de la semana visible
+  const handleSendBulkReminders = async () => {
+    const visibleIsos = new Set(dynamicWeekDays.map((d) => d.iso));
+    const weekApts = appointments.filter((a) => visibleIsos.has(a.isoDate));
+    if (weekApts.length === 0) {
+      showToast('Sin citas en esta semana', 'Navega a una semana con pacientes agendados.', 'warn');
+      return;
+    }
+    for (const apt of weekApts) {
+      await triggerNotificationForApt(apt, true);
+    }
+  };
+
   const openDirectWhatsApp = (apt: AppointmentItem) => {
     const prof = professionals.find((p) => p.id === apt.professionalId) || currentProf;
     const cleanPhone = apt.patientPhone.replace(/\D/g, '');
@@ -452,11 +561,11 @@ export default function AdminDashboardPage() {
       apt.modality === 'Presencial'
         ? `📍 Dirección Presencial: ${prof.presencialAddress}`
         : `💻 Link Videollamada: ${prof.onlineRoomUrl}`;
-    const msg = `Hola ${apt.patientName}, te escribimos de *Kairós Clínico* para confirmar tu cita de *${apt.serviceName}* (${apt.modality}) con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}\n\n¡Te esperamos!`;
+    const msg = `Hola ${apt.patientName}, te escribimos de *Kairós Clínico* para confirmar y recordar tu sesión de *${apt.serviceName}* (${apt.modality}) con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}\n\n¡Te esperamos!`;
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // Funciones Drag & Drop para mover citas en el calendario
+  // Drag & Drop en el Calendario
   const handleDragStart = (e: React.DragEvent, aptId: string) => {
     setDraggedAptId(aptId);
     e.dataTransfer.setData('text/plain', aptId);
@@ -467,52 +576,51 @@ export default function AdminDashboardPage() {
     if (!draggedAptId) return;
 
     if (!currentProf.workingDays.includes(dayIndex)) {
-      showToast('Día inactivo', `${currentProf.name} no tiene agenda abierta ese día.`, 'warn');
+      showToast('Día inactivo', `${currentProf.name} no atiende ese día de la semana.`, 'warn');
       setDraggedAptId(null);
       return;
     }
 
     const isBlocked = blockedSlots.some(
-      (b) => b.professionalId === selectedProfId && b.dayIndex === dayIndex && b.time === time
+      (b) => b.professionalId === selectedProfId && b.isoDate === isoDate && b.time === time
     );
     const isOccupied = appointments.some(
       (a) =>
         a.professionalId === selectedProfId &&
-        a.dayIndex === dayIndex &&
+        a.isoDate === isoDate &&
         a.time === time &&
         a.id !== draggedAptId
     );
 
     if (isBlocked || isOccupied) {
-      showToast('Bloque ocupado', 'No puedes soltar una cita sobre un horario bloqueado u ocupado.', 'warn');
+      showToast('Horario ocupado', 'El bloque de destino ya tiene una cita o está bloqueado.', 'warn');
       setDraggedAptId(null);
       return;
     }
 
     const movedApt = appointments.find((a) => a.id === draggedAptId);
     setAppointments((prev) =>
-      prev.map((a) => (a.id === draggedAptId ? { ...a, dayIndex, isoDate, time } : a))
+      prev.map((a) => (a.id === draggedAptId ? { ...a, isoDate, time } : a))
     );
     setDraggedAptId(null);
 
     if (movedApt) {
+      const updated = { ...movedApt, isoDate, time };
       showToast(
-        'Cita reagendada en el calendario',
+        'Paciente reagendado',
         `${movedApt.patientName} movido al ${isoDate} a las ${time} hrs.`
       );
-      if (supabase) {
-        await supabase.from('appointments').update({ date: isoDate, time }).eq('id', movedApt.id);
-      }
+      triggerNotificationForApt(updated, true);
     }
   };
 
-  // Acciones rápidas de clic derecho
+  // CRUD PACIENTES / CITAS
   const togglePaymentStatus = (aptId: string) => {
     setAppointments((prev) =>
       prev.map((a) => {
         if (a.id !== aptId) return a;
         const nextStatus: PaymentStatus = a.paymentStatus === 'Pagado' ? 'Pendiente' : 'Pagado';
-        showToast(`Pago marcado como ${nextStatus}`, `Paciente: ${a.patientName}`);
+        showToast(`Pago actualizado a ${nextStatus}`, `Paciente: ${a.patientName}`);
         return { ...a, paymentStatus: nextStatus };
       })
     );
@@ -523,7 +631,7 @@ export default function AdminDashboardPage() {
       prev.map((a) => {
         if (a.id !== aptId) return a;
         const nextMod: ModalityType = a.modality === 'Online' ? 'Presencial' : 'Online';
-        showToast(`Modalidad actualizada a ${nextMod}`, `Paciente: ${a.patientName}`);
+        showToast(`Modalidad cambiada a ${nextMod}`, `Paciente: ${a.patientName}`);
         return { ...a, modality: nextMod };
       })
     );
@@ -533,15 +641,27 @@ export default function AdminDashboardPage() {
     setAppointments((prev) =>
       prev.map((a) => (a.id === aptId ? { ...a, clinicalStatus: status } : a))
     );
-    showToast(`Estado clínico actualizado a ${status}`);
+    showToast(`Estado clínico: ${status}`);
   };
 
   const deleteAppointment = (aptId: string) => {
+    const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
-    showToast('Horario liberado correctamente');
+    if (editingApt?.id === aptId) setEditingApt(null);
+    showToast('Paciente / Cita eliminada', target ? `Se eliminó la ficha de ${target.patientName}` : undefined);
   };
 
-  // Guardar nueva cita o bloqueo desde celda vacía
+  const handleSaveEditedAppointment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingApt) return;
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === editingApt.id ? editingApt : a))
+    );
+    showToast('Paciente actualizado correctamente', editingApt.patientName);
+    setEditingApt(null);
+  };
+
+  // Crear cita o bloqueo desde celda vacía
   const handleCreateSlotAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!slotModal) return;
@@ -550,12 +670,12 @@ export default function AdminDashboardPage() {
       const newBlock: BlockedSlot = {
         id: `blk-${Date.now()}`,
         professionalId: selectedProfId,
-        dayIndex: slotModal.dayIndex,
+        isoDate: slotModal.isoDate,
         time: slotModal.time,
         reason: blockReasonInput.trim() || 'Bloqueo de Agenda',
       };
       setBlockedSlots((prev) => [...prev, newBlock]);
-      showToast('Horario bloqueado en agenda', `${slotModal.dayLabel} · ${slotModal.time} hrs`);
+      showToast('Horario bloqueado', `${slotModal.dayLabel} · ${slotModal.time} hrs`);
       setSlotModal(null);
       return;
     }
@@ -572,7 +692,6 @@ export default function AdminDashboardPage() {
       professionalId: selectedProfId,
       serviceName: newBookingForm.serviceName,
       modality: newBookingForm.modality,
-      dayIndex: slotModal.dayIndex,
       isoDate: slotModal.isoDate,
       time: slotModal.time,
       price: svcObj.price,
@@ -600,7 +719,7 @@ export default function AdminDashboardPage() {
       ]);
     }
 
-    await triggerNotificationForApt(createdApt);
+    await triggerNotificationForApt(createdApt, false);
     setNewBookingForm({
       patientName: '',
       patientRUT: '',
@@ -613,36 +732,118 @@ export default function AdminDashboardPage() {
     });
   };
 
-  // Agregar nuevo profesional al centro
-  const handleAddProfessional = (e: React.FormEvent) => {
+  // CRUD PROFESIONALES (Crear, Editar, Eliminar)
+  const openCreateProfModal = () => {
+    setEditingProfId(null);
+    setProfForm({
+      name: '',
+      specialty: 'Psicoterapia Clínica',
+      rut: '',
+      email: '',
+      startHour: '09:00',
+      endHour: '18:00',
+      modalityMode: 'Ambas (Híbrido)',
+      presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
+      onlineRoomUrl: 'https://meet.google.com/kairos-sala',
+      basePrice: 45000,
+    });
+    setShowProfModal(true);
+  };
+
+  const openEditProfModal = (prof: ProfessionalConfig) => {
+    setEditingProfId(prof.id);
+    setProfForm({
+      name: prof.name,
+      specialty: prof.specialty,
+      rut: prof.rut,
+      email: prof.email,
+      startHour: prof.startHour,
+      endHour: prof.endHour,
+      modalityMode: prof.modalityMode,
+      presencialAddress: prof.presencialAddress,
+      onlineRoomUrl: prof.onlineRoomUrl,
+      basePrice: prof.basePrice,
+    });
+    setShowProfModal(true);
+  };
+
+  const handleSaveProfessional = (e: React.FormEvent) => {
     e.preventDefault();
-    const initials = newProfForm.name
+    const initials = profForm.name
       .split(' ')
       .filter(Boolean)
       .slice(0, 2)
       .map((w) => w[0]?.toUpperCase())
       .join('');
 
-    const createdProf: ProfessionalConfig = {
-      id: `prof-${Date.now()}`,
-      name: newProfForm.name.trim(),
-      specialty: newProfForm.specialty.trim(),
-      rut: newProfForm.rut.trim(),
-      email: newProfForm.email.trim(),
-      avatar: initials || 'PR',
-      workingDays: [1, 2, 3, 4, 5],
-      startHour: '09:00',
-      endHour: '18:00',
-      modalityMode: newProfForm.modalityMode,
-      presencialAddress: newProfForm.presencialAddress.trim(),
-      onlineRoomUrl: newProfForm.onlineRoomUrl.trim(),
-      basePrice: Number(newProfForm.basePrice) || 45000,
-    };
+    if (editingProfId) {
+      setProfessionals((prev) =>
+        prev.map((p) =>
+          p.id === editingProfId
+            ? {
+                ...p,
+                name: profForm.name.trim(),
+                specialty: profForm.specialty.trim(),
+                rut: profForm.rut.trim(),
+                email: profForm.email.trim(),
+                avatar: initials || p.avatar,
+                startHour: profForm.startHour,
+                endHour: profForm.endHour,
+                modalityMode: profForm.modalityMode,
+                presencialAddress: profForm.presencialAddress.trim(),
+                onlineRoomUrl: profForm.onlineRoomUrl.trim(),
+                basePrice: Number(profForm.basePrice) || 45000,
+              }
+            : p
+        )
+      );
+      showToast('Profesional modificado con éxito', profForm.name);
+    } else {
+      const createdProf: ProfessionalConfig = {
+        id: `prof-${Date.now()}`,
+        name: profForm.name.trim(),
+        specialty: profForm.specialty.trim(),
+        rut: profForm.rut.trim(),
+        email: profForm.email.trim(),
+        avatar: initials || 'PR',
+        workingDays: [1, 2, 3, 4, 5],
+        startHour: profForm.startHour,
+        endHour: profForm.endHour,
+        modalityMode: profForm.modalityMode,
+        presencialAddress: profForm.presencialAddress.trim(),
+        onlineRoomUrl: profForm.onlineRoomUrl.trim(),
+        basePrice: Number(profForm.basePrice) || 45000,
+      };
+      setProfessionals((prev) => [...prev, createdProf]);
+      setSelectedProfId(createdProf.id);
+      showToast('Nuevo profesional agregado', createdProf.name);
+    }
+    setShowProfModal(false);
+  };
 
-    setProfessionals((prev) => [...prev, createdProf]);
-    setSelectedProfId(createdProf.id);
-    setShowNewProfModal(false);
-    showToast('Profesional incorporado al equipo', createdProf.name);
+  const handleDeleteProfessional = (profId: string) => {
+    if (professionals.length <= 1) {
+      showToast(
+        'Acción bloqueada',
+        'El centro debe mantener al menos 1 profesional activo.',
+        'warn'
+      );
+      return;
+    }
+    const target = professionals.find((p) => p.id === profId);
+    const remaining = professionals.filter((p) => p.id !== profId);
+    setProfessionals(remaining);
+    if (selectedProfId === profId) {
+      setSelectedProfId(remaining[0].id);
+    }
+    // Reasignar las citas de ese profesional al primero disponible para no perder historial
+    setAppointments((prev) =>
+      prev.map((a) => (a.professionalId === profId ? { ...a, professionalId: remaining[0].id } : a))
+    );
+    showToast(
+      'Profesional eliminado del centro',
+      target ? `${target.name} fue removido y sus citas reasignadas.` : undefined
+    );
   };
 
   const toggleProfWorkingDay = (profId: string, dayIdx: number) => {
@@ -666,8 +867,18 @@ export default function AdminDashboardPage() {
   }[] = [
     { id: 'dashboard', label: 'Resumen Clínico', icon: LayoutDashboard },
     { id: 'agenda', label: 'Agenda Interactiva', badge: 'Vivo', icon: CalendarIcon },
-    { id: 'pacientes', label: 'Pacientes & Servicios', badge: String(appointments.length), icon: Users },
-    { id: 'profesionales', label: 'Profesionales & Horarios', icon: Stethoscope },
+    {
+      id: 'pacientes',
+      label: 'Pacientes & Servicios',
+      badge: String(appointments.length),
+      icon: Users,
+    },
+    {
+      id: 'profesionales',
+      label: 'Profesionales & Horarios',
+      badge: String(professionals.length),
+      icon: Stethoscope,
+    },
     { id: 'documentos', label: 'Documentos Clínicos', icon: FileText },
     { id: 'comunicaciones', label: 'Comunicaciones (API)', icon: MessageSquare },
     { id: 'finanzas', label: 'Caja & Finanzas', icon: Wallet },
@@ -702,14 +913,13 @@ export default function AdminDashboardPage() {
       </AnimatePresence>
 
       {/* =========================================================
-          BARRA LATERAL (SIDEBAR DE LUJO RESTAURADA)
+          BARRA LATERAL (SIDEBAR COMPLETA)
          ========================================================= */}
       <aside
         className={`${
           sidebarCollapsed ? 'w-20' : 'w-72'
         } shrink-0 bg-[#1E3329] text-stone-100 flex flex-col justify-between transition-all duration-300 border-r border-[#2C4A3B]/40 sticky top-0 h-screen z-30 select-none`}
       >
-        {/* Logo y Cabecera de Sede */}
         <div>
           <div className="p-5 flex items-center justify-between border-b border-white/10">
             <div className="flex items-center gap-3 overflow-hidden">
@@ -721,20 +931,20 @@ export default function AdminDashboardPage() {
                   <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-300/80 font-bold block">
                     Kairós Clínico
                   </span>
-                  <h1 className="text-sm font-bold text-white truncate">Sede Central · Multi-Tenant</h1>
+                  <h1 className="text-sm font-bold text-white truncate">
+                    Panel Administrador
+                  </h1>
                 </div>
               )}
             </div>
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               className="p-2 rounded-xl hover:bg-white/10 text-stone-300 transition-colors"
-              title={sidebarCollapsed ? 'Expandir barra lateral' : 'Colapsar barra lateral'}
             >
               {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
           </div>
 
-          {/* Menú de Módulos */}
           <nav className="p-3 space-y-1.5 mt-2">
             {SIDEBAR_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -773,17 +983,23 @@ export default function AdminDashboardPage() {
           </nav>
         </div>
 
-        {/* Estado del Motor Transaccional y Portal Público */}
         <div className="p-4 border-t border-white/10 space-y-3">
           {!sidebarCollapsed && (
-            <div className="bg-white/5 rounded-2xl p-3.5 border border-white/10 text-[11px] space-y-2">
+            <div className="bg-white/5 rounded-2xl p-3.5 border border-white/10 text-[11px] space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-stone-300 font-semibold flex items-center gap-1.5">
                   <ShieldCheck size={14} className="text-emerald-400" />
-                  Meta API v25.0 + Resend
+                  Meta v25.0 + Resend
                 </span>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               </div>
+              <button
+                onClick={() => setShowApiConfigModal(true)}
+                className="w-full py-2 px-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all text-xs"
+              >
+                <KeyRound size={13} />
+                <span>Configurar Token / Email</span>
+              </button>
               <a
                 href="/centro/kairos-central"
                 target="_blank"
@@ -799,22 +1015,20 @@ export default function AdminDashboardPage() {
       </aside>
 
       {/* =========================================================
-          ÁREA PRINCIPAL DE TRABAJO
+          CONTENEDOR CENTRAL
          ========================================================= */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header Superior Contextual */}
         <header className="sticky top-0 z-20 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
-              Panel Administrativo · Kairós Clínico
+              Control Total Administrador · Kairós Clínico
             </span>
             <h2 className="text-xl font-bold text-stone-900">
               {SIDEBAR_ITEMS.find((i) => i.id === activeModule)?.label}
             </h2>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Buscador Global Rápido */}
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="relative">
               <Search
                 size={15}
@@ -824,162 +1038,104 @@ export default function AdminDashboardPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar paciente o servicio..."
+                placeholder="Buscar paciente, RUT o servicio..."
                 className="pl-9 pr-4 py-2 bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl text-xs focus:outline-none focus:border-[#2C4A3B] w-56"
               />
             </div>
 
-            {/* Indicadores de Caja en Vivo */}
-            <div className="hidden md:flex items-center gap-2">
-              <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/70 text-xs">
-                <span className="text-[10px] uppercase font-bold text-emerald-700 mr-1.5">
-                  Pagado:
-                </span>
-                <span className="font-bold text-emerald-900">
-                  ${metrics.totalPagado.toLocaleString('es-CL')}
-                </span>
-              </div>
-              <div className="px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200/70 text-xs">
-                <span className="text-[10px] uppercase font-bold text-amber-700 mr-1.5">
-                  Pendiente:
-                </span>
-                <span className="font-bold text-amber-900">
-                  ${metrics.totalPendiente.toLocaleString('es-CL')}
-                </span>
-              </div>
-            </div>
+            <button
+              onClick={() => setShowApiConfigModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-all"
+            >
+              <KeyRound size={14} className="text-amber-700" />
+              <span>Credenciales API</span>
+            </button>
+
+            <button
+              onClick={handleSendBulkReminders}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#EBF3EE] hover:bg-[#dbeadd] text-[#2C4A3B] rounded-xl text-xs font-bold transition-all"
+            >
+              <BellRing size={14} />
+              <span>Enviar Recordatorios Semana</span>
+            </button>
 
             <button
               onClick={() => {
                 setActiveModule('agenda');
                 setSlotActionMode('book');
+                const firstDay = dynamicWeekDays[0];
                 setSlotModal({
                   dayIndex: 1,
-                  isoDate: '2026-11-09',
-                  dayLabel: 'Lunes 09 Nov',
-                  time: '09:00',
+                  isoDate: firstDay.iso,
+                  dayLabel: `${firstDay.label} ${firstDay.dateNum}`,
+                  time: '10:00',
                 });
               }}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl text-xs font-bold transition-all shadow-xs"
             >
               <Plus size={15} />
-              <span>Nueva Cita / Bloqueo</span>
+              <span>Agendar Paciente</span>
             </button>
           </div>
         </header>
 
-        {/* Contenido Dinámico según Módulo de la Barra Lateral */}
         <main className="p-6 max-w-[1440px] w-full mx-auto space-y-6">
           {/* ---------------------------------------------------------
-              1. MÓDULO: RESUMEN / DASHBOARD EJECUTIVO
+              1. RESUMEN CLÍNICO
              --------------------------------------------------------- */}
           {activeModule === 'dashboard' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs">
                   <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
-                    Ingresos Confirmados
+                    Ingresos Pagados
                   </span>
                   <p className="text-2xl font-bold text-[#2C4A3B] mt-2">
                     ${metrics.totalPagado.toLocaleString('es-CL')}
                   </p>
-                  <span className="text-[11px] text-emerald-700 font-semibold mt-1 block">
-                    Sincronizado con agenda
-                  </span>
                 </div>
-
                 <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs">
                   <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
-                    Por Cobrar
+                    Pendiente por Cobrar
                   </span>
                   <p className="text-2xl font-bold text-[#C87D65] mt-2">
                     ${metrics.totalPendiente.toLocaleString('es-CL')}
                   </p>
-                  <span className="text-[11px] text-stone-500 mt-1 block">
-                    Clic derecho en agenda para cobrar
-                  </span>
                 </div>
-
                 <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs">
                   <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
-                    Sesiones Online vs Presencial
+                    Modalidades Activas
                   </span>
                   <p className="text-2xl font-bold text-stone-900 mt-2">
                     {metrics.onlineCount} Online · {metrics.presencialCount} Presencial
                   </p>
-                  <span className="text-[11px] text-stone-500 mt-1 block">
-                    Dirección y links activos
-                  </span>
                 </div>
-
                 <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs">
                   <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
-                    Especialistas Activos
+                    Equipo Clínico
                   </span>
                   <p className="text-2xl font-bold text-stone-900 mt-2">
                     {professionals.length} Profesionales
                   </p>
-                  <span className="text-[11px] text-stone-500 mt-1 block">
-                    Horarios personalizados
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h3 className="font-bold text-base text-stone-900">
-                    Accesos Rápidos de Operación Clínica
-                  </h3>
-                  <p className="text-xs text-stone-500">
-                     salta directamente al módulo que necesites gestionar hoy.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2.5">
-                  <button
-                    onClick={() => setActiveModule('agenda')}
-                    className="px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
-                  >
-                    Abrir Agenda Interactiva
-                  </button>
-                  <button
-                    onClick={() => setActiveModule('profesionales')}
-                    className="px-4 py-2.5 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-700 rounded-xl text-xs font-bold"
-                  >
-                    Configurar Horarios y Direcciones
-                  </button>
-                  <button
-                    onClick={() => setActiveModule('documentos')}
-                    className="px-4 py-2.5 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-700 rounded-xl text-xs font-bold"
-                  >
-                    Ver Documentos Clínicos
-                  </button>
-                  <button
-                    onClick={() => setActiveModule('comunicaciones')}
-                    className="px-4 py-2.5 bg-[#F9F8F6] border border-[#E4ECE7] text-stone-700 rounded-xl text-xs font-bold"
-                  >
-                    Motor de Comunicaciones
-                  </button>
                 </div>
               </div>
             </div>
           )}
 
           {/* ---------------------------------------------------------
-              2. MÓDULO: AGENDA INTERACTIVA (DRAG & DROP + CLIC DERECHO)
+              2. AGENDA INTERACTIVA CON NAVEGACIÓN DE SEMANAS Y FECHAS
              --------------------------------------------------------- */}
           {activeModule === 'agenda' && (
             <div className="space-y-5">
-              {/* Selector de Profesional e Instrucciones */}
+              {/* Barra de Navegación de Fechas / Semanas + Selector de Profesional */}
               <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-xs flex flex-wrap items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-stone-400 mr-1">
-                    Profesional:
-                  </span>
+                {/* Selector de Profesionales */}
+                <div className="flex flex-wrap items-center gap-2">
                   {professionals.map((prof) => (
                     <button
                       key={prof.id}
                       onClick={() => setSelectedProfId(prof.id)}
-                      className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-semibold border transition-all ${
+                      className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl text-xs font-semibold border transition-all ${
                         selectedProfId === prof.id
                           ? 'bg-[#EBF3EE] border-[#2C4A3B] text-[#2C4A3B] shadow-xs'
                           : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
@@ -991,45 +1147,75 @@ export default function AdminDashboardPage() {
                       <div className="text-left">
                         <p className="font-bold leading-none">{prof.name}</p>
                         <p className="text-[10px] opacity-75 mt-0.5">
-                          {prof.startHour} - {prof.endHour} · {prof.modalityMode}
+                          {prof.startHour}-{prof.endHour}
                         </p>
                       </div>
                     </button>
                   ))}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 text-[11px] text-stone-600 bg-[#F9F8F6] px-4 py-2.5 rounded-2xl border border-[#E4ECE7]">
-                  <span className="flex items-center gap-1">
-                    <GripVertical size={13} className="text-[#2C4A3B]" />
-                    <strong>Arrastrar:</strong> Reagendar
-                  </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <CreditCard size={13} className="text-[#C87D65]" />
-                    <strong>Clic Derecho:</strong> Marcar Pagado / Modalidad / WhatsApp
-                  </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Ban size={13} className="text-stone-500" />
-                    <strong>Celda vacía:</strong> Agendar o Bloquear
-                  </span>
+                {/* CONTROLES DE NAVEGACIÓN DE SEMANA Y SELECTOR DE FECHA */}
+                <div className="flex flex-wrap items-center gap-2 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset((prev) => prev - 1)}
+                    className="p-2 rounded-xl bg-white hover:bg-stone-100 border border-stone-200/80 text-stone-700 transition-all"
+                    title="Semana Anterior"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(0)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      weekOffset === 0
+                        ? 'bg-[#2C4A3B] text-white'
+                        : 'bg-white text-stone-700 border border-stone-200/80 hover:bg-stone-100'
+                    }`}
+                  >
+                    Esta Semana (Hoy)
+                  </button>
+
+                  <div className="px-3 py-1 text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <CalendarDays size={15} className="text-[#2C4A3B]" />
+                    <span className="capitalize">{weekRangeLabel}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset((prev) => prev + 1)}
+                    className="p-2 rounded-xl bg-white hover:bg-stone-100 border border-stone-200/80 text-stone-700 transition-all"
+                    title="Semana Siguiente"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+
+                  {/* Saltar a fecha específica */}
+                  <input
+                    type="date"
+                    value={dynamicWeekDays[0]?.iso || ''}
+                    onChange={(e) => handleJumpToDate(e.target.value)}
+                    className="bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-stone-700 focus:outline-none focus:border-[#2C4A3B]"
+                    title="Ir a una fecha específica"
+                  />
                 </div>
               </div>
 
-              {/* Barra informativa de Dirección Presencial y Sala Online del Terapeuta */}
+              {/* Dirección Presencial y Link Online del Profesional */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="bg-white rounded-2xl px-4 py-3 border border-[#E4ECE7] flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2 text-stone-700 truncate">
                     <MapPin size={15} className="text-[#C87D65] shrink-0" />
                     <span className="truncate">
-                      <strong>Dirección Presencial:</strong> {currentProf.presencialAddress}
+                      <strong>Consulta Presencial:</strong> {currentProf?.presencialAddress}
                     </span>
                   </div>
                   <button
-                    onClick={() => setActiveModule('profesionales')}
+                    onClick={() => currentProf && openEditProfModal(currentProf)}
                     className="text-[#2C4A3B] font-bold hover:underline ml-2 shrink-0"
                   >
-                    Cambiar dirección
+                    Editar Profesional
                   </button>
                 </div>
 
@@ -1037,43 +1223,45 @@ export default function AdminDashboardPage() {
                   <div className="flex items-center gap-2 text-stone-700 truncate">
                     <Video size={15} className="text-[#2C4A3B] shrink-0" />
                     <span className="truncate">
-                      <strong>Sala Online:</strong> {currentProf.onlineRoomUrl}
+                      <strong>Sala Online:</strong> {currentProf?.onlineRoomUrl}
                     </span>
                   </div>
-                  <button
-                    onClick={() => setActiveModule('profesionales')}
-                    className="text-[#2C4A3B] font-bold hover:underline ml-2 shrink-0"
-                  >
-                    Editar días/horario
-                  </button>
+                  <span className="text-[11px] text-stone-400 shrink-0">
+                    Arrastra citas o haz clic derecho para editar/eliminar
+                  </span>
                 </div>
               </div>
 
-              {/* Calendario Interactivo */}
+              {/* Grilla del Calendario */}
               <div className="bg-white rounded-[2rem] border border-[#E4ECE7] shadow-[0_12px_40px_rgb(44,74,59,0.04)] overflow-x-auto">
                 <div className="min-w-[960px]">
                   <div className="grid grid-cols-7 border-b border-[#E4ECE7] bg-[#F9F8F6]/70">
                     <div className="p-3.5 text-xs font-bold uppercase tracking-wider text-stone-400 flex items-center justify-center border-r border-[#E4ECE7]">
                       Hora
                     </div>
-                    {WEEK_DAYS.map((day) => {
-                      const isWorkingDay = currentProf.workingDays.includes(day.index);
+                    {dynamicWeekDays.map((day) => {
+                      const isWorkingDay = currentProf?.workingDays.includes(day.index);
+                      const isToday = day.iso === formatIsoDate(new Date());
                       return (
                         <div
-                          key={day.index}
+                          key={day.iso}
                           className={`p-3.5 text-center border-r last:border-r-0 border-[#E4ECE7] ${
-                            !isWorkingDay ? 'bg-stone-100/70 opacity-60' : ''
+                            !isWorkingDay
+                              ? 'bg-stone-100/70 opacity-60'
+                              : isToday
+                              ? 'bg-[#EBF3EE]/60'
+                              : ''
                           }`}
                         >
                           <span className="text-[11px] font-bold uppercase tracking-widest text-stone-400 block">
-                            {day.label}
+                            {day.label} {isToday && '· HOY'}
                           </span>
-                          <span className="text-lg font-bold text-stone-900 mt-0.5 inline-block">
-                            {day.dateNum} Nov
+                          <span className="text-base font-bold text-stone-900 mt-0.5 inline-block capitalize">
+                            {day.dateNum}
                           </span>
                           {!isWorkingDay && (
                             <span className="block text-[10px] font-semibold text-rose-500">
-                              No atiende
+                              Sin atención
                             </span>
                           )}
                         </div>
@@ -1084,26 +1272,26 @@ export default function AdminDashboardPage() {
                   {visibleHours.map((hour) => (
                     <div
                       key={hour}
-                      className="grid grid-cols-7 border-b last:border-b-0 border-[#E4ECE7] min-h-[104px]"
+                      className="grid grid-cols-7 border-b last:border-b-0 border-[#E4ECE7] min-h-[106px]"
                     >
                       <div className="p-3 border-r border-[#E4ECE7] bg-[#F9F8F6]/40 flex flex-col items-center justify-center">
                         <span className="text-xs font-bold text-stone-700">{hour}</span>
                         <span className="text-[10px] text-stone-400">hrs</span>
                       </div>
 
-                      {WEEK_DAYS.map((day) => {
-                        const cellKey = `${day.index}-${hour}`;
-                        const isWorkingDay = currentProf.workingDays.includes(day.index);
+                      {dynamicWeekDays.map((day) => {
+                        const cellKey = `${day.iso}-${hour}`;
+                        const isWorkingDay = currentProf?.workingDays.includes(day.index);
                         const apt = appointments.find(
                           (a) =>
                             a.professionalId === selectedProfId &&
-                            a.dayIndex === day.index &&
+                            a.isoDate === day.iso &&
                             a.time === hour
                         );
                         const blocked = blockedSlots.find(
                           (b) =>
                             b.professionalId === selectedProfId &&
-                            b.dayIndex === day.index &&
+                            b.isoDate === day.iso &&
                             b.time === hour
                         );
                         const isDragOver = dragOverCell === cellKey;
@@ -1123,7 +1311,7 @@ export default function AdminDashboardPage() {
                                 setSlotModal({
                                   dayIndex: day.index,
                                   isoDate: day.iso,
-                                  dayLabel: `${day.label} ${day.dateNum} Nov`,
+                                  dayLabel: `${day.label} ${day.dateNum}`,
                                   time: hour,
                                 });
                               }
@@ -1228,7 +1416,7 @@ export default function AdminDashboardPage() {
                                   <span className="font-semibold text-[#2C4A3B]">
                                     {apt.clinicalStatus}
                                   </span>
-                                  <span>${(apt.price / 1000).toFixed(0)}k</span>
+                                  <span className="font-bold text-stone-700">Editar ▾</span>
                                 </div>
                               </div>
                             )}
@@ -1243,14 +1431,14 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              3. MÓDULO: PACIENTES, SERVICIOS Y MODALIDAD (ONLINE/PRESENCIAL)
+              3. PACIENTES & SERVICIOS (CON EDICIÓN Y ELIMINACIÓN TOTAL)
              --------------------------------------------------------- */}
           {activeModule === 'pacientes' && (
             <div className="space-y-5">
               <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <Filter size={15} className="text-[#2C4A3B]" />
-                  <span className="text-xs font-bold text-stone-600">Filtrar por modalidad:</span>
+                  <span className="text-xs font-bold text-stone-600">Modalidad:</span>
                   {(['Todas', 'Online', 'Presencial'] as const).map((mod) => (
                     <button
                       key={mod}
@@ -1269,17 +1457,18 @@ export default function AdminDashboardPage() {
                 <button
                   onClick={() => {
                     setSlotActionMode('book');
+                    const firstDay = dynamicWeekDays[0];
                     setSlotModal({
                       dayIndex: 1,
-                      isoDate: '2026-11-09',
-                      dayLabel: 'Lunes 09 Nov',
+                      isoDate: firstDay.iso,
+                      dayLabel: `${firstDay.label} ${firstDay.dateNum}`,
                       time: '10:00',
                     });
                   }}
                   className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
                 >
                   <Plus size={15} />
-                  <span>Agregar Paciente a la Agenda</span>
+                  <span>Nuevo Paciente</span>
                 </button>
               </div>
 
@@ -1299,25 +1488,35 @@ export default function AdminDashboardPage() {
                               {apt.patientName}
                             </h3>
                             <p className="text-xs text-stone-500">
-                              Profesional: <strong>{prof.name}</strong>
+                              RUT: {apt.patientRUT} · <strong>{prof?.name}</strong>
                             </p>
                           </div>
-                          <button
-                            onClick={() => togglePaymentStatus(apt.id)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              apt.paymentStatus === 'Pagado'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {apt.paymentStatus} · ${apt.price.toLocaleString('es-CL')}
-                          </button>
+
+                          {/* Botones de Editar y Eliminar Paciente */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingApt({ ...apt })}
+                              className="p-2 rounded-xl bg-stone-100 hover:bg-[#EBF3EE] text-stone-700 hover:text-[#2C4A3B] transition-colors"
+                              title="Editar todos los datos del paciente"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteAppointment(apt.id)}
+                              className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors"
+                              title="Eliminar paciente"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="space-y-3 bg-[#F9F8F6] p-4 rounded-2xl border border-[#E4ECE7] text-xs">
                           <div>
                             <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">
-                              Servicio que tomará el paciente
+                              Servicio Clínico Asignado
                             </label>
                             <select
                               value={apt.serviceName}
@@ -1378,15 +1577,15 @@ export default function AdminDashboardPage() {
 
                           <div className="pt-2 border-t border-stone-200/60 text-[11px] text-stone-600 space-y-1">
                             <p>
-                              <strong>Cita:</strong> {apt.isoDate} · {apt.time} hrs
+                              <strong>Fecha y Hora:</strong> {apt.isoDate} · {apt.time} hrs
                             </p>
                             <p className="truncate">
                               <strong>
                                 {apt.modality === 'Presencial' ? 'Dirección:' : 'Link Online:'}
                               </strong>{' '}
                               {apt.modality === 'Presencial'
-                                ? prof.presencialAddress
-                                : prof.onlineRoomUrl}
+                                ? prof?.presencialAddress
+                                : prof?.onlineRoomUrl}
                             </p>
                             <p>
                               <strong>Contacto:</strong> +{apt.patientPhone} · {apt.patientEmail}
@@ -1398,11 +1597,11 @@ export default function AdminDashboardPage() {
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => triggerNotificationForApt(apt)}
+                          onClick={() => triggerNotificationForApt(apt, true)}
                           className="py-2.5 px-3 bg-[#EBF3EE] hover:bg-[#dbeadd] text-[#2C4A3B] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"
                         >
                           <Send size={13} />
-                          <span>Confirmar API</span>
+                          <span>Enviar Recordatorio</span>
                         </button>
                         <button
                           type="button"
@@ -1421,25 +1620,25 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              4. MÓDULO: PROFESIONALES, DÍAS DE ATENCIÓN Y DIRECCIÓN PRESENCIAL
+              4. PROFESIONALES & HORARIOS (CON EDICIÓN Y ELIMINACIÓN TOTAL)
              --------------------------------------------------------- */}
           {activeModule === 'profesionales' && (
             <div className="space-y-6">
               <div className="bg-white rounded-3xl p-6 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
-                    Disponibilidad & Ubicaciones Clínicas
+                    Gestión de Equipo Clínico
                   </span>
                   <h3 className="text-xl font-bold text-stone-900">
-                    Horarios por Profesional, Modalidad y Dirección Presencial
+                    Profesionales, Días de Atención, Horarios y Direcciones
                   </h3>
                 </div>
                 <button
-                  onClick={() => setShowNewProfModal(true)}
+                  onClick={openCreateProfModal}
                   className="inline-flex items-center gap-2 px-5 py-3 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl text-xs font-bold shadow-xs"
                 >
                   <UserPlus size={16} />
-                  <span>Agregar Profesional</span>
+                  <span>Agregar Nuevo Profesional</span>
                 </button>
               </div>
 
@@ -1456,27 +1655,53 @@ export default function AdminDashboardPage() {
                         </div>
                         <div>
                           <h4 className="font-bold text-lg text-stone-900">{prof.name}</h4>
-                          <p className="text-xs text-stone-500">{prof.specialty}</p>
+                          <p className="text-xs text-stone-500">
+                            {prof.specialty} · RUT: {prof.rut || 'N/A'}
+                          </p>
                         </div>
                       </div>
-                      <span className="px-3 py-1 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-xs font-bold">
-                        {prof.modalityMode}
-                      </span>
+
+                      {/* Botones para Editar y Eliminar Profesional */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditProfModal(prof)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-[#EBF3EE] text-stone-700 hover:text-[#2C4A3B] text-xs font-bold transition-colors"
+                        >
+                          <Edit3 size={14} />
+                          <span>Editar Datos</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProfessional(prof.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors"
+                        >
+                          <Trash2 size={14} />
+                          <span>Eliminar</span>
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Selección de días que atiende */}
+                    {/* Días que atiende */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-2">
-                        ¿Qué días atiende? (Activar / Desactivar)
+                        Días de Atención (Clic para activar o desactivar)
                       </label>
                       <div className="grid grid-cols-6 gap-2">
-                        {WEEK_DAYS.map((d) => {
-                          const active = prof.workingDays.includes(d.index);
+                        {[
+                          { idx: 1, short: 'Lun' },
+                          { idx: 2, short: 'Mar' },
+                          { idx: 3, short: 'Mié' },
+                          { idx: 4, short: 'Jue' },
+                          { idx: 5, short: 'Vie' },
+                          { idx: 6, short: 'Sáb' },
+                        ].map((d) => {
+                          const active = prof.workingDays.includes(d.idx);
                           return (
                             <button
-                              key={d.index}
+                              key={d.idx}
                               type="button"
-                              onClick={() => toggleProfWorkingDay(prof.id, d.index)}
+                              onClick={() => toggleProfWorkingDay(prof.id, d.idx)}
                               className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
                                 active
                                   ? 'bg-[#2C4A3B] text-white border-[#2C4A3B]'
@@ -1540,7 +1765,7 @@ export default function AdminDashboardPage() {
 
                       <div>
                         <label className="text-[11px] font-bold uppercase text-stone-400 block mb-1">
-                          Modalidad de Trabajo
+                          Modalidad
                         </label>
                         <select
                           value={prof.modalityMode}
@@ -1562,11 +1787,11 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Dirección donde atiende Presencial */}
+                    {/* Dirección Presencial */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
                         <Building2 size={14} className="text-[#C87D65]" />
-                        <span>Dirección Consulta Presencial (Calle, Oficina / Box, Comuna)</span>
+                        <span>Dirección Consulta Presencial</span>
                       </label>
                       <input
                         type="text"
@@ -1580,16 +1805,15 @@ export default function AdminDashboardPage() {
                             )
                           )
                         }
-                        placeholder="Ej. Av. Nueva Providencia 1881, Of. 1204, Providencia"
                         className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-4 py-3 text-xs font-medium focus:outline-none focus:border-[#2C4A3B]"
                       />
                     </div>
 
-                    {/* Link Videollamada Online */}
+                    {/* Link Videollamada */}
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
                         <Video size={14} className="text-[#2C4A3B]" />
-                        <span>Link de Sala Online (Meet / Zoom)</span>
+                        <span>Link Sala Online (Google Meet / Zoom)</span>
                       </label>
                       <input
                         type="text"
@@ -1601,24 +1825,8 @@ export default function AdminDashboardPage() {
                             )
                           )
                         }
-                        placeholder="https://meet.google.com/..."
                         className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-4 py-3 text-xs font-medium focus:outline-none focus:border-[#2C4A3B]"
                       />
-                    </div>
-
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          showToast(
-                            'Ficha de profesional actualizada',
-                            `${prof.name}: horario y dirección sincronizados.`
-                          )
-                        }
-                        className="px-5 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold hover:bg-[#233B2F]"
-                      >
-                        Guardar Horario y Dirección
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -1627,7 +1835,7 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              5. MÓDULO RESTAURADO: DOCUMENTOS CLÍNICOS (DocumentosTab.tsx)
+              5. DOCUMENTOS CLÍNICOS
              --------------------------------------------------------- */}
           {activeModule === 'documentos' && (
             <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs">
@@ -1640,28 +1848,36 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              6. MÓDULO RESTAURADO: COMUNICACIONES OMNICANAL (ComunicacionesTab.tsx)
+              6. COMUNICACIONES OMNICANAL
              --------------------------------------------------------- */}
           {activeModule === 'comunicaciones' && (
             <div className="space-y-6">
               <div className="bg-white rounded-3xl p-5 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-[#2C4A3B] block">
-                    Diagnóstico en Vivo · Meta Cloud API v25.0 + Resend
+                    Motor de Recordatorios y Confirmaciones · Meta Cloud API v25.0 + Resend
                   </span>
                   <p className="text-xs text-stone-500 mt-0.5">
-                    Prueba el disparo inmediato hacia tu número verificado (+56961699991) o gestiona tus reglas abajo.
+                    Usa el botón de prueba o configura tu Token de 24h en "Credenciales API" para validar la recepción inmediata.
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    if (appointments[0]) triggerNotificationForApt(appointments[0]);
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
-                >
-                  <Send size={14} />
-                  <span>Probar Envío Real Ahora</span>
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowApiConfigModal(true)}
+                    className="px-4 py-2.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold"
+                  >
+                    Actualizar Token Meta / Email
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (appointments[0]) triggerNotificationForApt(appointments[0], false);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-bold"
+                  >
+                    <Send size={14} />
+                    <span>Disparar Prueba Ahora</span>
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs">
@@ -1675,21 +1891,13 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ---------------------------------------------------------
-              7. MÓDULO: CAJA & FINANZAS CLÍNICAS
+              7. CAJA & FINANZAS
              --------------------------------------------------------- */}
           {activeModule === 'finanzas' && (
             <div className="bg-white rounded-[2rem] p-6 border border-[#E4ECE7] shadow-xs space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E4ECE7] pb-4">
-                <div>
-                  <h3 className="font-bold text-lg text-stone-900">
-                    Control de Pagos y Recaudación por Sesión
-                  </h3>
-                  <p className="text-xs text-stone-500">
-                    Haz clic en el estado de cualquier paciente para alternar entre Pagado y Pendiente.
-                  </p>
-                </div>
-              </div>
-
+              <h3 className="font-bold text-lg text-stone-900">
+                Control de Pagos y Recaudación por Paciente
+              </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
@@ -1699,7 +1907,8 @@ export default function AdminDashboardPage() {
                       <th className="py-3 px-4">Modalidad</th>
                       <th className="py-3 px-4">Fecha / Hora</th>
                       <th className="py-3 px-4">Monto</th>
-                      <th className="py-3 px-4">Estado de Pago</th>
+                      <th className="py-3 px-4">Pago</th>
+                      <th className="py-3 px-4">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E4ECE7]">
@@ -1707,11 +1916,7 @@ export default function AdminDashboardPage() {
                       <tr key={apt.id} className="hover:bg-[#F9F8F6]">
                         <td className="py-3.5 px-4 font-bold text-stone-900">{apt.patientName}</td>
                         <td className="py-3.5 px-4 text-stone-600">{apt.serviceName}</td>
-                        <td className="py-3.5 px-4">
-                          <span className="px-2.5 py-1 rounded-full bg-stone-100 text-stone-700 font-semibold">
-                            {apt.modality}
-                          </span>
-                        </td>
+                        <td className="py-3.5 px-4">{apt.modality}</td>
                         <td className="py-3.5 px-4 text-stone-600">
                           {apt.isoDate} · {apt.time} hrs
                         </td>
@@ -1730,6 +1935,20 @@ export default function AdminDashboardPage() {
                             {apt.paymentStatus}
                           </button>
                         </td>
+                        <td className="py-3.5 px-4 flex gap-2">
+                          <button
+                            onClick={() => setEditingApt({ ...apt })}
+                            className="text-[#2C4A3B] font-bold hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => deleteAppointment(apt.id)}
+                            className="text-rose-600 font-bold hover:underline"
+                          >
+                            Eliminar
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1741,7 +1960,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* =========================================================
-          MENÚ CONTEXTUAL DE CLIC DERECHO EN LA AGENDA
+          MENÚ CONTEXTUAL DE CLIC DERECHO EN EL CALENDARIO
          ========================================================= */}
       <AnimatePresence>
         {contextMenu && (
@@ -1752,11 +1971,11 @@ export default function AdminDashboardPage() {
             style={{
               top: Math.min(
                 contextMenu.y,
-                typeof window !== 'undefined' ? window.innerHeight - 340 : 350
+                typeof window !== 'undefined' ? window.innerHeight - 380 : 320
               ),
               left: Math.min(
                 contextMenu.x,
-                typeof window !== 'undefined' ? window.innerWidth - 290 : 350
+                typeof window !== 'undefined' ? window.innerWidth - 300 : 320
               ),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -1765,9 +1984,20 @@ export default function AdminDashboardPage() {
             <div className="px-3 py-2 border-b border-stone-100 mb-1">
               <p className="font-bold text-stone-900 truncate">{contextMenu.apt.patientName}</p>
               <p className="text-[11px] text-stone-500 truncate">
-                {contextMenu.apt.serviceName} · ${contextMenu.apt.price.toLocaleString('es-CL')}
+                {contextMenu.apt.isoDate} · {contextMenu.apt.time} hrs
               </p>
             </div>
+
+            <button
+              onClick={() => {
+                setEditingApt({ ...contextMenu.apt });
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-900 font-bold transition-colors"
+            >
+              <Edit3 size={15} className="text-[#2C4A3B]" />
+              <span>Editar Paciente / Cambiar Fecha</span>
+            </button>
 
             <button
               onClick={() => {
@@ -1805,18 +2035,18 @@ export default function AdminDashboardPage() {
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
             >
               <Check size={15} className="text-[#2C4A3B]" />
-              <span>Marcar como Sesión Atendida</span>
+              <span>Marcar Sesión Atendida</span>
             </button>
 
             <button
               onClick={() => {
-                triggerNotificationForApt(contextMenu.apt);
+                triggerNotificationForApt(contextMenu.apt, true);
                 setContextMenu(null);
               }}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
             >
               <Send size={15} className="text-[#C87D65]" />
-              <span>Enviar Confirmación (Email + API)</span>
+              <span>Enviar Recordatorio Automático</span>
             </button>
 
             <button
@@ -1827,7 +2057,7 @@ export default function AdminDashboardPage() {
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-800 font-bold transition-colors"
             >
               <MessageSquare size={15} className="text-emerald-600" />
-              <span>WhatsApp Directo (Con Dirección/Link)</span>
+              <span>Abrir WhatsApp Directo</span>
             </button>
 
             <div className="my-1 border-t border-stone-100" />
@@ -1840,8 +2070,256 @@ export default function AdminDashboardPage() {
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-bold transition-colors"
             >
               <Trash2 size={15} />
-              <span>Eliminar Cita / Liberar Hora</span>
+              <span>Eliminar Paciente / Liberar Hora</span>
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MODAL CRUD: EDITAR PACIENTE / CITA COMPLETA
+         ========================================================= */}
+      <AnimatePresence>
+        {editingApt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                    Edición Completa de Registro
+                  </span>
+                  <h3 className="text-xl font-bold text-stone-900">
+                    Modificar o Eliminar Paciente
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setEditingApt(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedAppointment} className="space-y-3.5 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Nombre del Paciente
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={editingApt.patientName}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientName: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      RUT
+                    </label>
+                    <input
+                      type="text"
+                      value={editingApt.patientRUT}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientRUT: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Email
+                    </label>
+                    <input
+                      required
+                      type="email"
+                      value={editingApt.patientEmail}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientEmail: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      WhatsApp (569...)
+                    </label>
+                    <input
+                      required
+                      type="tel"
+                      value={editingApt.patientPhone}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, patientPhone: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Profesional Asignado
+                    </label>
+                    <select
+                      value={editingApt.professionalId}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, professionalId: e.target.value })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {professionals.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Servicio Clínico
+                    </label>
+                    <select
+                      value={editingApt.serviceName}
+                      onChange={(e) => {
+                        const svc = CLINICAL_SERVICES.find((s) => s.name === e.target.value);
+                        setEditingApt({
+                          ...editingApt,
+                          serviceName: e.target.value,
+                          price: svc ? svc.price : editingApt.price,
+                        });
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {CLINICAL_SERVICES.map((s) => (
+                        <option key={s.name} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Fecha (YYYY-MM-DD)
+                    </label>
+                    <input
+                      required
+                      type="date"
+                      value={editingApt.isoDate}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, isoDate: e.target.value })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Hora
+                    </label>
+                    <select
+                      value={editingApt.time}
+                      onChange={(e) => setEditingApt({ ...editingApt, time: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {ALL_HOURS.map((h) => (
+                        <option key={h} value={h}>
+                          {h} hrs
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Modalidad
+                    </label>
+                    <select
+                      value={editingApt.modality}
+                      onChange={(e) =>
+                        setEditingApt({
+                          ...editingApt,
+                          modality: e.target.value as ModalityType,
+                        })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      <option value="Online">Online</option>
+                      <option value="Presencial">Presencial</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Valor Sesión ($)
+                    </label>
+                    <input
+                      type="number"
+                      value={editingApt.price}
+                      onChange={(e) =>
+                        setEditingApt({ ...editingApt, price: Number(e.target.value) })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Estado de Pago
+                    </label>
+                    <select
+                      value={editingApt.paymentStatus}
+                      onChange={(e) =>
+                        setEditingApt({
+                          ...editingApt,
+                          paymentStatus: e.target.value as PaymentStatus,
+                        })
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Pagado">Pagado</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => deleteAppointment(editingApt.id)}
+                    className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold flex items-center gap-1.5"
+                  >
+                    <Trash2 size={15} />
+                    <span>Eliminar Paciente</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold"
+                  >
+                    Guardar Cambios del Paciente
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1866,7 +2344,7 @@ export default function AdminDashboardPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
-                    {slotModal.dayLabel} · {slotModal.time} hrs
+                    {slotModal.dayLabel} ({slotModal.isoDate}) · {slotModal.time} hrs
                   </span>
                   <h3 className="text-xl font-bold text-stone-900">Asignar Bloque de Agenda</h3>
                 </div>
@@ -1911,25 +2389,40 @@ export default function AdminDashboardPage() {
                       value={blockReasonInput}
                       onChange={(e) => setBlockReasonInput(e.target.value)}
                       className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm"
-                      placeholder="Ej. Almuerzo, Reunión Clínica, Personal..."
                     />
                   </div>
                 ) : (
                   <>
-                    <div>
-                      <label className="font-bold uppercase text-stone-500 block mb-1">
-                        Nombre del Paciente
-                      </label>
-                      <input
-                        required
-                        type="text"
-                        value={newBookingForm.patientName}
-                        onChange={(e) =>
-                          setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
-                        }
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm"
-                        placeholder="Ej. Camila Vergara"
-                      />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Nombre del Paciente
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          value={newBookingForm.patientName}
+                          onChange={(e) =>
+                            setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                          placeholder="Ej. Camila Vergara"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          RUT
+                        </label>
+                        <input
+                          type="text"
+                          value={newBookingForm.patientRUT}
+                          onChange={(e) =>
+                            setNewBookingForm({ ...newBookingForm, patientRUT: e.target.value })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                          placeholder="18.456.789-2"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2.5">
@@ -1947,8 +2440,8 @@ export default function AdminDashboardPage() {
                               patientEmail: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-xs"
-                          placeholder="paciente@correo.cl"
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
+                          placeholder="tu-correo@ejemplo.cl"
                         />
                       </div>
                       <div>
@@ -1965,7 +2458,7 @@ export default function AdminDashboardPage() {
                               patientPhone: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-xs"
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
                           placeholder="56961699991"
                         />
                       </div>
@@ -2037,7 +2530,7 @@ export default function AdminDashboardPage() {
                 >
                   {slotActionMode === 'block'
                     ? 'Confirmar Bloqueo en Agenda'
-                    : 'Agendar y Enviar Confirmación'}
+                    : 'Agendar y Disparar Confirmación Automática'}
                 </button>
               </form>
             </motion.div>
@@ -2046,10 +2539,10 @@ export default function AdminDashboardPage() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL PARA AGREGAR NUEVO PROFESIONAL
+          MODAL CRUD: CREAR O EDITAR PROFESIONAL
          ========================================================= */}
       <AnimatePresence>
-        {showNewProfModal && (
+        {showProfModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2063,16 +2556,18 @@ export default function AdminDashboardPage() {
               className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-stone-900">Nuevo Profesional Clínico</h3>
+                <h3 className="text-xl font-bold text-stone-900">
+                  {editingProfId ? 'Modificar Profesional' : 'Nuevo Profesional Clínico'}
+                </h3>
                 <button
-                  onClick={() => setShowNewProfModal(false)}
+                  onClick={() => setShowProfModal(false)}
                   className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <form onSubmit={handleAddProfessional} className="space-y-3.5 text-xs">
+              <form onSubmit={handleSaveProfessional} className="space-y-3.5 text-xs">
                 <div>
                   <label className="font-bold uppercase text-stone-500 block mb-1">
                     Nombre Completo
@@ -2080,35 +2575,83 @@ export default function AdminDashboardPage() {
                   <input
                     required
                     type="text"
-                    value={newProfForm.name}
-                    onChange={(e) => setNewProfForm({ ...newProfForm, name: e.target.value })}
+                    value={profForm.name}
+                    onChange={(e) => setProfForm({ ...profForm, name: e.target.value })}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
                     placeholder="Ej. Dra. Francisca Silva"
                   />
                 </div>
-                <div>
-                  <label className="font-bold uppercase text-stone-500 block mb-1">
-                    Especialidad
-                  </label>
-                  <input
-                    required
-                    type="text"
-                    value={newProfForm.specialty}
-                    onChange={(e) =>
-                      setNewProfForm({ ...newProfForm, specialty: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
-                  />
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Especialidad
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={profForm.specialty}
+                      onChange={(e) => setProfForm({ ...profForm, specialty: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      RUT Profesional
+                    </label>
+                    <input
+                      type="text"
+                      value={profForm.rut}
+                      onChange={(e) => setProfForm({ ...profForm, rut: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Hora Inicio
+                    </label>
+                    <select
+                      value={profForm.startHour}
+                      onChange={(e) => setProfForm({ ...profForm, startHour: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {ALL_HOURS.map((h) => (
+                        <option key={h} value={h}>
+                          {h} hrs
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Hora Término
+                    </label>
+                    <select
+                      value={profForm.endHour}
+                      onChange={(e) => setProfForm({ ...profForm, endHour: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                    >
+                      {ALL_HOURS.map((h) => (
+                        <option key={h} value={h}>
+                          {h} hrs
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div>
                   <label className="font-bold uppercase text-stone-500 block mb-1">
                     Modalidad de Atención
                   </label>
                   <select
-                    value={newProfForm.modalityMode}
+                    value={profForm.modalityMode}
                     onChange={(e) =>
-                      setNewProfForm({
-                        ...newProfForm,
+                      setProfForm({
+                        ...profForm,
                         modalityMode: e.target.value as any,
                       })
                     }
@@ -2119,6 +2662,7 @@ export default function AdminDashboardPage() {
                     <option value="Solo Presencial">Solo Presencial</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="font-bold uppercase text-stone-500 block mb-1">
                     Dirección de Consulta Presencial
@@ -2126,20 +2670,163 @@ export default function AdminDashboardPage() {
                   <input
                     required
                     type="text"
-                    value={newProfForm.presencialAddress}
+                    value={profForm.presencialAddress}
                     onChange={(e) =>
-                      setNewProfForm({ ...newProfForm, presencialAddress: e.target.value })
+                      setProfForm({ ...profForm, presencialAddress: e.target.value })
                     }
                     className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
                   />
                 </div>
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
-                >
-                  Guardar Profesional
-                </button>
+
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Enlace Sala Online (Meet / Zoom)
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={profForm.onlineRoomUrl}
+                    onChange={(e) =>
+                      setProfForm({ ...profForm, onlineRoomUrl: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  {editingProfId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDeleteProfessional(editingProfId);
+                        setShowProfModal(false);
+                      }}
+                      className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold"
+                    >
+                      Eliminar
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className="flex-1 py-3.5 bg-[#2C4A3B] text-white rounded-xl font-bold"
+                  >
+                    {editingProfId ? 'Guardar Cambios' : 'Crear Profesional'}
+                  </button>
+                </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
+          MODAL DE CREDENCIALES EN CALIENTE (DESTRABAR WHATSAPP Y RESEND)
+         ========================================================= */}
+      <AnimatePresence>
+        {showApiConfigModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-lg w-full p-7 border border-[#E4ECE7] shadow-2xl space-y-4 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                    Conexión Directa en Caliente
+                  </span>
+                  <h3 className="text-xl font-bold text-stone-900">
+                    Credenciales WhatsApp (Meta) y Correo (Resend)
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowApiConfigModal(false)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-amber-950 leading-relaxed">
+                <strong>¿Por qué no llegaban los avisos?</strong>
+                <ul className="list-disc ml-4 mt-1 space-y-1">
+                  <li>
+                    El Token temporal de Meta caduca cada 24 horas. Pega aquí tu nuevo token de Meta y funcionará de inmediato sin esperar redeploy.
+                  </li>
+                  <li>
+                    En Resend (modo gratuito sin dominio verificado), solo permite enviar correos a tu propio email registrado en Resend. Escríbelo abajo para recibir todas las copias.
+                  </li>
+                </ul>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                    Token de Acceso Meta (WHATSAPP_TOKEN)
+                  </label>
+                  <input
+                    type="text"
+                    value={apiOverrides.whatsappToken}
+                    onChange={(e) =>
+                      setApiOverrides({ ...apiOverrides, whatsappToken: e.target.value })
+                    }
+                    placeholder="Pega aquí tu token EAA... (O déjalo vacío para usar el de Vercel)"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 font-mono text-[11px]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Phone Number ID Meta
+                    </label>
+                    <input
+                      type="text"
+                      value={apiOverrides.whatsappPhoneId}
+                      onChange={(e) =>
+                        setApiOverrides({ ...apiOverrides, whatsappPhoneId: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1">
+                      Tu Correo Verificado en Resend
+                    </label>
+                    <input
+                      type="email"
+                      value={apiOverrides.adminVerifiedEmail}
+                      onChange={(e) =>
+                        setApiOverrides({
+                          ...apiOverrides,
+                          adminVerifiedEmail: e.target.value,
+                        })
+                      }
+                      placeholder="tu-correo@gmail.com"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApiConfigModal(false);
+                    if (appointments[0]) triggerNotificationForApt(appointments[0], false);
+                  }}
+                  className="px-5 py-3 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold"
+                >
+                  Guardar y Probar Envío Ahora
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
