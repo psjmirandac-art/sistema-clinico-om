@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense, useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -46,6 +47,13 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
+  LogOut,
+  Eye,
+  EyeOff,
+  Copy,
+  Printer,
+  Clock,
+  ExternalLink,
 } from 'lucide-react';
 
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
@@ -203,12 +211,7 @@ const DAY_NAMES: { index: number; short: string; label: string }[] = [
   { index: 7, short: 'Dom', label: 'Domingo' },
 ];
 
-const DEFAULT_CENTER_BOXES = [
-  'Box 1 · Salvia',
-  'Box 2 · Arena',
-  'Box 3 · Olivo',
-  'Box 4 · Terracota',
-];
+const DEFAULT_CENTER_BOXES = ['Box 1', 'Box 2'];
 
 const DETERMINISTIC_BASE_MONDAY = '2026-11-02T12:00:00';
 
@@ -252,6 +255,15 @@ function normalizePhoneDigits(raw: string): string {
   return digits.length > 0 ? digits : '56900000000';
 }
 
+function maskPatientNameForPrivacy(fullName: string, isPrivate: boolean): string {
+  if (!isPrivate) return fullName;
+  return String(fullName ?? '')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase()}.`)
+    .join(' ');
+}
+
 function isHourInsideDayBlocks(dayCfg: DayScheduleConfig | undefined, hour: string): boolean {
   if (!dayCfg || !dayCfg.enabled) return false;
   if (!Array.isArray(dayCfg.blocks) || dayCfg.blocks.length === 0) return false;
@@ -268,38 +280,29 @@ function formatDayBlocksSummary(dayCfg: DayScheduleConfig | undefined): string {
 function buildDefaultScheduleWithColacion(boxName: string): Record<number, DayScheduleConfig> {
   return {
     1: {
-      enabled: true,
-      blocks: [
-        { startHour: '09:00', endHour: '14:00' },
-        { startHour: '16:00', endHour: '21:00' },
-      ],
+      enabled: false,
+      blocks: [{ startHour: '09:00', endHour: '14:00' }],
       modality: 'Ambas (Híbrido)',
       boxAssigned: boxName,
     },
     2: {
       enabled: true,
-      blocks: [
-        { startHour: '09:00', endHour: '13:00' },
-        { startHour: '15:00', endHour: '21:00' },
-      ],
+      blocks: [{ startHour: '09:00', endHour: '21:00' }],
       modality: 'Ambas (Híbrido)',
       boxAssigned: boxName,
     },
     3: {
       enabled: true,
       blocks: [
-        { startHour: '09:00', endHour: '14:00' },
-        { startHour: '16:00', endHour: '21:00' },
+        { startHour: '09:00', endHour: '11:00' },
+        { startHour: '17:00', endHour: '20:00' },
       ],
       modality: 'Ambas (Híbrido)',
       boxAssigned: boxName,
     },
     4: {
       enabled: true,
-      blocks: [
-        { startHour: '10:00', endHour: '14:00' },
-        { startHour: '16:00', endHour: '22:00' },
-      ],
+      blocks: [{ startHour: '09:00', endHour: '11:00' }],
       modality: 'Ambas (Híbrido)',
       boxAssigned: boxName,
     },
@@ -327,15 +330,15 @@ function buildDefaultScheduleWithColacion(boxName: string): Record<number, DaySc
 const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
   {
     id: 'prof-1',
-    name: 'Dr. Alejandro Silva',
-    specialty: 'Psicoterapia Clínica & Ansiedad',
+    name: 'Jaime Miranda',
+    specialty: 'Psicoterapia Clínica',
     rut: '15.432.890-K',
-    email: 'alejandro@centroclinico.cl',
-    avatar: 'AS',
-    presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
-    onlineRoomUrl: 'https://meet.google.com/krs-aslv-clin',
+    email: 'jaime@centroom.cl',
+    avatar: 'JM',
+    presencialAddress: 'Consulta Centro OM',
+    onlineRoomUrl: 'https://meet.google.com/krs-jmir-om',
     googleConnected: false,
-    scheduleByDay: buildDefaultScheduleWithColacion('Box 1 · Salvia'),
+    scheduleByDay: buildDefaultScheduleWithColacion('Box 1'),
     agreementType: 'porcentaje',
     centerCommissionPercent: 25,
     fixedBoxRent: 0,
@@ -343,67 +346,31 @@ const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
   },
   {
     id: 'prof-2',
-    name: 'Ps. Valentina Montt',
-    specialty: 'Terapia Cognitivo-Conductual',
+    name: 'Ivette Olivares',
+    specialty: 'Psicoterapia Clínica',
     rut: '17.890.123-4',
-    email: 'valentina@centroclinico.cl',
-    avatar: 'VM',
-    presencialAddress: 'Av. Alonso de Córdova 5870, Of. 702, Las Condes',
-    onlineRoomUrl: 'https://meet.google.com/krs-vmnt-tcc',
+    email: 'ivette@centroom.cl',
+    avatar: 'IO',
+    presencialAddress: 'Consulta Centro OM',
+    onlineRoomUrl: 'https://meet.google.com/krs-iolv-om',
     googleConnected: false,
-    scheduleByDay: buildDefaultScheduleWithColacion('Box 2 · Arena'),
+    scheduleByDay: buildDefaultScheduleWithColacion('Box 2'),
     agreementType: 'por_box_hora',
     centerCommissionPercent: 0,
     fixedBoxRent: 0,
     boxCostPerSession: 9500,
-  },
-  {
-    id: 'prof-3',
-    name: 'Ps. Martín Arriagada',
-    specialty: 'Terapia Sistémica & Parejas',
-    rut: '16.221.450-8',
-    email: 'martin@centroclinico.cl',
-    avatar: 'MA',
-    presencialAddress: 'Av. Nueva Providencia 1881, Box 3, Providencia',
-    onlineRoomUrl: 'https://meet.google.com/krs-marr-sist',
-    googleConnected: false,
-    scheduleByDay: buildDefaultScheduleWithColacion('Box 3 · Olivo'),
-    agreementType: 'arriendo_fijo',
-    centerCommissionPercent: 0,
-    fixedBoxRent: 160000,
-    boxCostPerSession: 0,
   },
 ];
 
 const INITIAL_SERVICES: TherapistServiceItem[] = [
   {
     id: 'srv-1',
-    professionalId: 'prof-1',
+    professionalId: 'all',
     name: 'Psicoterapia Individual Adulto',
     therapyType: 'Enfoque Clínico Integrativo',
     durationMinutes: 50,
     price: 45000,
     modality: 'Ambas (Híbrido)',
-    allowedHoursLabel: '09:00 a 14:00 y 16:00 a 21:00 hrs',
-  },
-  {
-    id: 'srv-2',
-    professionalId: 'prof-3',
-    name: 'Terapia de Pareja / Vincular',
-    therapyType: 'Terapia Sistémica Relacional',
-    durationMinutes: 60,
-    price: 60000,
-    modality: 'Ambas (Híbrido)',
-    allowedHoursLabel: '09:00 a 22:00 hrs',
-  },
-  {
-    id: 'srv-3',
-    professionalId: 'prof-2',
-    name: 'Evaluación Psicodiagnóstica',
-    therapyType: 'Cognitivo-Conductual / Batería Clínica',
-    durationMinutes: 60,
-    price: 55000,
-    modality: 'Presencial',
     allowedHoursLabel: '09:00 a 21:00 hrs',
   },
 ];
@@ -411,47 +378,14 @@ const INITIAL_SERVICES: TherapistServiceItem[] = [
 const INITIAL_PATIENTS: PatientRecord[] = [
   {
     id: 'pat-1',
-    patientName: 'Camila Vergara',
+    patientName: 'Daniela Gonzáles Gonzáles',
     patientRUT: '18.456.789-2',
-    patientEmail: 'camila@ejemplo.cl',
-    patientPhone: '56961699991',
-    defaultService: 'Psicoterapia Individual Adulto',
-    defaultModality: 'Presencial',
-    assignedProfessionalId: 'prof-1',
-    clinicalStatusTag: 'Activo',
-    clinicalHistory: [
-      {
-        id: 'ev-1',
-        date: '2026-10-26',
-        sourceType: 'audio_ia',
-        grokStructuredNote:
-          '• SÍNTESIS DE ESCUCHA CLÍNICA (IA Grok):\n  Paciente relata disminución de episodios de ansiedad laboral y mejor descanso nocturno.\n• FOCO TERAPÉUTICO:\n  Consolidación de límites saludables y manejo de rumiación.\n• PLAN CLÍNICO:\n  Continuar seguimiento semanal.',
-        professionalName: 'Dr. Alejandro Silva',
-      },
-    ],
-  },
-  {
-    id: 'pat-2',
-    patientName: 'Matías Errázuriz',
-    patientRUT: '16.789.234-5',
-    patientEmail: 'matias@ejemplo.cl',
+    patientEmail: 'daniela@ejemplo.cl',
     patientPhone: '56961699991',
     defaultService: 'Psicoterapia Individual Adulto',
     defaultModality: 'Online',
     assignedProfessionalId: 'prof-1',
     clinicalStatusTag: 'Activo',
-    clinicalHistory: [],
-  },
-  {
-    id: 'pat-3',
-    patientName: 'Sofía Domínguez',
-    patientRUT: '19.321.654-8',
-    patientEmail: 'sofia@ejemplo.cl',
-    patientPhone: '56961699991',
-    defaultService: 'Evaluación Psicodiagnóstica',
-    defaultModality: 'Presencial',
-    assignedProfessionalId: 'prof-2',
-    clinicalStatusTag: 'En Seguimiento',
     clinicalHistory: [],
   },
 ];
@@ -460,66 +394,24 @@ const INITIAL_APPOINTMENTS: AppointmentItem[] = [
   {
     id: 'apt-101',
     patientId: 'pat-1',
-    patientName: 'Camila Vergara',
+    patientName: 'Daniela Gonzáles Gonzáles',
     patientRUT: '18.456.789-2',
-    patientEmail: 'camila@ejemplo.cl',
-    patientPhone: '56961699991',
-    professionalId: 'prof-1',
-    serviceName: 'Psicoterapia Individual Adulto',
-    modality: 'Presencial',
-    boxName: 'Box 1 · Salvia',
-    isoDate: '2026-11-02',
-    time: '10:00',
-    price: 45000,
-    paymentStatus: 'Pagado',
-    clinicalStatus: 'Atendida',
-  },
-  {
-    id: 'apt-102',
-    patientId: 'pat-2',
-    patientName: 'Matías Errázuriz',
-    patientRUT: '16.789.234-5',
-    patientEmail: 'matias@ejemplo.cl',
+    patientEmail: 'daniela@ejemplo.cl',
     patientPhone: '56961699991',
     professionalId: 'prof-1',
     serviceName: 'Psicoterapia Individual Adulto',
     modality: 'Online',
     boxName: 'Online (Google Meet)',
-    meetUrl: 'https://meet.google.com/krs-mtez-ses',
-    isoDate: '2026-11-03',
-    time: '17:00',
+    meetUrl: 'https://meet.google.com/krs-dgon-om',
+    isoDate: '2026-11-04',
+    time: '09:00',
     price: 45000,
-    paymentStatus: 'Pagado',
-    clinicalStatus: 'Confirmada',
-  },
-  {
-    id: 'apt-103',
-    patientId: 'pat-3',
-    patientName: 'Sofía Domínguez',
-    patientRUT: '19.321.654-8',
-    patientEmail: 'sofia@ejemplo.cl',
-    patientPhone: '56961699991',
-    professionalId: 'prof-2',
-    serviceName: 'Evaluación Psicodiagnóstica',
-    modality: 'Presencial',
-    boxName: 'Box 2 · Arena',
-    isoDate: '2026-11-03',
-    time: '10:00',
-    price: 55000,
     paymentStatus: 'Pendiente',
     clinicalStatus: 'Confirmada',
   },
 ];
 
-const INITIAL_BLOCKED_SLOTS: BlockedSlot[] = [
-  {
-    id: 'blk-1',
-    professionalId: 'prof-1',
-    isoDate: '2026-11-04',
-    time: '13:00',
-    reason: 'Reunión Clínica',
-  },
-];
+const INITIAL_BLOCKED_SLOTS: BlockedSlot[] = [];
 
 function AdminGlassSkeleton() {
   return (
@@ -543,11 +435,19 @@ function AdminGlassSkeleton() {
 }
 
 function AdminDashboardContent() {
-  const [centerBrandName, setCenterBrandName] = useState<string>('Centro Terapéutico Horizonte');
+  const router = useRouter();
+
+  const [centerBrandName, setCenterBrandName] = useState<string>('Centro OM');
   const [centerLogoUrl, setCenterLogoUrl] = useState<string>('');
   const [centerBoxes, setCenterBoxes] = useState<string[]>(DEFAULT_CENTER_BOXES);
   const [newBoxNameInput, setNewBoxNameInput] = useState<string>('');
   const [showBrandingModal, setShowBrandingModal] = useState<boolean>(false);
+
+  // Modo Privacidad Clínica (Oculta apellidos y montos en pantalla compartida)
+  const [privacyMode, setPrivacyMode] = useState<boolean>(false);
+
+  // Modal de Comprobante / Certificado de Asistencia para Isapre o Seguro
+  const [certificateApt, setCertificateApt] = useState<AppointmentItem | null>(null);
 
   const [activeModule, setActiveModule] = useState<AdminModule>('agenda');
   const [calendarView, setCalendarView] = useState<CalendarViewMode>('week');
@@ -722,7 +622,7 @@ function AdminDashboardContent() {
     specialty: 'Psicoterapia Clínica',
     rut: '',
     email: '',
-    presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
+    presencialAddress: 'Consulta Centro OM',
     onlineRoomUrl: 'https://meet.google.com/clinica-sala',
     agreementType: 'porcentaje' as FinancialAgreementType,
     centerCommissionPercent: 25,
@@ -830,6 +730,45 @@ function AdminDashboardContent() {
   }, []);
 
   // =========================================================
+  // CERRAR SESIÓN DEL CENTRO / PROFESIONAL
+  // =========================================================
+  const handleLogoutSession = async () => {
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch {}
+    }
+    localStorage.removeItem('kairos_active_tenant_slug');
+    showToast('Cerrando sesión segura...', `Hasta pronto, ${centerBrandName}`);
+    setTimeout(() => {
+      router.push('/');
+    }, 450);
+  };
+
+  // Copiar Link Público del Centro para compartir por WhatsApp o Instagram
+  const centerPublicSlug = useMemo(() => {
+    return centerBrandName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }, [centerBrandName]);
+
+  const handleCopyPublicPortalLink = () => {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : 'https://kairosclinico.cl';
+    const fullUrl = `${origin}/centro/${centerPublicSlug || 'mi-centro'}`;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(fullUrl);
+      showToast(
+        'Enlace de agendamiento copiado',
+        `${fullUrl} listo para pegar en Instagram o WhatsApp.`
+      );
+    }
+  };
+
+  // =========================================================
   // MOTOR DE IMPORTACIÓN Y EXPORTACIÓN DE PACIENTES (EXCEL / CSV)
   // =========================================================
   const handleExportPatientsToExcelCsv = () => {
@@ -854,7 +793,7 @@ function AdminDashboardContent() {
         clean(p.patientPhone),
         clean(p.defaultService),
         clean(p.defaultModality),
-        clean(prof?.name ?? 'Dr. Alejandro Silva'),
+        clean(prof?.name ?? professionals[0]?.name ?? 'Especialista'),
         clean(p.clinicalStatusTag),
       ].join(';');
     });
@@ -875,7 +814,7 @@ function AdminDashboardContent() {
 
     showToast(
       'Planilla de pacientes exportada',
-      `${patients.length} pacientes descargados en formato compatible con Excel.`
+      `${patients.length} pacientes descargados en formato Excel CSV.`
     );
   };
 
@@ -891,7 +830,6 @@ function AdminDashboardContent() {
     const sampleRows = [
       'Valentina Rojas;19.456.123-K;valentina.rojas@ejemplo.cl;56987654321;Psicoterapia Individual Adulto;Online',
       'Sebastián Morales;17.222.333-4;sebastian.m@ejemplo.cl;56912345678;Terapia de Pareja / Vincular;Presencial',
-      'Francisca Soto;20.111.444-9;fran.soto@ejemplo.cl;56961699991;Evaluación Psicodiagnóstica;Presencial',
     ];
     const csvContent = '\uFEFF' + [sampleHeaders.join(';'), ...sampleRows].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1043,7 +981,6 @@ function AdminDashboardContent() {
     );
   };
 
-  // Subir Logo desde PC al pinchar la foto del centro arriba
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1057,7 +994,6 @@ function AdminDashboardContent() {
     reader.readAsDataURL(file);
   };
 
-  // Conectar Google Calendar de un Profesional: Una vez conectado, el botón desaparece
   const handleConnectProfGoogleCalendar = async (profId: string) => {
     setProfessionals((prev) =>
       prev.map((p) => (p.id === profId ? { ...p, googleConnected: true } : p))
@@ -1115,6 +1051,12 @@ function AdminDashboardContent() {
       return matchesSearch && matchesModality;
     });
   }, [patients, searchQuery, patientModalityFilter]);
+
+  // Pacientes actualmente en Sala de Espera
+  const waitingRoomCount = useMemo(
+    () => appointments.filter((a) => a.clinicalStatus === 'En Espera').length,
+    [appointments]
+  );
 
   const financialAndClinicalReport = useMemo(() => {
     const byProf = professionals.map((prof) => {
@@ -1458,7 +1400,7 @@ function AdminDashboardContent() {
               time,
               boxName:
                 a.modality === 'Presencial'
-                  ? dayCfg?.boxAssigned ?? 'Box 1 · Salvia'
+                  ? dayCfg?.boxAssigned ?? 'Box 1'
                   : 'Online (Google Meet)',
             }
           : a
@@ -1485,7 +1427,6 @@ function AdminDashboardContent() {
     );
   };
 
-  // ELIMINAR HORA EN AGENDA: Libera el horario pero MANTIENE INTACTO al paciente en el directorio
   const deleteAppointmentSlotOnly = (aptId: string) => {
     const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
@@ -1542,7 +1483,7 @@ function AdminDashboardContent() {
     const dayCfg = currentProf?.scheduleByDay?.[slotModal.dayIndex];
     const assignedBox =
       newBookingForm.modality === 'Presencial'
-        ? dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1 · Salvia'
+        ? dayCfg?.boxAssigned ?? centerBoxes[0] ?? 'Box 1'
         : 'Online (Google Meet)';
 
     if (newBookingForm.modality === 'Presencial') {
@@ -1728,7 +1669,7 @@ function AdminDashboardContent() {
           enabled: true,
           blocks: [{ startHour: '09:00', endHour: '14:00' }],
           modality: 'Ambas (Híbrido)',
-          boxAssigned: centerBoxes[0] ?? 'Box 1 · Salvia',
+          boxAssigned: centerBoxes[0] ?? 'Box 1',
         };
         return {
           ...p,
@@ -1787,7 +1728,7 @@ function AdminDashboardContent() {
       specialty: 'Psicoterapia Clínica',
       rut: '',
       email: '',
-      presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
+      presencialAddress: `Consulta ${centerBrandName}`,
       onlineRoomUrl: generateLocalMeetLink(),
       agreementType: 'porcentaje',
       centerCommissionPercent: 25,
@@ -1857,7 +1798,7 @@ function AdminDashboardContent() {
         presencialAddress: profForm.presencialAddress.trim(),
         onlineRoomUrl: profForm.onlineRoomUrl.trim(),
         googleConnected: false,
-        scheduleByDay: buildDefaultScheduleWithColacion(centerBoxes[0] ?? 'Box 1 · Salvia'),
+        scheduleByDay: buildDefaultScheduleWithColacion(centerBoxes[0] ?? 'Box 1'),
         agreementType: profForm.agreementType,
         centerCommissionPercent: Number(profForm.centerCommissionPercent) || 0,
         fixedBoxRent: Number(profForm.fixedBoxRent) || 0,
@@ -1960,7 +1901,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          BARRA LATERAL LIMPIA (SOLO PINCHAR FOTO/NOMBRE ARRIBA PARA EDITAR)
+          BARRA LATERAL CON BOTÓN DE CERRAR SESIÓN EN EL PIE
          ========================================================= */}
       <aside
         className={`${
@@ -1973,7 +1914,7 @@ function AdminDashboardContent() {
               <button
                 type="button"
                 onClick={() => setShowBrandingModal(true)}
-                className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-[#C87D65] to-[#b0664f] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-md overflow-hidden group border border-white/15"
+                className="relative w-11 h-11 rounded-2xl bg-white text-[#1E3329] flex items-center justify-center font-bold text-base shrink-0 shadow-md overflow-hidden group border border-white/15"
                 title="Pincha aquí para cambiar la foto/logo del centro"
               >
                 {centerLogoUrl ? (
@@ -1983,7 +1924,7 @@ function AdminDashboardContent() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span>{centerBrandName.slice(0, 1).toUpperCase()}</span>
+                  <span>{centerBrandName.slice(0, 2).toUpperCase()}</span>
                 )}
                 <span className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <ImagePlus size={15} className="text-white" />
@@ -2052,12 +1993,30 @@ function AdminDashboardContent() {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-white/10">
+        {/* Pie del Sidebar con Boxes Habilitados + Botón Cerrar Sesión */}
+        <div className="p-4 border-t border-white/10 space-y-2.5">
           {!sidebarCollapsed && (
-            <p className="text-[11px] text-stone-400 text-center">
-              {centerBoxes.length} Boxes Habilitados
-            </p>
+            <div className="flex items-center justify-between px-2 text-[11px] text-stone-400">
+              <span>{centerBoxes.length} Boxes Habilitados</span>
+              <button
+                type="button"
+                onClick={() => setShowBrandingModal(true)}
+                className="text-emerald-300/90 hover:underline font-semibold"
+              >
+                Editar
+              </button>
+            </div>
           )}
+
+          <button
+            type="button"
+            onClick={handleLogoutSession}
+            className="w-full py-2.5 px-3.5 rounded-2xl bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-400/30 text-stone-300 hover:text-rose-200 text-xs font-bold flex items-center justify-center gap-2 transition-all"
+            title="Cerrar Sesión y volver al inicio"
+          >
+            <LogOut size={15} className="shrink-0" />
+            {!sidebarCollapsed && <span>Cerrar Sesión</span>}
+          </button>
         </div>
       </aside>
 
@@ -2070,7 +2029,7 @@ function AdminDashboardContent() {
             <button
               type="button"
               onClick={() => setShowBrandingModal(true)}
-              className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center overflow-hidden border border-[#E4ECE7] shadow-2xs group relative"
+              className="w-11 h-11 rounded-2xl bg-white text-[#2C4A3B] flex items-center justify-center overflow-hidden border border-[#E4ECE7] shadow-2xs group relative"
               title="Pincha para cambiar la foto del centro"
             >
               {centerLogoUrl ? (
@@ -2084,16 +2043,70 @@ function AdminDashboardContent() {
               )}
             </button>
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
-                {centerBrandName}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                  {centerBrandName}
+                </span>
+                {waitingRoomCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold animate-pulse">
+                    <Clock size={10} />
+                    {waitingRoomCount} en Sala de Espera
+                  </span>
+                )}
+              </div>
               <h2 className="text-xl font-bold text-stone-900 tracking-tight">
                 {SIDEBAR_ITEMS.find((i) => i.id === activeModule)?.label}
               </h2>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Copiar Link de Reserva de Pacientes en 1 Clic */}
+            <button
+              type="button"
+              onClick={handleCopyPublicPortalLink}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#F9F8F6] hover:bg-[#EBF3EE] border border-[#E4ECE7] text-stone-700 hover:text-[#2C4A3B] text-xs font-bold transition-all"
+              title="Copiar link de reserva del centro para enviar a pacientes"
+            >
+              <Copy size={14} />
+              <span className="hidden sm:inline">Link Pacientes</span>
+            </button>
+
+            <a
+              href={`/centro/${centerPublicSlug || 'mi-centro'}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2.5 rounded-xl bg-[#F9F8F6] hover:bg-stone-100 border border-[#E4ECE7] text-stone-600 transition-all"
+              title="Abrir Portal de Pacientes en pestaña nueva"
+            >
+              <ExternalLink size={14} />
+            </a>
+
+            {/* Modo Privacidad Clínica (Oculta apellidos y montos al compartir pantalla) */}
+            <button
+              type="button"
+              onClick={() => {
+                setPrivacyMode((prev) => !prev);
+                showToast(
+                  !privacyMode ? 'Modo Privacidad Activado' : 'Modo Privacidad Desactivado',
+                  !privacyMode
+                    ? 'Nombres de pacientes y montos ocultos en pantalla.'
+                    : 'Datos visibles nuevamente.'
+                );
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+                privacyMode
+                  ? 'bg-stone-900 text-white border-stone-900'
+                  : 'bg-[#F9F8F6] border-[#E4ECE7] text-stone-700 hover:bg-stone-100'
+              }`}
+              title="Ocultar nombres y montos cuando hay terceros mirando la pantalla"
+            >
+              {privacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
+              <span className="hidden md:inline">
+                {privacyMode ? 'Privado' : 'Discreto'}
+              </span>
+            </button>
+
             <div className="relative">
               <Search
                 size={15}
@@ -2104,7 +2117,7 @@ function AdminDashboardContent() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar paciente, RUT o terapia..."
-                className="pl-9 pr-4 py-2.5 bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl text-xs focus:outline-none focus:border-[#2C4A3B] w-56 transition-all"
+                className="pl-9 pr-4 py-2.5 bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl text-xs focus:outline-none focus:border-[#2C4A3B] w-48 sm:w-56 transition-all"
               />
             </div>
 
@@ -2154,7 +2167,9 @@ function AdminDashboardContent() {
                       Facturación Bruta Centro
                     </span>
                     <p className="text-2xl font-bold text-stone-900 mt-1">
-                      ${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}
+                      {privacyMode
+                        ? '$•••.•••'
+                        : `$${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}`}
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-[#EBF3EE] text-[#2C4A3B] flex items-center justify-center">
@@ -2182,7 +2197,9 @@ function AdminDashboardContent() {
                       Líquido a Profesionales
                     </span>
                     <p className="text-2xl font-bold text-[#C87D65] mt-1">
-                      ${financialAndClinicalReport.totalNetProfessionals.toLocaleString('es-CL')}
+                      {privacyMode
+                        ? '$•••.•••'
+                        : `$${financialAndClinicalReport.totalNetProfessionals.toLocaleString('es-CL')}`}
                     </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-[#C87D65] flex items-center justify-center">
@@ -2442,7 +2459,11 @@ function AdminDashboardContent() {
                                     </span>
                                   </div>
                                   <p className="text-xs font-bold text-stone-900 truncate">
-                                    Paciente: {occupyingApt.patientName}
+                                    Paciente:{' '}
+                                    {maskPatientNameForPrivacy(
+                                      occupyingApt.patientName,
+                                      privacyMode
+                                    )}
                                   </p>
                                   <p className="text-[10px] text-stone-500 truncate">
                                     {occupyingApt.serviceName}
@@ -2569,7 +2590,7 @@ function AdminDashboardContent() {
                               >
                                 <div>
                                   <p className="font-bold text-sm text-stone-900">
-                                    {apt.patientName}{' '}
+                                    {maskPatientNameForPrivacy(apt.patientName, privacyMode)}{' '}
                                     <span className="text-xs font-normal text-stone-500">
                                       ({apt.serviceName} ·{' '}
                                       {apt.modality === 'Online'
@@ -2581,6 +2602,13 @@ function AdminDashboardContent() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
+                                    onClick={() => setCertificateApt(apt)}
+                                    className="px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-xs font-bold flex items-center gap-1"
+                                  >
+                                    <Printer size={13} />
+                                    <span>Certificado</span>
+                                  </button>
+                                  <button
                                     onClick={() => {
                                       const pat = patients.find((p) => p.id === apt.patientId);
                                       if (pat) setFichaPatient(pat);
@@ -2589,12 +2617,6 @@ function AdminDashboardContent() {
                                   >
                                     <BrainCircuit size={13} />
                                     <span>Ficha IA</span>
-                                  </button>
-                                  <button
-                                    onClick={() => deleteAppointmentSlotOnly(apt.id)}
-                                    className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold"
-                                  >
-                                    Liberar Hora
                                   </button>
                                 </div>
                               </div>
@@ -2776,7 +2798,9 @@ function AdminDashboardContent() {
                                     setContextMenu({ x: e.clientX, y: e.clientY, apt });
                                   }}
                                   className={`h-full w-full rounded-2xl p-2.5 border shadow-xs cursor-grab active:cursor-grabbing transition-all hover:shadow-md flex flex-col justify-between select-none ${
-                                    apt.paymentStatus === 'Pagado'
+                                    apt.clinicalStatus === 'En Espera'
+                                      ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300/50'
+                                      : apt.paymentStatus === 'Pagado'
                                       ? 'bg-[#EBF3EE]/90 border-[#2C4A3B]/35'
                                       : 'bg-white border-[#C87D65]/45'
                                   }`}
@@ -2810,7 +2834,10 @@ function AdminDashboardContent() {
                                     </div>
 
                                     <p className="font-bold text-xs text-stone-900 truncate">
-                                      {apt.patientName}
+                                      {maskPatientNameForPrivacy(
+                                        apt.patientName,
+                                        privacyMode
+                                      )}
                                     </p>
                                     <p className="text-[10px] text-stone-500 truncate">
                                       {apt.serviceName}
@@ -2819,7 +2846,9 @@ function AdminDashboardContent() {
 
                                   <div className="flex items-center justify-between pt-1 mt-1 border-t border-stone-200/60 text-[10px] text-stone-500">
                                     <span className="font-semibold text-[#2C4A3B] truncate">
-                                      {apt.recurrenceLabel
+                                      {apt.clinicalStatus === 'En Espera'
+                                        ? '⏳ En Sala de Espera'
+                                        : apt.recurrenceLabel
                                         ? `↻ ${apt.recurrenceLabel}`
                                         : apt.clinicalStatus}
                                     </span>
@@ -2879,7 +2908,8 @@ function AdminDashboardContent() {
                                 key={a.id}
                                 className="px-2 py-1 rounded-lg bg-[#2C4A3B]/10 text-[#2C4A3B] text-[10px] font-semibold truncate"
                               >
-                                {a.time} · {a.patientName}
+                                {a.time} ·{' '}
+                                {maskPatientNameForPrivacy(a.patientName, privacyMode)}
                               </div>
                             ))}
                           </div>
@@ -2974,7 +3004,7 @@ function AdminDashboardContent() {
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="font-bold text-base text-stone-900">
-                                {pat.patientName}
+                                {maskPatientNameForPrivacy(pat.patientName, privacyMode)}
                               </h3>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -3153,7 +3183,7 @@ function AdminDashboardContent() {
                     Turnos con Corte de Colación & Asignación de Box
                   </span>
                   <h3 className="text-xl font-bold text-stone-900">
-                    Profesionales, Múltiples Tramos por Día (Ej: 09:00-14:00 y 16:00-21:00) y Boxes
+                    Profesionales, Múltiples Tramos por Día y Boxes
                   </h3>
                 </div>
                 <button
@@ -3225,7 +3255,7 @@ function AdminDashboardContent() {
 
                     <div>
                       <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-3">
-                        Tramos Horarios por Día (Puedes agregar más bloques para separar mañana, colación y tarde) y Box Asignado
+                        Tramos Horarios por Día y Box Asignado
                       </label>
                       <div className="space-y-2.5">
                         {DAY_NAMES.map((dayMeta) => {
@@ -3233,7 +3263,7 @@ function AdminDashboardContent() {
                             enabled: false,
                             blocks: [{ startHour: '09:00', endHour: '14:00' }],
                             modality: 'Ambas (Híbrido)',
-                            boxAssigned: centerBoxes[0] ?? 'Box 1 · Salvia',
+                            boxAssigned: centerBoxes[0] ?? 'Box 1',
                           };
                           return (
                             <div
@@ -3423,7 +3453,9 @@ function AdminDashboardContent() {
                     Total Bruto Generado
                   </span>
                   <p className="text-2xl font-bold text-stone-900 mt-1">
-                    ${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}
+                    {privacyMode
+                      ? '$•••.•••'
+                      : `$${financialAndClinicalReport.totalGrossCenter.toLocaleString('es-CL')}`}
                   </p>
                   <span className="text-[11px] text-stone-500">
                     Pagado: ${financialAndClinicalReport.totalPaidCenter.toLocaleString('es-CL')}
@@ -3546,6 +3578,109 @@ function AdminDashboardContent() {
           )}
         </main>
       </div>
+
+      {/* =========================================================
+          MODAL DE CERTIFICADO / COMPROBANTE DE ATENCIÓN CLÍNICA (IMPRIMIBLE PDF)
+         ========================================================= */}
+      <AnimatePresence>
+        {certificateApt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2.2rem] max-w-lg w-full p-8 border border-[#E4ECE7] shadow-2xl space-y-6 text-xs"
+            >
+              <div className="flex items-start justify-between border-b border-[#E4ECE7] pb-5">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center font-bold overflow-hidden">
+                    {centerLogoUrl ? (
+                      <img
+                        src={centerLogoUrl}
+                        alt={centerBrandName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span>{centerBrandName.slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                      Certificado Oficial de Atención y Pago
+                    </span>
+                    <h3 className="text-lg font-bold text-stone-900">{centerBrandName}</h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCertificateApt(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-3 leading-relaxed text-stone-700">
+                <p>
+                  Se certifica que el/la paciente{' '}
+                  <strong className="text-stone-900">{certificateApt.patientName}</strong>, RUT{' '}
+                  <strong className="text-stone-900">{certificateApt.patientRUT}</strong>, asistió a sesión clínica en{' '}
+                  <strong className="text-stone-900">{centerBrandName}</strong> según el siguiente detalle:
+                </p>
+                <div className="pt-2 border-t border-stone-200/80 space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Prestación:</span>
+                    <strong className="text-stone-900">{certificateApt.serviceName}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Profesional Tratante:</span>
+                    <strong className="text-stone-900">
+                      {professionals.find((p) => p.id === certificateApt.professionalId)?.name ??
+                        currentProf?.name}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Fecha y Hora:</span>
+                    <strong className="text-stone-900">
+                      {certificateApt.isoDate} · {certificateApt.time} hrs
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Modalidad:</span>
+                    <strong className="text-stone-900">{certificateApt.modality}</strong>
+                  </div>
+                  <div className="flex justify-between pt-1.5 border-t border-stone-200/80">
+                    <span className="text-stone-500">Arancel Sesión:</span>
+                    <strong className="text-[#2C4A3B] text-sm">
+                      ${certificateApt.price.toLocaleString('es-CL')} CLP ({certificateApt.paymentStatus})
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-stone-400 text-center">
+                Documento válido para presentar en Isapre, Seguro Complementario de Salud o empleador.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 py-3.5 bg-[#2C4A3B] hover:bg-[#1E3329] text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <Printer size={15} />
+                  <span>Imprimir / Guardar PDF</span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* =========================================================
           MODAL DE IMPORTACIÓN MASIVA DE PACIENTES (EXCEL / CSV)
@@ -3675,7 +3810,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MODAL DE AGENDAR CITA (CON REPETICIÓN SEMANAL/QUINCENAL/MENSUAL Y TEXTOS LIMPIOS)
+          MODAL DE AGENDAR CITA (CON REPETICIÓN SEMANAL/QUINCENAL/MENSUAL)
          ========================================================= */}
       <AnimatePresence>
         {slotModal && (
@@ -4304,7 +4439,7 @@ function AdminDashboardContent() {
                     type="text"
                     value={newBoxNameInput}
                     onChange={(e) => setNewBoxNameInput(e.target.value)}
-                    placeholder="Ej. Box 5 · Ciprés"
+                    placeholder="Ej. Box 3"
                     className="flex-1 px-3 py-2 rounded-xl border border-stone-200"
                   />
                   <button
@@ -4334,7 +4469,7 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       {/* =========================================================
-          MENÚ CONTEXTUAL DE CLIC DERECHO EN EL CALENDARIO
+          MENÚ CONTEXTUAL DE CLIC DERECHO EN EL CALENDARIO (CON CHECK-IN SALA DE ESPERA Y CERTIFICADO PDF)
          ========================================================= */}
       <AnimatePresence>
         {contextMenu && (
@@ -4345,11 +4480,11 @@ function AdminDashboardContent() {
             style={{
               top: Math.min(
                 contextMenu.y,
-                typeof window !== 'undefined' ? window.innerHeight - 420 : 320
+                typeof window !== 'undefined' ? window.innerHeight - 460 : 300
               ),
               left: Math.min(
                 contextMenu.x,
-                typeof window !== 'undefined' ? window.innerWidth - 300 : 320
+                typeof window !== 'undefined' ? window.innerWidth - 300 : 300
               ),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -4381,6 +4516,32 @@ function AdminDashboardContent() {
 
             <button
               onClick={() => {
+                setAppointments((prev) =>
+                  prev.map((a) =>
+                    a.id === contextMenu.apt.id
+                      ? {
+                          ...a,
+                          clinicalStatus:
+                            a.clinicalStatus === 'En Espera' ? 'Confirmada' : 'En Espera',
+                        }
+                      : a
+                  )
+                );
+                showToast('Paciente marcado en Sala de Espera');
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-amber-50 text-amber-900 font-bold transition-colors"
+            >
+              <Clock size={15} className="text-amber-600" />
+              <span>
+                {contextMenu.apt.clinicalStatus === 'En Espera'
+                  ? 'Quitar de Sala de Espera'
+                  : 'Marcar en Sala de Espera (Check-in)'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
                 togglePaymentStatus(contextMenu.apt.id);
                 setContextMenu(null);
               }}
@@ -4396,12 +4557,23 @@ function AdminDashboardContent() {
 
             <button
               onClick={() => {
+                setCertificateApt(contextMenu.apt);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-800 font-semibold transition-colors"
+            >
+              <Printer size={15} className="text-[#2C4A3B]" />
+              <span>Emitir Certificado / Comprobante PDF</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setAppointments((prev) =>
                   prev.map((a) =>
                     a.id === contextMenu.apt.id ? { ...a, clinicalStatus: 'No Asistió' } : a
                   )
                 );
-                showToast('Marcado como No Asistió (Impacta reporte de abandono)');
+                showToast('Marcado como No Asistió');
                 setContextMenu(null);
               }}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-amber-50 text-amber-900 font-medium transition-colors"
