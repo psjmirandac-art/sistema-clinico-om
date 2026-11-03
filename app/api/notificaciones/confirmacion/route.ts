@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     // --- 1. DISPARAR CORREO (RESEND) ---
     if (patientEmail) {
       const emailPromise = resend.emails.send({
-        from: 'Kairós Clínico <notificaciones@kairosclinico.cl>', // ⚠️ Cambia al dominio que verifiques en Resend
+        from: 'Kairós Clínico <notificaciones@kairosclinico.cl>',
         to: patientEmail,
         subject: `Cita Confirmada: ${date} a las ${time}`,
         html: `
@@ -38,11 +38,13 @@ export async function POST(request: Request) {
       notificationPromises.push(emailPromise);
     }
 
-    // --- 2. DISPARAR WHATSAPP (META CLOUD API) ---
+    // --- 2. DISPARAR WHATSAPP (META CLOUD API - SANDBOX MODE) ---
     if (patientPhone && whatsappToken && whatsappPhoneId) {
-      const cleanPhone = patientPhone.replace(/\D/g, ''); // Limpiar el +569 a solo números
+      const cleanPhone = patientPhone.replace(/\D/g, ''); // Limpiar formato (ej: 5691699991)
+      
       if (cleanPhone.length >= 11) {
-        const waPromise = fetch(`https://graph.facebook.com/v17.0/${whatsappPhoneId}/messages`, {
+        // Usamos la plantilla nativa 'hello_world' para pasar el Sandbox sin errores de variables
+        const waPromise = fetch(`https://graph.facebook.com/v25.0/${whatsappPhoneId}/messages`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${whatsappToken}`,
@@ -53,19 +55,8 @@ export async function POST(request: Request) {
             to: cleanPhone,
             type: 'template',
             template: {
-              name: 'confirmacion_cita', // ⚠️ ESTA PLANTILLA DEBE EXISTIR EN META
-              language: { code: 'es' },
-              components: [
-                {
-                  type: 'body',
-                  parameters: [
-                    { type: 'text', text: patientName },
-                    { type: 'text', text: date },
-                    { type: 'text', text: time },
-                    { type: 'text', text: centerName }
-                  ]
-                }
-              ]
+              name: 'hello_world', // Plantilla universal pre-aprobada por Meta en todos los Sandbox
+              language: { code: 'en_US' }
             }
           }),
         }).then(res => res.json());
@@ -74,7 +65,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Ejecutar todo en paralelo sin bloquear
+    // Ejecutar envíos en paralelo
     await Promise.allSettled(notificationPromises);
     
     return NextResponse.json({ success: true });
