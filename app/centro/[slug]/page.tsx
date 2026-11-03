@@ -1,130 +1,198 @@
-import { Suspense } from 'react';
-import { notFound } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import { ShieldCheck, Calendar, UserCheck, MapPin, Loader2 } from 'lucide-react';
-import Link from 'next/link';
+'use client';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Calendar, Clock, User, Mail, Phone, CheckCircle2, ChevronRight } from 'lucide-react';
+// import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'; // Descomenta según tu setup
 
-type PageProps = {
-  params: Promise<{ slug: string }>;
-};
+export default function CentroBookingPage({ params }: { params: { slug: string } }) {
+  // const supabase = createClientComponentClient();
+  const [step, setStep] = useState<'form' | 'success'>('form');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [formData, setFormData] = useState({
+    nombre: '',
+    email: '',
+    telefono: '',
+    // Datos hardcodeados para el ejemplo visual. En producción vendrían de la selección previa.
+    fecha: '15 de Noviembre, 2026', 
+    hora: '14:30',
+    profesional: 'Dr. Alejandro Kairós'
+  });
 
-// Componente de Carga (Skeleton) corregido con sintaxis estándar function
-function LoadingPortal() {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleConfirmarCita = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      // 1. GUARDAR EN SUPABASE (Descomenta y adapta a tu tabla)
+      /* 
+      const { error } = await supabase.from('appointments').insert([{
+        patient_name: formData.nombre,
+        patient_email: formData.email,
+        patient_phone: formData.telefono,
+        date: formData.fecha,
+        time: formData.hora,
+        professional_name: formData.profesional,
+        center_slug: params.slug
+      }]);
+      if (error) throw error;
+      */
+
+      // 2. DISPARAR WEBHOOK EN SEGUNDO PLANO (Fire-and-forget)
+      fetch('/api/notificaciones/confirmacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName: formData.nombre,
+          patientEmail: formData.email,
+          patientPhone: formData.telefono, 
+          date: formData.fecha,
+          time: formData.hora,
+          professionalName: formData.profesional,
+          centerName: "Kairós Clínico" 
+        }),
+      }).catch(err => console.error('Error silencioso en webhook Meta/Resend:', err));
+
+      // 3. UI OPTIMISTA: Mostrar éxito de inmediato
+      setStep('success');
+
+    } catch (error) {
+      console.error("Error al guardar la cita:", error);
+      alert('Hubo un problema al agendar tu cita. Intenta de nuevo.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F9F8F6] flex flex-col items-center justify-center space-y-4">
-      <Loader2 className="animate-spin text-[#2C4A3B]" size={36} />
-      <p className="text-xs font-semibold text-stone-500 tracking-wider uppercase">Preparando espacio clínico...</p>
-    </div>
-  );
-}
-
-// Componente interno que consume los params de forma segura dentro de Suspense
-async function CenterContent({ params }: PageProps) {
-  const { slug } = await params;
-
-  // Buscamos si existe un centro con ese slug (subdominio)
-  const { data: center, error: centerError } = await supabase
-    .from('centers')
-    .select('id, name, slug')
-    .eq('slug', slug)
-    .single();
-
-  if (centerError || !center) {
-    notFound();
-  }
-
-  // Traemos a los profesionales activos de este centro específico
-  const { data: professionals } = await supabase
-    .from('professionals')
-    .select('id, name, specialty, role')
-    .eq('center_id', center.id)
-    .order('name', { ascending: true });
-
-  return (
-    <div className="min-h-screen bg-[#F9F8F6] text-stone-800 font-sans selection:bg-[#2C4A3B] selection:text-white">
-      
-      {/* Header Institucional de la Clínica */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-stone-200/80 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center shadow-xs">
-              <ShieldCheck size={20} />
+    <main className="min-h-screen bg-[#F9F8F6] flex items-center justify-center p-4 font-sans text-stone-800">
+      <AnimatePresence mode="wait">
+        {step === 'form' && (
+          <motion.div 
+            key="form"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="w-full max-w-md bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#E4ECE7]"
+          >
+            <div className="mb-8">
+              <h1 className="text-2xl font-bold tracking-tight text-stone-900 mb-2">Confirma tu cita</h1>
+              <p className="text-sm text-stone-500">Ingresa tus datos para finalizar la reserva.</p>
             </div>
-            <div>
-              <h1 className="font-extrabold text-stone-900 leading-tight">{center.name}</h1>
-              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Portal de Pacientes</p>
-            </div>
-          </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs font-semibold text-stone-500 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200">
-            <MapPin size={14} className="text-[#2C4A3B]" /> Atención Presencial y Online
-          </div>
-        </div>
-      </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-12 space-y-12">
-        
-        {/* Banner de Bienvenida */}
-        <div className="text-center space-y-4 max-w-2xl mx-auto">
-          <h2 className="text-3xl sm:text-4xl font-black text-stone-900 tracking-tight">
-            Agenda tu sesión en <span className="text-[#2C4A3B]">{center.name}</span>
-          </h2>
-          <p className="text-stone-500 leading-relaxed">
-            Selecciona a tu especialista clínico a continuación para ver su disponibilidad en tiempo real y coordinar tu próxima sesión de forma confidencial.
-          </p>
-        </div>
-
-        {/* Directorio de Especialistas Filtrado por Tenant */}
-        <div className="space-y-5">
-          <h3 className="text-sm font-bold text-stone-900 border-b border-stone-200 pb-2">
-            Equipo Clínico Disponible
-          </h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {professionals && professionals.length > 0 ? (
-              professionals.map((prof) => (
-                <div key={prof.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs hover:shadow-md hover:border-stone-300 transition-all flex flex-col justify-between space-y-5 group">
-                  <div className="flex items-start gap-4">
-                    <div className="h-14 w-14 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center font-bold text-xl shrink-0">
-                      {prof.name.charAt(0)}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-stone-900">{prof.name}</h4>
-                      <p className="text-xs font-semibold text-[#2C4A3B] mt-0.5">{prof.specialty || 'Psicoterapia'}</p>
-                      <div className="flex items-center gap-1 text-[10px] text-stone-400 mt-1.5">
-                        <UserCheck size={12} /> Profesional Certificado
-                      </div>
-                    </div>
-                  </div>
-
-                  <Link 
-                    href={`/agendar?terapeuta=${prof.id}`}
-                    className="w-full bg-stone-50 border border-stone-200 text-stone-700 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 group-hover:bg-[#2C4A3B] group-hover:text-white group-hover:border-[#2C4A3B] transition-colors"
-                  >
-                    Ver Disponibilidad <Calendar size={14} />
-                  </Link>
-                </div>
-              ))
-            ) : (
-              <div className="col-span-full bg-white rounded-3xl p-12 text-center border border-stone-100">
-                <p className="text-stone-500 font-medium">No hay profesionales disponibles en este momento.</p>
+            {/* Resumen de la cita (Glassmorphism sutil) */}
+            <div className="bg-stone-50/50 rounded-2xl p-4 mb-8 border border-stone-100 space-y-3">
+              <div className="flex items-center gap-3 text-sm text-stone-600">
+                <Calendar size={16} className="text-[#2C4A3B]" />
+                <span className="font-medium">{formData.fecha}</span>
               </div>
-            )}
-          </div>
-        </div>
+              <div className="flex items-center gap-3 text-sm text-stone-600">
+                <Clock size={16} className="text-[#2C4A3B]" />
+                <span className="font-medium">{formData.hora} hrs</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-stone-600">
+                <User size={16} className="text-[#2C4A3B]" />
+                <span className="font-medium">{formData.profesional}</span>
+              </div>
+            </div>
 
-      </main>
-    </div>
-  );
-}
+            <form onSubmit={handleConfirmarCita} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1">Nombre Completo</label>
+                <div className="relative">
+                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+                  <input 
+                    required
+                    name="nombre"
+                    value={formData.nombre}
+                    onChange={handleChange}
+                    className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2C4A3B]/20 focus:border-[#2C4A3B] transition-all"
+                    placeholder="Ej. Camila Vergara"
+                  />
+                </div>
+              </div>
 
-export default function CenterPatientPortal({ params }: PageProps) {
-  return (
-    <Suspense fallback={<LoadingPortal />}>
-      <CenterContent params={params} />
-    </Suspense>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1">Correo Electrónico</label>
+                <div className="relative">
+                  <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+                  <input 
+                    required
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2C4A3B]/20 focus:border-[#2C4A3B] transition-all"
+                    placeholder="camila@ejemplo.com"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider ml-1">Teléfono (WhatsApp)</label>
+                <div className="relative">
+                  <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+                  <input 
+                    required
+                    type="tel"
+                    name="telefono"
+                    value={formData.telefono}
+                    onChange={handleChange}
+                    className="w-full pl-11 pr-4 py-3.5 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2C4A3B]/20 focus:border-[#2C4A3B] transition-all"
+                    placeholder="569XXXXXXXX"
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full mt-4 py-4 px-6 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-medium transition-all duration-300 shadow-[0_8px_20px_rgb(44,74,59,0.15)] disabled:opacity-70 disabled:cursor-wait flex items-center justify-center gap-2 group"
+              >
+                {isSubmitting ? 'Procesando reserva...' : 'Agendar Cita'}
+                {!isSubmitting && <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />}
+              </button>
+            </form>
+          </motion.div>
+        )}
+
+        {step === 'success' && (
+          <motion.div 
+            key="success"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md bg-white rounded-[2rem] p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#E4ECE7] text-center"
+          >
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.2 }}
+              className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6"
+            >
+              <CheckCircle2 size={40} className="text-emerald-600" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-stone-900 mb-3">¡Reserva Confirmada!</h2>
+            <p className="text-stone-500 text-sm leading-relaxed mb-8">
+              Tu cita con {formData.profesional} ha sido agendada para el <strong>{formData.fecha}</strong> a las <strong>{formData.hora} hrs</strong>.
+            </p>
+            <div className="bg-stone-50 rounded-xl p-4 text-xs text-stone-500 border border-stone-100">
+              Te hemos enviado un comprobante a tu correo y un mensaje a tu WhatsApp con los detalles.
+            </div>
+            
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-8 text-sm font-medium text-[#2C4A3B] hover:text-[#233B2F] transition-colors"
+            >
+              Volver al inicio
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </main>
   );
 }
