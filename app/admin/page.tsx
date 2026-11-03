@@ -1,1317 +1,1622 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Home, Calendar, Users, Briefcase, Star, LogOut, ShieldCheck, 
-  Plus, Mic, MicOff, Sparkles, FileText, Video, Trash2, Search, 
-  X, Loader2, DoorOpen, Check, MapPin, Wallet, CreditCard, 
-  Megaphone, BarChart3, Link as LinkIcon, Settings, HelpCircle, Gift,
-  RefreshCw, Download, Store, CheckCircle2, UserCircle, ChevronLeft, 
-  ChevronRight, Clock, Building2, ChevronDown, ArrowUpRight, UserCheck, Minus, UserPlus
+import {
+  Calendar as CalendarIcon,
+  Users,
+  Stethoscope,
+  Clock,
+  MapPin,
+  Video,
+  CheckCircle2,
+  CreditCard,
+  Ban,
+  Plus,
+  Send,
+  Trash2,
+  Sparkles,
+  Check,
+  X,
+  Phone,
+  Mail,
+  Building2,
+  GripVertical,
+  AlertCircle,
+  MessageSquare,
+  RefreshCw,
 } from 'lucide-react';
 
-// Módulos Hijos importados
-import DocumentosTab from '@/components/admin/DocumentosTab';
-import ComunicacionesTab from '@/components/admin/ComunicacionesTab';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID || 'kairos-main';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase =
+  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-type TabType = 
-  | 'inicio' | 'agenda' | 'servicios' | 'pacientes' | 'comunicaciones' 
-  | 'finanzas' | 'resenas' | 'reportes' | 'documentos' | 'vitrina' 
-  | 'equipo' | 'conexiones' | 'sala_online' | 'gana_meses' | 'suscripcion' 
-  | 'ayuda' | 'configuracion';
+type ModalityType = 'Online' | 'Presencial';
+type PaymentStatus = 'Pagado' | 'Pendiente';
+type ClinicalStatus = 'Confirmada' | 'En Consulta' | 'Atendida' | 'No Asistió';
 
-type CalendarViewMode = 'mes' | 'semana' | 'dia';
-
-interface Center {
+interface ProfessionalConfig {
   id: string;
   name: string;
-  slug: string;
-  boxes_count: number;
+  specialty: string;
+  avatar: string;
+  workingDays: number[]; // 1 = Lun, 2 = Mar, 3 = Mié, 4 = Jue, 5 = Vie, 6 = Sáb
+  startHour: string;
+  endHour: string;
+  modalityMode: 'Ambas (Híbrido)' | 'Solo Online' | 'Solo Presencial';
+  presencialAddress: string;
+  onlineRoomUrl: string;
+  basePrice: number;
 }
 
-const TIME_SLOTS = [
-  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 
-  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'
+interface AppointmentItem {
+  id: string;
+  patientName: string;
+  patientEmail: string;
+  patientPhone: string;
+  professionalId: string;
+  serviceName: string;
+  modality: ModalityType;
+  dayIndex: number; // 1 = Lun ... 6 = Sáb
+  isoDate: string;
+  time: string;
+  price: number;
+  paymentStatus: PaymentStatus;
+  clinicalStatus: ClinicalStatus;
+}
+
+interface BlockedSlot {
+  id: string;
+  professionalId: string;
+  dayIndex: number;
+  time: string;
+  reason: string;
+}
+
+const CLINICAL_SERVICES = [
+  { name: 'Psicoterapia Individual', price: 45000, duration: '50 min' },
+  { name: 'Terapia de Pareja / Familiar', price: 60000, duration: '60 min' },
+  { name: 'Evaluación Psicodiagnóstica', price: 55000, duration: '60 min' },
+  { name: 'Consulta Psiquiátrica', price: 75000, duration: '45 min' },
 ];
 
-export default function AdminSuitePage() {
-  const router = useRouter();
+const WEEK_DAYS = [
+  { index: 1, short: 'Lun', label: 'Lunes', dateNum: '09', iso: '2026-11-09' },
+  { index: 2, short: 'Mar', label: 'Martes', dateNum: '10', iso: '2026-11-10' },
+  { index: 3, short: 'Mié', label: 'Miércoles', dateNum: '11', iso: '2026-11-11' },
+  { index: 4, short: 'Jue', label: 'Jueves', dateNum: '12', iso: '2026-11-12' },
+  { index: 5, short: 'Vie', label: 'Viernes', dateNum: '13', iso: '2026-11-13' },
+  { index: 6, short: 'Sáb', label: 'Sábado', dateNum: '14', iso: '2026-11-14' },
+];
 
-  const [session, setSession] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [profile, setProfile] = useState<any>(null);
-  const [centersList, setCentersList] = useState<Center[]>([]);
-  const [activeCenter, setActiveCenter] = useState<Center | null>(null);
-  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+const ALL_HOURS = [
+  '09:00',
+  '10:00',
+  '11:00',
+  '12:00',
+  '13:00',
+  '15:00',
+  '16:00',
+  '17:00',
+  '18:00',
+  '19:00',
+];
 
-  const [activeTab, setActiveTab] = useState<TabType>('inicio');
-  const [calendarView, setCalendarView] = useState<CalendarViewMode>('mes');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  
-  const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
-  const [isNewPatientModalOpen, setIsNewPatientModalOpen] = useState(false);
-  const [isNewServiceModalOpen, setIsNewServiceModalOpen] = useState(false);
-  const [isNewTherapistModalOpen, setIsNewTherapistModalOpen] = useState(false);
+const INITIAL_PROFESSIONALS: ProfessionalConfig[] = [
+  {
+    id: 'prof-1',
+    name: 'Dr. Alejandro Kairós',
+    specialty: 'Psicoterapia Clínica & Ansiedad',
+    avatar: 'AK',
+    workingDays: [1, 2, 3, 4, 5],
+    startHour: '09:00',
+    endHour: '18:00',
+    modalityMode: 'Ambas (Híbrido)',
+    presencialAddress: 'Av. Nueva Providencia 1881, Of. 1204, Providencia',
+    onlineRoomUrl: 'https://meet.google.com/kairos-alejandro',
+    basePrice: 45000,
+  },
+  {
+    id: 'prof-2',
+    name: 'Ps. Valentina Montt',
+    specialty: 'Terapia Cognitivo-Conductual',
+    avatar: 'VM',
+    workingDays: [1, 3, 4, 5, 6],
+    startHour: '10:00',
+    endHour: '19:00',
+    modalityMode: 'Ambas (Híbrido)',
+    presencialAddress: 'Av. Alonso de Córdova 5870, Of. 702, Las Condes',
+    onlineRoomUrl: 'https://meet.google.com/kairos-valentina',
+    basePrice: 40000,
+  },
+];
 
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
-  const [therapists, setTherapists] = useState<any[]>([]);
-  const [reviewsList, setReviewsList] = useState<any[]>([]);
-  const [patientsList, setPatientsList] = useState<any[]>([]);
-  const [boxesCount, setBoxesCount] = useState<number>(2);
+const INITIAL_APPOINTMENTS: AppointmentItem[] = [
+  {
+    id: 'apt-101',
+    patientName: 'Camila Vergara',
+    patientEmail: 'camila@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Psicoterapia Individual',
+    modality: 'Presencial',
+    dayIndex: 1,
+    isoDate: '2026-11-09',
+    time: '10:00',
+    price: 45000,
+    paymentStatus: 'Pagado',
+    clinicalStatus: 'Confirmada',
+  },
+  {
+    id: 'apt-102',
+    patientName: 'Matías Errázuriz',
+    patientEmail: 'matias@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Terapia de Pareja / Familiar',
+    modality: 'Online',
+    dayIndex: 2,
+    isoDate: '2026-11-10',
+    time: '11:00',
+    price: 60000,
+    paymentStatus: 'Pendiente',
+    clinicalStatus: 'Confirmada',
+  },
+  {
+    id: 'apt-103',
+    patientName: 'Sofía Domínguez',
+    patientEmail: 'sofia@ejemplo.cl',
+    patientPhone: '56961699991',
+    professionalId: 'prof-1',
+    serviceName: 'Evaluación Psicodiagnóstica',
+    modality: 'Presencial',
+    dayIndex: 4,
+    isoDate: '2026-11-12',
+    time: '16:00',
+    price: 55000,
+    paymentStatus: 'Pendiente',
+    clinicalStatus: 'Confirmada',
+  },
+];
 
-  const [currentDate, setCurrentDate] = useState<Date | null>(null);
-  const [todayString, setTodayString] = useState<string>('');
-  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
-  
-  const [searchPatient, setSearchPatient] = useState('');
-  const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
-  const [newPatientName, setNewPatientName] = useState('');
+export default function KairosAdminCommandCenter() {
+  const [activeTab, setActiveTab] = useState<'agenda' | 'pacientes' | 'profesionales'>('agenda');
+  const [professionals, setProfessionals] = useState<ProfessionalConfig[]>(INITIAL_PROFESSIONALS);
+  const [selectedProfId, setSelectedProfId] = useState<string>(INITIAL_PROFESSIONALS[0].id);
+  const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([
+    {
+      id: 'blk-1',
+      professionalId: 'prof-1',
+      dayIndex: 3,
+      time: '13:00',
+      reason: 'Reunión Clínica Equipo',
+    },
+  ]);
 
-  const [newTherapistName, setNewTherapistName] = useState('');
-  const [newTherapistEmail, setNewTherapistEmail] = useState('');
-  const [newTherapistSpecialty, setNewTherapistSpecialty] = useState('Psicología Clínica Adultos');
-  const [newTherapistPhone, setNewTherapistPhone] = useState('+569');
-  const [newTherapistRole, setNewTherapistRole] = useState('terapeuta');
-  const [savingTherapist, setSavingTherapist] = useState(false);
+  // Estado Drag & Drop
+  const [draggedAptId, setDraggedAptId] = useState<string | null>(null);
+  const [dragOverCell, setDragOverCell] = useState<string | null>(null);
 
-  const [newServiceName, setNewServiceName] = useState('');
-  const [newServicePrice, setNewServicePrice] = useState('');
-  const [newServiceDuration, setNewServiceDuration] = useState('50');
-  const [newServiceDescription, setNewServiceDescription] = useState('');
-  const [savingService, setSavingService] = useState(false);
+  // Estado Menú Contextual (Clic Derecho)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    apt: AppointmentItem;
+  } | null>(null);
 
-  // Estados del formulario de nueva cita
-  const [pFirstName, setPFirstName] = useState('');
-  const [pLastName, setPLastName] = useState('');
-  const [pDocument, setPDocument] = useState('');
-  const [pPrevision, setPPrevision] = useState('');
-  const [pEmail, setPEmail] = useState('');
-  const [pPhone, setPPhone] = useState('');
-  const [apptDate, setApptDate] = useState('');
-  const [apptTime, setApptTime] = useState('10:00');
-  const [savingAppt, setSavingAppt] = useState(false);
+  // Estado Modal de Celda Vacía (Agendar o Bloquear Horario)
+  const [slotModal, setSlotModal] = useState<{
+    dayIndex: number;
+    isoDate: string;
+    dayLabel: string;
+    time: string;
+  } | null>(null);
 
-  const [rawNotes, setRawNotes] = useState('');
-  const [aiStructuredNotes, setAiStructuredNotes] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const [clinicalRecords, setClinicalRecords] = useState<Record<string, any[]>>({});
+  const [slotActionMode, setSlotActionMode] = useState<'book' | 'block'>('book');
+  const [blockReasonInput, setBlockReasonInput] = useState('Bloqueo Personal / Almuerzo');
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3200);
+  const [newBookingForm, setNewBookingForm] = useState({
+    patientName: '',
+    patientEmail: '',
+    patientPhone: '56961699991',
+    serviceName: CLINICAL_SERVICES[0].name,
+    modality: 'Online' as ModalityType,
+    paymentStatus: 'Pendiente' as PaymentStatus,
+  });
+
+  // Feedback Toast
+  const [toastMessage, setToastMessage] = useState<{
+    title: string;
+    detail?: string;
+    type: 'success' | 'warn';
+  } | null>(null);
+
+  const showToast = (title: string, detail?: string, type: 'success' | 'warn' = 'success') => {
+    setToastMessage({ title, detail, type });
+    setTimeout(() => setToastMessage(null), 5000);
   };
 
-  const closeAllModals = useCallback(() => {
-    setIsNewApptModalOpen(false);
-    setIsNewPatientModalOpen(false);
-    setIsNewServiceModalOpen(false);
-    setIsNewTherapistModalOpen(false);
+  // Persistencia local + carga inicial
+  useEffect(() => {
+    const savedProfs = localStorage.getItem('kairos_profs_v2');
+    const savedApts = localStorage.getItem('kairos_apts_v2');
+    const savedBlocks = localStorage.getItem('kairos_blocks_v2');
+    if (savedProfs) setProfessionals(JSON.parse(savedProfs));
+    if (savedApts) setAppointments(JSON.parse(savedApts));
+    if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAllModals(); };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeAllModals]);
+    localStorage.setItem('kairos_profs_v2', JSON.stringify(professionals));
+  }, [professionals]);
 
   useEffect(() => {
-    const now = new Date();
-    setCurrentDate(now);
-    const ymd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    setTodayString(ymd);
-    setApptDate(ymd);
-
-    async function initAuthAndCenters() {
-      try {
-        const { data: { session: activeSession } } = await supabase.auth.getSession();
-        setSession(activeSession);
-        
-        if (!activeSession?.user) {
-          router.push('/login');
-          return;
-        }
-
-        const email = activeSession.user.email?.trim().toLowerCase();
-        
-        const { data: profs, error } = await supabase
-          .from('professionals')
-          .select(`id, name, email, role, center_id, centers (id, name, slug, boxes_count)`)
-          .eq('email', email)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        if (!profs || profs.length === 0) {
-          router.push('/onboarding');
-          return;
-        }
-
-        const validCenters: Center[] = profs.map((p: any) => p.centers).filter(Boolean);
-        const uniqueCenters = Array.from(new Map(validCenters.map(item => [item.id, item])).values());
-
-        setCentersList(uniqueCenters);
-        const savedCenterId = localStorage.getItem('kairos_active_center_id');
-        const defaultCenter = uniqueCenters.find(c => c.id === savedCenterId) || uniqueCenters[0];
-        
-        setActiveCenter(defaultCenter);
-        if (defaultCenter) {
-          localStorage.setItem('kairos_active_center_id', defaultCenter.id);
-        }
-
-        const currentProf = profs.find(p => p.center_id === defaultCenter?.id) || profs[0];
-        setProfile({
-          id: currentProf.id,
-          name: currentProf.name,
-          email: currentProf.email,
-          role: currentProf.role,
-          center_id: defaultCenter?.id
-        });
-
-      } catch (err) {
-        console.error('Error inicializando suite admin:', err);
-      } finally {
-        setAuthLoading(false);
-      }
-    }
-
-    initAuthAndCenters();
-  }, [router]);
+    localStorage.setItem('kairos_apts_v2', JSON.stringify(appointments));
+  }, [appointments]);
 
   useEffect(() => {
-    async function fetchClinicalData(centerId: string) {
-      try {
-        const apptQuery = supabase.from('appointments').select('*').eq('center_id', centerId).order('date', { ascending: true });
-        const servQuery = supabase.from('services').select('*').eq('center_id', centerId).order('created_at', { ascending: false });
-        const profQuery = supabase.from('professionals').select('*').eq('center_id', centerId).order('name', { ascending: true });
-        const revQuery = supabase.from('reviews').select('*').eq('center_id', centerId).order('created_at', { ascending: false });
+    localStorage.setItem('kairos_blocks_v2', JSON.stringify(blockedSlots));
+  }, [blockedSlots]);
 
-        const [{ data: appts }, { data: servs }, { data: profs }, { data: revs }] = await Promise.all([
-          apptQuery, servQuery, profQuery, revQuery
-        ]);
+  // Cerrar menú contextual al hacer clic en cualquier parte
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
 
-        setAppointments(appts || []);
-        setTherapists(profs || []);
-        setServices(servs || []);
-        setReviewsList(revs || []);
+  const currentProf = useMemo(
+    () => professionals.find((p) => p.id === selectedProfId) || professionals[0],
+    [professionals, selectedProfId]
+  );
 
-        const uniquePats = Array.from(new Map((appts || []).map((a: any) => [a.patient_email || a.patient_name, a])).values());
-        setPatientsList(uniquePats);
-        if (uniquePats.length > 0) setSelectedPatient(uniquePats[0]);
+  // Horas filtradas según la jornada configurada del profesional
+  const visibleHours = useMemo(() => {
+    return ALL_HOURS.filter(
+      (h) => h >= currentProf.startHour && h <= currentProf.endHour
+    );
+  }, [currentProf]);
 
-      } catch (err) {
-        console.error('Error cargando datos de Supabase:', err);
-      }
-    }
+  // Función para disparar notificaciones reales (Email + WhatsApp) y mostrar diagnóstico
+  const triggerNotificationForApt = async (apt: AppointmentItem) => {
+    const prof = professionals.find((p) => p.id === apt.professionalId) || currentProf;
+    const locationAddress =
+      apt.modality === 'Presencial'
+        ? prof.presencialAddress
+        : prof.onlineRoomUrl;
 
-    if (activeCenter?.id) {
-      setBoxesCount(activeCenter.boxes_count || 1);
-      fetchClinicalData(activeCenter.id);
-    }
-  }, [activeCenter]);
-
-  const handleSelectCenter = (center: Center) => {
-    setActiveCenter(center);
-    localStorage.setItem('kairos_active_center_id', center.id);
-    setIsSwitcherOpen(false);
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('kairos_active_center_id');
-    router.push('/login');
-  };
-
-  const handleGoogleSync = async () => {
-    showToast('Agenda sincronizada con Google Calendar.');
-  };
-
-  const handleChangeAppointmentBox = async (apptId: string, newBox: number) => {
-    const targetAppt = appointments.find(a => a.id === apptId);
-    if (!targetAppt) return;
-    if (targetAppt.modality === 'online') {
-      showToast('Esta sesión es Online (Meet), no requiere Box físico.');
-      return;
-    }
-    setAppointments(prev => prev.map(a => a.id === apptId ? { ...a, box_number: newBox } : a));
-    await supabase.from('appointments').update({ box_number: newBox }).eq('id', apptId);
-    showToast(`Box actualizado a Box ${newBox}.`);
-  };
-
-  const handleUpdateBoxesCount = async (delta: number) => {
-    if (!activeCenter?.id) return;
-    const updatedCount = Math.max(1, boxesCount + delta);
-    setBoxesCount(updatedCount);
-    setActiveCenter(prev => prev ? { ...prev, boxes_count: updatedCount } : prev);
-    await supabase.from('centers').update({ boxes_count: updatedCount }).eq('id', activeCenter.id);
-    showToast(`Dotación actualizada a ${updatedCount} Boxes activos.`);
-  };
-
-  const handleCreateTherapist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCenter?.id) return;
-    setSavingTherapist(true);
-
-    const payload = {
-      name: newTherapistName,
-      email: newTherapistEmail.toLowerCase(),
-      specialty: newTherapistSpecialty,
-      phone: newTherapistPhone,
-      role: newTherapistRole,
-      status: 'activo',
-      center_id: activeCenter.id
-    };
-
-    const { data, error } = await supabase.from('professionals').insert([payload]).select().single();
-    const created = (!error && data) ? data : { id: `prof-${Date.now()}`, ...payload };
-
-    setTherapists(prev => [...prev, created]);
-    setIsNewTherapistModalOpen(false);
-    setNewTherapistName(''); setNewTherapistEmail(''); setNewTherapistPhone('+569');
-    setSavingTherapist(false);
-    showToast('Profesional incorporado al equipo clínico.');
-  };
-
-  const handleDeleteTherapist = async (id: string, name: string) => {
-    if (window.confirm(`¿Desvincular a ${name} del equipo?`)) {
-      setTherapists(prev => prev.filter(t => t.id !== id));
-      await supabase.from('professionals').delete().eq('id', id);
-      showToast('Profesional desvinculado.');
-    }
-  };
-
-  const handleCreateService = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCenter?.id) return;
-    setSavingService(true);
-    const payload = {
-      name: newServiceName,
-      price: Number(newServicePrice),
-      duration: Number(newServiceDuration),
-      description: newServiceDescription,
-      center_id: activeCenter.id
-    };
-
-    const { data, error } = await supabase.from('services').insert([payload]).select().single();
-    const created = (!error && data) ? data : { id: `srv-${Date.now()}`, ...payload };
-
-    setServices(prev => [created, ...prev]);
-    setIsNewServiceModalOpen(false);
-    setNewServiceName(''); setNewServicePrice(''); setNewServiceDescription('');
-    setSavingService(false);
-    showToast('Nuevo servicio clínico agregado al catálogo.');
-  };
-
-  const handleDeleteService = async (id: string) => {
-    if (window.confirm('¿Eliminar este servicio del catálogo?')) {
-      setServices(prev => prev.filter(s => s.id !== id));
-      await supabase.from('services').delete().eq('id', id);
-      showToast('Servicio eliminado.');
-    }
-  };
-
-  // ⚠️ NUEVA FUNCIÓN CON INTEGRACIÓN DE NOTIFICACIONES ASÍNCRONAS
-  const handleCreateAppointment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCenter?.id) return;
-    setSavingAppt(true);
-
-    const fullName = `${pFirstName} ${pLastName}`.trim();
-    const payload: any = {
-      patient_name: fullName,
-      patient_email: pEmail,
-      patient_phone: pPhone,
-      patient_rut: pDocument,
-      date: apptDate,
-      time: apptTime,
-      modality: 'presencial',
-      professional_name: profile?.name,
-      box_number: 1,
-      status: 'confirmada',
-      center_id: activeCenter.id,
-      price: 35000, 
-    };
+    showToast('Enviando notificación omnicanal...', `Destino: ${apt.patientEmail} y +${apt.patientPhone}`);
 
     try {
-      // 1. Guardar en Base de Datos Supabase
-      const { data, error } = await supabase.from('appointments').insert([payload]).select().single();
-      const created = (!error && data) ? data : { ...payload, id: `local-${Date.now()}` };
-
-      setAppointments(prev => [...prev, created]);
-      if (!patientsList.some(p => p.patient_email === pEmail)) {
-        setPatientsList(prev => [{ patient_name: fullName, patient_email: pEmail, patient_phone: pPhone }, ...prev]);
-      }
-
-      // 2. Disparar Notificación Asíncrona (Fire and forget, no bloquea la UI)
-      fetch('/api/notificaciones/confirmacion', {
+      const res = await fetch('/api/notificaciones/confirmacion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          patientName: fullName,
-          patientEmail: pEmail,
-          patientPhone: pPhone,
-          date: apptDate,
-          time: apptTime,
-          professionalName: profile?.name || 'Terapéuta',
-          centerName: activeCenter.name
-        })
-      }).catch(err => console.error("Error disparando notificación:", err));
+          patientName: apt.patientName,
+          patientEmail: apt.patientEmail,
+          patientPhone: apt.patientPhone,
+          date: `${WEEK_DAYS.find((d) => d.index === apt.dayIndex)?.label || ''} ${apt.isoDate}`,
+          isoDate: apt.isoDate,
+          time: apt.time,
+          serviceName: apt.serviceName,
+          modality: apt.modality === 'Presencial' ? 'Consulta Presencial' : 'Online (Videollamada)',
+          locationAddress,
+          professionalName: prof.name,
+          centerName: 'Kairós Clínico',
+        }),
+      });
 
-      // 3. Limpieza UI y feedback instantáneo
-      setIsNewApptModalOpen(false);
-      setPFirstName(''); setPLastName(''); setPDocument(''); setPEmail(''); setPPhone('');
-      showToast('Paciente y cita agendados con éxito. Notificación enviada.');
+      const data = await res.json();
+      if (data.diagnostics) {
+        const { emailSent, emailError, whatsappSent, whatsappError } = data.diagnostics;
+        if (emailSent && whatsappSent) {
+          showToast('WhatsApp y Correo entregados con éxito', `Dirección incluida: ${locationAddress}`, 'success');
+        } else if (emailSent && !whatsappSent) {
+          showToast(
+            'Correo enviado · WhatsApp requiere atención',
+            `Meta API: ${whatsappError}. Puedes usar "Abrir WhatsApp Directo" con clic derecho.`,
+            'warn'
+          );
+        } else if (!emailSent && whatsappSent) {
+          showToast('WhatsApp enviado · Correo rechazado', `Resend: ${emailError}`, 'warn');
+        } else {
+          showToast(
+            'Alerta en credenciales de envío',
+            `Email: ${emailError || 'Error'} | WA: ${whatsappError || 'Token expirado'}`,
+            'warn'
+          );
+        }
+      }
     } catch (err) {
-      console.error(err);
-      alert("Error al agendar la cita.");
-    } finally {
-      setSavingAppt(false);
+      showToast('Error de red al notificar', 'Verifica tu conexión o variables en Vercel', 'warn');
     }
   };
 
-  const handleCreatePatient = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newPatient = { patient_name: newPatientName, patient_email: 'paciente@kairos.cl' };
-    setPatientsList(prev => [newPatient, ...prev]);
-    setSelectedPatient(newPatient);
-    setIsNewPatientModalOpen(false);
-    setNewPatientName('');
-    showToast('Paciente inscrito con éxito.');
+  // Abrir WhatsApp Web directo con el mensaje clínico pre-armado (Plan B instantáneo)
+  const openDirectWhatsApp = (apt: AppointmentItem) => {
+    const prof = professionals.find((p) => p.id === apt.professionalId) || currentProf;
+    const cleanPhone = apt.patientPhone.replace(/\D/g, '');
+    const ubicacion =
+      apt.modality === 'Presencial'
+        ? `📍 Dirección: ${prof.presencialAddress}`
+        : `💻 Link Videollamada: ${prof.onlineRoomUrl}`;
+    const msg = `Hola ${apt.patientName}, te escribimos de *Kairós Clínico* para confirmar tu sesión de *${apt.serviceName}* (${apt.modality}) con *${prof.name}* el día *${apt.isoDate}* a las *${apt.time} hrs*.\n\n${ubicacion}\n\n¡Te esperamos!`;
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  const handleDeletePatient = (e: React.MouseEvent, p: any) => {
-    e.stopPropagation();
-    if (window.confirm(`¿Eliminar a ${p.patient_name}?`)) {
-      setPatientsList(prev => prev.filter(item => item !== p));
-      if (selectedPatient === p) setSelectedPatient(null);
-      showToast('Paciente eliminado.');
-    }
+  // Manejadores Drag & Drop en la Agenda
+  const handleDragStart = (e: React.DragEvent, aptId: string) => {
+    setDraggedAptId(aptId);
+    e.dataTransfer.setData('text/plain', aptId);
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
+  const handleDropOnSlot = async (dayIndex: number, isoDate: string, time: string) => {
+    setDragOverCell(null);
+    if (!draggedAptId) return;
+
+    // Verificar si el día está habilitado para este profesional
+    if (!currentProf.workingDays.includes(dayIndex)) {
+      showToast('Día no habilitado', `${currentProf.name} no atiende ese día.`, 'warn');
+      setDraggedAptId(null);
       return;
     }
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return alert('Navegador no soporta dictado por voz.');
-    
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'es-CL';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.onresult = (e: any) => {
-      let t = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
-      setRawNotes(prev => `${prev} ${t}`.trim());
-    };
-    recognition.onerror = () => setIsRecording(false);
-    recognition.onend = () => setIsRecording(false);
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsRecording(true);
-  };
 
-  const handleProcessWithAI = async () => {
-    if (!rawNotes.trim()) return;
-    setAiLoading(true);
-    const pName = selectedPatient?.patient_name || 'Paciente';
-
-    setTimeout(() => {
-      setAiStructuredNotes(`📋 EVOLUCIÓN CLÍNICA (IA)\n• Paciente: ${pName}\n• Fecha: ${todayString}\n• Resumen: ${rawNotes}`);
-      setAiLoading(false);
-    }, 600);
-  };
-
-  const handleSaveToPatientHistory = () => {
-    if (!selectedPatient || !aiStructuredNotes) return;
-    const key = selectedPatient.patient_email || selectedPatient.patient_name;
-    const newEntry = { id: `rec-${Date.now()}`, date: todayString, therapist: profile?.name || 'Especialista', summary: aiStructuredNotes };
-    setClinicalRecords(prev => ({ ...prev, [key]: [newEntry, ...(prev[key] || [])] }));
-    setRawNotes('');
-    showToast('Evolución guardada en la ficha.');
-  };
-
-  const handleExportReportCSV = () => {
-    const headers = 'Paciente,Terapeuta,Fecha,Hora,Modalidad,Box,Estado,Monto\n';
-    const rows = appointments.map(a => `"${a.patient_name}","${a.professional_name}","${a.date}","${a.time}","${a.modality}","${a.box_number || 'Online'}","${a.status}","${a.price || 35000}"`).join('\n');
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'Reporte_Kairos.csv');
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    showToast('Reporte exportado con éxito.');
-  };
-
-  const handleNextDate = () => {
-    if (!currentDate) return;
-    const d = new Date(currentDate);
-    if (calendarView === 'mes') d.setMonth(d.getMonth() + 1);
-    else if (calendarView === 'semana') d.setDate(d.getDate() + 7);
-    else d.setDate(d.getDate() + 1);
-    setCurrentDate(d);
-  };
-  const handlePrevDate = () => {
-    if (!currentDate) return;
-    const d = new Date(currentDate);
-    if (calendarView === 'mes') d.setMonth(d.getMonth() - 1);
-    else if (calendarView === 'semana') d.setDate(d.getDate() - 7);
-    else d.setDate(d.getDate() - 1);
-    setCurrentDate(d);
-  };
-  
-  if (authLoading || !currentDate) {
-    return (
-      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
-        <Loader2 className="animate-spin text-[#2C4A3B]" size={32} />
-      </div>
+    // Verificar si el bloque está bloqueado o ya ocupado
+    const isBlocked = blockedSlots.some(
+      (b) => b.professionalId === selectedProfId && b.dayIndex === dayIndex && b.time === time
     );
-  }
+    const isOccupied = appointments.some(
+      (a) =>
+        a.professionalId === selectedProfId &&
+        a.dayIndex === dayIndex &&
+        a.time === time &&
+        a.id !== draggedAptId
+    );
 
-  const currentYear = currentDate.getFullYear();
-  const currentMonth = currentDate.getMonth();
-  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  const dayNamesShort = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    if (isBlocked || isOccupied) {
+      showToast('Horario no disponible', 'El bloque de destino está ocupado o bloqueado.', 'warn');
+      setDraggedAptId(null);
+      return;
+    }
 
-  const formatDateYMD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-  const getFirstDayOfMonth = (year: number, month: number) => { let day = new Date(year, month, 1).getDay(); return day === 0 ? 6 : day - 1; };
-  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-  const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
+    const movedApt = appointments.find((a) => a.id === draggedAptId);
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === draggedAptId ? { ...a, dayIndex, isoDate, time } : a
+      )
+    );
+    setDraggedAptId(null);
 
-  const startOfWeek = new Date(currentDate);
-  const day = startOfWeek.getDay();
-  startOfWeek.setDate(startOfWeek.getDate() - day + (day === 0 ? -6 : 1));
-  
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(startOfWeek);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
+    if (movedApt) {
+      showToast(
+        'Paciente reagendado con éxito',
+        `${movedApt.patientName} movido al ${isoDate} a las ${time} hrs.`
+      );
+      if (supabase) {
+        await supabase
+          .from('appointments')
+          .update({ date: isoDate, time })
+          .eq('id', movedApt.id);
+      }
+    }
+  };
 
-  const activeDateStr = formatDateYMD(currentDate);
-  const openApptAtSlot = (date: string, time: string) => { setApptDate(date); setApptTime(time); setIsNewApptModalOpen(true); };
+  // Acciones del Menú Contextual (Clic Derecho)
+  const togglePaymentStatus = (aptId: string) => {
+    setAppointments((prev) =>
+      prev.map((a) => {
+        if (a.id !== aptId) return a;
+        const nextStatus: PaymentStatus = a.paymentStatus === 'Pagado' ? 'Pendiente' : 'Pagado';
+        showToast(
+          `Estado de pago actualizado: ${nextStatus}`,
+          `Paciente: ${a.patientName}`
+        );
+        return { ...a, paymentStatus: nextStatus };
+      })
+    );
+  };
 
-  const paidAppointments = appointments.filter(a => a.status !== 'pendiente');
-  const dynamicGross = paidAppointments.reduce((acc, a) => acc + Number(a.price || 35000), 0);
-  const dynamicNet = Math.round(dynamicGross * 0.88);
-  const averageRating = reviewsList.length > 0 ? (reviewsList.reduce((acc, r) => acc + Number(r.rating || 5), 0) / reviewsList.length).toFixed(1) : '5.0';
+  const toggleModality = (aptId: string) => {
+    setAppointments((prev) =>
+      prev.map((a) => {
+        if (a.id !== aptId) return a;
+        const nextMod: ModalityType = a.modality === 'Online' ? 'Presencial' : 'Online';
+        showToast(`Modalidad cambiada a ${nextMod}`, `Paciente: ${a.patientName}`);
+        return { ...a, modality: nextMod };
+      })
+    );
+  };
 
-  const NavButton = ({ tab, icon: Icon, label, badge }: { tab: TabType; icon: any; label: string; badge?: string }) => (
-    <button 
-      onClick={() => setActiveTab(tab)} 
-      className={`w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-[13px] transition-all ${activeTab === tab ? 'bg-[#2C4A3B] text-white font-semibold shadow-sm' : 'text-stone-600 hover:bg-stone-100/80 hover:text-stone-900 font-medium'}`}
-    >
-      <div className="flex items-center gap-3"><Icon size={17} className={activeTab === tab ? 'text-white' : 'text-stone-500'} /><span>{label}</span></div>
-      {badge && <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${activeTab === tab ? 'bg-white/20 text-white' : 'bg-[#F4F7F5] text-[#2C4A3B]'}`}>{badge}</span>}
-    </button>
+  const updateClinicalStatus = (aptId: string, status: ClinicalStatus) => {
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === aptId ? { ...a, clinicalStatus: status } : a))
+    );
+    showToast(`Estado clínico: ${status}`);
+  };
+
+  const deleteAppointment = (aptId: string) => {
+    setAppointments((prev) => prev.filter((a) => a.id !== aptId));
+    showToast('Cita liberada de la agenda');
+  };
+
+  // Crear nueva cita o bloqueo desde celda vacía
+  const handleCreateSlotAction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!slotModal) return;
+
+    if (slotActionMode === 'block') {
+      const newBlock: BlockedSlot = {
+        id: `blk-${Date.now()}`,
+        professionalId: selectedProfId,
+        dayIndex: slotModal.dayIndex,
+        time: slotModal.time,
+        reason: blockReasonInput.trim() || 'Horario Bloqueado',
+      };
+      setBlockedSlots((prev) => [...prev, newBlock]);
+      showToast('Horario bloqueado', `${slotModal.dayLabel} a las ${slotModal.time} hrs`);
+      setSlotModal(null);
+      return;
+    }
+
+    const selectedServiceObj =
+      CLINICAL_SERVICES.find((s) => s.name === newBookingForm.serviceName) || CLINICAL_SERVICES[0];
+
+    const createdApt: AppointmentItem = {
+      id: `apt-${Date.now()}`,
+      patientName: newBookingForm.patientName.trim(),
+      patientEmail: newBookingForm.patientEmail.trim(),
+      patientPhone: newBookingForm.patientPhone.replace(/\D/g, ''),
+      professionalId: selectedProfId,
+      serviceName: newBookingForm.serviceName,
+      modality: newBookingForm.modality,
+      dayIndex: slotModal.dayIndex,
+      isoDate: slotModal.isoDate,
+      time: slotModal.time,
+      price: selectedServiceObj.price,
+      paymentStatus: newBookingForm.paymentStatus,
+      clinicalStatus: 'Confirmada',
+    };
+
+    setAppointments((prev) => [...prev, createdApt]);
+    setSlotModal(null);
+
+    if (supabase) {
+      await supabase.from('appointments').insert([
+        {
+          center_id: defaultCenterId,
+          patient_name: createdApt.patientName,
+          patient_email: createdApt.patientEmail,
+          patient_phone: createdApt.patientPhone,
+          professional_name: currentProf.name,
+          modality: createdApt.modality,
+          date: createdApt.isoDate,
+          time: createdApt.time,
+          status: 'confirmed',
+        },
+      ]);
+    }
+
+    await triggerNotificationForApt(createdApt);
+    setNewBookingForm({
+      patientName: '',
+      patientEmail: '',
+      patientPhone: '56961699991',
+      serviceName: CLINICAL_SERVICES[0].name,
+      modality: 'Online',
+      paymentStatus: 'Pendiente',
+    });
+  };
+
+  // Alternar día laboral de un profesional
+  const toggleProfWorkingDay = (profId: string, dayIdx: number) => {
+    setProfessionals((prev) =>
+      prev.map((p) => {
+        if (p.id !== profId) return p;
+        const exists = p.workingDays.includes(dayIdx);
+        const updatedDays = exists
+          ? p.workingDays.filter((d) => d !== dayIdx)
+          : [...p.workingDays, dayIdx].sort();
+        return { ...p, workingDays: updatedDays };
+      })
+    );
+  };
+
+  // Métricas financieras rápidas
+  const totalPagado = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.paymentStatus === 'Pagado')
+        .reduce((acc, cur) => acc + cur.price, 0),
+    [appointments]
   );
 
-  const filteredPatients = patientsList.filter(p => (p.patient_name || '').toLowerCase().includes(searchPatient.toLowerCase()));
-  const activePatientHistory = selectedPatient ? (clinicalRecords[selectedPatient.patient_email || selectedPatient.patient_name] || []) : [];
-  const todayAppts = appointments.filter(a => a.date === todayString && a.modality !== 'online');
+  const totalPendiente = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.paymentStatus === 'Pendiente')
+        .reduce((acc, cur) => acc + cur.price, 0),
+    [appointments]
+  );
 
   return (
-    <div className="flex h-screen bg-[#F9F8F6] font-sans text-stone-800 overflow-hidden">
+    <div className="min-h-screen bg-[#F9F8F6] text-stone-800 font-sans selection:bg-[#2C4A3B]/15 selection:text-[#2C4A3B]">
+      {/* Notificación Flotante (Toast) */}
       <AnimatePresence>
         {toastMessage && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-5 right-6 z-50 bg-stone-900 text-white px-5 py-3 rounded-2xl shadow-xl text-xs font-semibold flex items-center gap-2.5 border border-stone-700">
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" /><span>{toastMessage}</span>
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`fixed top-5 right-5 z-50 max-w-md px-5 py-4 rounded-2xl shadow-xl border backdrop-blur-xl flex items-start gap-3 ${
+              toastMessage.type === 'warn'
+                ? 'bg-amber-50/95 border-amber-200 text-amber-900'
+                : 'bg-[#2C4A3B]/95 border-[#2C4A3B] text-white'
+            }`}
+          >
+            {toastMessage.type === 'warn' ? (
+              <AlertCircle size={20} className="shrink-0 mt-0.5 text-amber-600" />
+            ) : (
+              <CheckCircle2 size={20} className="shrink-0 mt-0.5 text-emerald-300" />
+            )}
+            <div className="text-xs leading-relaxed">
+              <p className="font-bold text-sm">{toastMessage.title}</p>
+              {toastMessage.detail && <p className="opacity-90 mt-0.5">{toastMessage.detail}</p>}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <aside className="w-[265px] bg-white border-r border-stone-200/80 flex flex-col z-20 shrink-0 hidden md:flex">
-        <div className="h-18 flex items-center px-6 border-b border-stone-100 shrink-0 py-4">
-          <div className="h-9 w-9 bg-[#2C4A3B] text-white rounded-xl flex items-center justify-center mr-3 shadow-xs"><ShieldCheck size={20} /></div>
-          <div className="truncate">
-            <h1 className="font-bold text-stone-900 text-sm truncate">Kairós Clínico</h1>
-            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest block">Suite B2B Multi-Tenant</span>
+      {/* Top Navigation Bar */}
+      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-[#E4ECE7] px-6 py-4">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center font-bold text-lg shadow-sm">
+              K
+            </div>
+            <div>
+              <span className="text-[11px] uppercase tracking-[0.2em] text-[#C87D65] font-bold block">
+                Kairós Clínico · Suite Ejecutiva
+              </span>
+              <h1 className="text-lg font-bold text-stone-900 tracking-tight">
+                Centro de Control Clínico & Agenda Interactiva
+              </h1>
+            </div>
+          </div>
+
+          {/* Navegación de Módulos */}
+          <nav className="flex items-center gap-1.5 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7]">
+            <button
+              onClick={() => setActiveTab('agenda')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'agenda'
+                  ? 'bg-[#2C4A3B] text-white shadow-sm'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <CalendarIcon size={15} />
+              <span>Agenda Interactiva</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('pacientes')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'pacientes'
+                  ? 'bg-[#2C4A3B] text-white shadow-sm'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Users size={15} />
+              <span>Pacientes & Servicios</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('profesionales')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'profesionales'
+                  ? 'bg-[#2C4A3B] text-white shadow-sm'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Stethoscope size={15} />
+              <span>Profesionales & Horarios</span>
+            </button>
+          </nav>
+
+          {/* Resumen de Caja en Vivo */}
+          <div className="hidden lg:flex items-center gap-3">
+            <div className="px-4 py-2 rounded-xl bg-emerald-50/80 border border-emerald-200/70 text-xs">
+              <span className="text-emerald-700 font-medium block text-[10px] uppercase">
+                Recaudado
+              </span>
+              <span className="font-bold text-emerald-900 text-sm">
+                ${totalPagado.toLocaleString('es-CL')}
+              </span>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-amber-50/80 border border-amber-200/70 text-xs">
+              <span className="text-amber-700 font-medium block text-[10px] uppercase">
+                Por Cobrar
+              </span>
+              <span className="font-bold text-amber-900 text-sm">
+                ${totalPendiente.toLocaleString('es-CL')}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto py-4 px-3.5 space-y-5 custom-scrollbar">
-          <nav className="space-y-1">
-            <NavButton tab="inicio" icon={Home} label="Inicio" />
-            <NavButton tab="agenda" icon={Calendar} label="Calendario" badge={appointments.length > 0 ? `${appointments.length}` : undefined} />
-            <NavButton tab="servicios" icon={Briefcase} label="Servicios" badge={services.length > 0 ? `${services.length}` : undefined} />
-            <NavButton tab="pacientes" icon={Users} label="Pacientes y Fichas IA" />
-            <NavButton tab="comunicaciones" icon={Megaphone} label="Comunicaciones" badge="IA" />
-            <NavButton tab="finanzas" icon={Wallet} label="Finanzas" />
-            <NavButton tab="resenas" icon={Star} label="Evaluaciones" />
-            <NavButton tab="reportes" icon={BarChart3} label="Reportes" badge="PRO" />
-          </nav>
-          <div className="h-px bg-stone-100 mx-2" />
-          <nav className="space-y-1">
-            <NavButton tab="equipo" icon={DoorOpen} label="Equipo y Boxes" badge={`${boxesCount} Box`} />
-            <NavButton tab="documentos" icon={FileText} label="Documentos" />
-            <NavButton tab="vitrina" icon={Store} label="Vitrina" />
-            <NavButton tab="conexiones" icon={LinkIcon} label="Conexiones" />
-            <NavButton tab="sala_online" icon={Video} label="Sala online" />
-          </nav>
-          <div className="h-px bg-stone-100 mx-2" />
-          <nav className="space-y-1">
-            <NavButton tab="gana_meses" icon={Gift} label="Gana meses gratis" />
-            <NavButton tab="suscripcion" icon={CreditCard} label="Suscripción" />
-            <NavButton tab="ayuda" icon={HelpCircle} label="Ayuda" />
-            <NavButton tab="configuracion" icon={Settings} label="Configuración" />
-          </nav>
-        </div>
-      </aside>
+      </header>
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-stone-200/80 px-4 sm:px-8 py-3.5 transition-all flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsSwitcherOpen(!isSwitcherOpen)}
-                className="flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-stone-100/80 hover:bg-stone-200/60 border border-stone-200 text-stone-900 transition-all text-xs font-bold shadow-2xs"
-              >
-                <Building2 size={15} className="text-[#2C4A3B]" />
-                <span className="truncate max-w-[140px] sm:max-w-[200px]">
-                  {activeCenter?.name || 'Seleccionar Sede'}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {/* =========================================================
+            MÓDULO 1: AGENDA INTERACTIVA (DRAG & DROP + CLIC DERECHO)
+           ========================================================= */}
+        {activeTab === 'agenda' && (
+          <div className="space-y-6">
+            {/* Barra superior de filtro de profesional e instrucciones */}
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-5 border border-[#E4ECE7] shadow-sm flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-stone-400">
+                  Agenda de:
                 </span>
-                <ChevronDown size={14} className={`text-stone-400 transition-transform duration-200 ${isSwitcherOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              <AnimatePresence>
-                {isSwitcherOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute left-0 mt-2 w-64 bg-white rounded-2xl border border-stone-200 shadow-xl p-2 z-50 space-y-1"
+                {professionals.map((prof) => (
+                  <button
+                    key={prof.id}
+                    onClick={() => setSelectedProfId(prof.id)}
+                    className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl text-xs font-semibold border transition-all ${
+                      selectedProfId === prof.id
+                        ? 'bg-[#EBF3EE] border-[#2C4A3B] text-[#2C4A3B] shadow-xs'
+                        : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
+                    }`}
                   >
-                    <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-400">Tus Sedes Clínicas</div>
-                    {centersList.map((center) => (
-                      <button
-                        key={center.id}
-                        type="button"
-                        onClick={() => handleSelectCenter(center)}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                          activeCenter?.id === center.id ? 'bg-[#F4F7F5] text-[#2C4A3B]' : 'text-stone-700 hover:bg-stone-50'
+                    <span className="w-6 h-6 rounded-lg bg-[#2C4A3B] text-white flex items-center justify-center text-[10px] font-bold">
+                      {prof.avatar}
+                    </span>
+                    <div className="text-left">
+                      <p className="font-bold leading-none">{prof.name}</p>
+                      <p className="text-[10px] opacity-75 mt-0.5">{prof.modalityMode}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 text-xs text-stone-500 bg-[#F9F8F6] px-4 py-2.5 rounded-2xl border border-[#E4ECE7]">
+                <span className="flex items-center gap-1.5">
+                  <GripVertical size={14} className="text-[#2C4A3B]" />
+                  <strong>Arrastra</strong> para mover pacientes
+                </span>
+                <span className="text-stone-300">•</span>
+                <span className="flex items-center gap-1.5">
+                  <CreditCard size={14} className="text-[#C87D65]" />
+                  <strong>Clic derecho</strong> para marcar pagado / WhatsApp
+                </span>
+                <span className="text-stone-300">•</span>
+                <span className="flex items-center gap-1.5">
+                  <Ban size={14} className="text-stone-500" />
+                  <strong>Clic en celda vacía</strong> para agendar o bloquear
+                </span>
+              </div>
+            </div>
+
+            {/* Información de sede presencial y sala online del profesional activo */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white/80 rounded-2xl px-5 py-3.5 border border-[#E4ECE7] flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5 text-stone-700">
+                  <MapPin size={16} className="text-[#C87D65] shrink-0" />
+                  <span>
+                    <strong>Consulta Presencial:</strong> {currentProf.presencialAddress}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setActiveTab('profesionales')}
+                  className="text-[#2C4A3B] font-semibold hover:underline ml-2 shrink-0"
+                >
+                  Editar
+                </button>
+              </div>
+              <div className="bg-white/80 rounded-2xl px-5 py-3.5 border border-[#E4ECE7] flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5 text-stone-700">
+                  <Video size={16} className="text-[#2C4A3B] shrink-0" />
+                  <span>
+                    <strong>Sala Online:</strong> {currentProf.onlineRoomUrl}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setActiveTab('profesionales')}
+                  className="text-[#2C4A3B] font-semibold hover:underline ml-2 shrink-0"
+                >
+                  Configurar horario
+                </button>
+              </div>
+            </div>
+
+            {/* Grilla Semanal Interactiva */}
+            <div className="bg-white rounded-[2rem] border border-[#E4ECE7] shadow-[0_12px_40px_rgb(44,74,59,0.04)] overflow-x-auto">
+              <div className="min-w-[980px]">
+                {/* Cabecera de Días */}
+                <div className="grid grid-cols-7 border-b border-[#E4ECE7] bg-[#F9F8F6]/70">
+                  <div className="p-4 text-xs font-bold uppercase tracking-wider text-stone-400 flex items-center justify-center border-r border-[#E4ECE7]">
+                    Hora
+                  </div>
+                  {WEEK_DAYS.map((day) => {
+                    const isWorkingDay = currentProf.workingDays.includes(day.index);
+                    return (
+                      <div
+                        key={day.index}
+                        className={`p-4 text-center border-r last:border-r-0 border-[#E4ECE7] ${
+                          !isWorkingDay ? 'bg-stone-100/70 opacity-60' : ''
                         }`}
                       >
-                        <div className="flex items-center gap-2 truncate"><Building2 size={14} className="shrink-0 text-stone-400" /><span className="truncate">{center.name}</span></div>
-                        {activeCenter?.id === center.id && <Check size={14} className="text-[#2C4A3B] shrink-0" />}
-                      </button>
-                    ))}
-                    <div className="pt-1.5 border-t border-stone-100">
-                      <button onClick={() => router.push('/onboarding')} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[#2C4A3B] hover:bg-[#F4F7F5] transition-colors">
-                        <Plus size={14} /> Registrar Nueva Sede
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            
-            <button onClick={() => setActiveTab('reportes')} className="hidden lg:flex items-center gap-1.5 text-[11px] font-semibold text-stone-600 bg-white border border-stone-200 px-3 py-1.5 rounded-xl hover:border-[#2C4A3B] transition-colors">
-              <BarChart3 size={13} className="text-[#2C4A3B]" /> Ocupación: {appointments.length > 0 ? '84%' : '0%'} • {boxesCount} Boxes Activos
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button onClick={() => setIsNewPatientModalOpen(true)} className="hidden md:flex bg-white border border-stone-200 text-stone-700 px-3.5 py-2 rounded-xl text-xs font-semibold items-center gap-1.5 hover:bg-stone-50"><UserPlus size={15} /> Paciente</button>
-            <button onClick={() => setIsNewApptModalOpen(true)} className="bg-[#2C4A3B] text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs"><Plus size={16} /> Nueva Cita</button>
-            <div className="h-6 w-px bg-stone-200 mx-1 hidden sm:block" />
-            <div className="hidden md:block text-right pr-2">
-              <p className="text-xs font-bold text-stone-900 truncate max-w-[120px]">{profile?.name}</p>
-              <p className="text-[9px] font-bold text-[#2C4A3B] uppercase">{profile?.role === 'admin' ? 'Administrador' : 'Terapeuta'}</p>
-            </div>
-            <button onClick={handleLogout} title="Cerrar sesión" className="text-stone-400 hover:text-red-600 p-2 rounded-xl border border-transparent hover:border-red-100 hover:bg-red-50 transition-colors"><LogOut size={16} /></button>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-[#F9F8F6] custom-scrollbar">
-          <AnimatePresence mode="wait">
-
-            {activeTab === 'inicio' && (
-              <motion.div key="inicio" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Panel de Control Clínico</span>
-                    <h2 className="text-3xl font-bold text-stone-900 mt-1">Hola, {profile?.name}</h2>
-                    <p className="text-stone-500 text-sm mt-1">Tienes <strong className="text-stone-900">{appointments.length} sesiones</strong> en agenda, <strong className="text-stone-900">{therapists.length} profesionales</strong> activos y <strong className="text-stone-900">{boxesCount} boxes</strong> habilitados.</p>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <button onClick={() => setActiveTab('agenda')} className="bg-stone-100 text-stone-800 font-semibold text-xs px-5 py-3 rounded-2xl hover:bg-stone-200 flex items-center gap-2"><Calendar size={16} /> Ver Calendario</button>
-                    <button onClick={() => setActiveTab('pacientes')} className="bg-[#2C4A3B] text-white font-semibold text-xs px-5 py-3 rounded-2xl hover:bg-[#233b2f] flex items-center gap-2"><Sparkles size={16} /> Abrir Fichas IA</button>
-                  </div>
+                        <span className="text-[11px] font-bold uppercase tracking-widest text-stone-400 block">
+                          {day.label}
+                        </span>
+                        <span className="text-xl font-bold text-stone-900 mt-0.5 inline-block">
+                          {day.dateNum} Nov
+                        </span>
+                        {!isWorkingDay && (
+                          <span className="block text-[10px] font-semibold text-stone-400 mt-0.5">
+                            Sin atención
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="bg-white p-5 rounded-3xl border border-stone-100 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Ingresos Neto Mes</p>
-                    <p className="text-2xl font-bold text-stone-900 mt-1">${dynamicNet.toLocaleString('es-CL')}</p>
-                    {dynamicNet > 0 && <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-1"><ArrowUpRight size={12}/> Generado en {activeCenter?.name}</span>}
-                  </div>
-                  <div className="bg-white p-5 rounded-3xl border border-stone-100 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Pacientes Activos</p>
-                    <p className="text-2xl font-bold text-stone-900 mt-1">{patientsList.length}</p>
-                    <span className="text-[11px] text-stone-500 mt-1 block">En el directorio clínico</span>
-                  </div>
-                  <div className="bg-white p-5 rounded-3xl border border-stone-100 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Asistente WhatsApp IA</p>
-                    <p className="text-2xl font-bold text-emerald-600 mt-1">Activo 24/7</p>
-                    <span className="text-[11px] text-stone-500 mt-1 block">Reagendando en automático</span>
-                  </div>
-                  <div className="bg-white p-5 rounded-3xl border border-stone-100 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Salas / Boxes</p>
-                    <p className="text-2xl font-bold text-[#2C4A3B] mt-1">{boxesCount} Activos</p>
-                    <span className="text-[11px] text-stone-500 mt-1 block">Asignación dinámica</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'agenda' && (
-              <motion.div key="agenda" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs">
-                  <div>
-                    <h2 className="text-2xl font-bold text-stone-900">Calendario Clínico y Salas</h2>
-                    <p className="text-sm text-stone-500">Gestiona horarios, boxes y sesiones clínicas con vista granular.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button onClick={handleGoogleSync} className="px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold bg-[#F4F7F5] text-[#2C4A3B] border border-[#E4ECE7] hover:bg-[#E4ECE7] transition-all">
-                      <RefreshCw size={15} /> Sincronizar Google Calendar
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-stone-100 pb-4">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-lg font-bold text-stone-900 capitalize">
-                        {calendarView === 'mes' && `${monthNames[currentMonth]} ${currentYear}`}
-                        {calendarView === 'semana' && `Semana del ${weekDays[0].getDate()} al ${weekDays[6].getDate()} de ${monthNames[weekDays[0].getMonth()]}`}
-                        {calendarView === 'dia' && `${currentDate.getDate()} de ${monthNames[currentMonth]} ${currentYear}`}
-                      </h3>
-                      <button onClick={() => setCurrentDate(new Date())} className="text-[11px] font-bold text-[#2C4A3B] bg-[#F4F7F5] px-3 py-1.5 rounded-xl border border-[#E4ECE7] hover:bg-[#E4ECE7]">Hoy</button>
+                {/* Filas de Horas */}
+                {visibleHours.map((hour) => (
+                  <div
+                    key={hour}
+                    className="grid grid-cols-7 border-b last:border-b-0 border-[#E4ECE7] min-h-[108px]"
+                  >
+                    {/* Columna de Hora */}
+                    <div className="p-3 border-r border-[#E4ECE7] bg-[#F9F8F6]/40 flex flex-col items-center justify-center">
+                      <span className="text-xs font-bold text-stone-600">{hour}</span>
+                      <span className="text-[10px] text-stone-400">hrs</span>
                     </div>
 
-                    <div className="flex items-center gap-4">
-                      <div className="bg-stone-100 p-1 rounded-2xl flex items-center">
-                        {(['dia', 'semana', 'mes'] as CalendarViewMode[]).map((mode) => (
-                          <button key={mode} onClick={() => setCalendarView(mode)} className={`px-4 py-1.5 rounded-xl text-xs font-bold capitalize transition-all ${calendarView === mode ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'}`}>{mode}</button>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={handlePrevDate} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronLeft size={18} /></button>
-                        <button onClick={handleNextDate} className="p-2 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-600"><ChevronRight size={18} /></button>
-                      </div>
-                    </div>
-                  </div>
+                    {/* Celdas por Día */}
+                    {WEEK_DAYS.map((day) => {
+                      const cellKey = `${day.index}-${hour}`;
+                      const isWorkingDay = currentProf.workingDays.includes(day.index);
+                      const apt = appointments.find(
+                        (a) =>
+                          a.professionalId === selectedProfId &&
+                          a.dayIndex === day.index &&
+                          a.time === hour
+                      );
+                      const blocked = blockedSlots.find(
+                        (b) =>
+                          b.professionalId === selectedProfId &&
+                          b.dayIndex === day.index &&
+                          b.time === hour
+                      );
 
-                  {calendarView === 'mes' && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
-                        {dayNamesShort.map(d => <span key={d}>{d}</span>)}
-                      </div>
-                      <div className="grid grid-cols-7 gap-2">
-                        {Array.from({ length: firstDay }).map((_, index) => <div key={`empty-${index}`} className="h-28 rounded-2xl bg-stone-50/40 border border-stone-100/50 opacity-40" />)}
-                        {Array.from({ length: daysInMonth }).map((_, index) => {
-                          const dayNum = index + 1;
-                          const dateObj = new Date(currentYear, currentMonth, dayNum);
-                          const dateStr = formatDateYMD(dateObj);
-                          const dayAppointments = appointments.filter(a => a.date === dateStr);
-                          const isSelected = selectedDateFilter === dateStr;
-                          const isToday = todayString === dateStr;
-
-                          return (
-                            <div key={dateStr} onClick={() => { setSelectedDateFilter(dateStr); setCurrentDate(dateObj); }} className={`h-28 rounded-2xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group relative ${isSelected ? 'border-[#2C4A3B] bg-[#F4F7F5] shadow-sm ring-2 ring-[#2C4A3B]/20' : isToday ? 'border-[#2C4A3B]/60 bg-white' : 'border-stone-100 bg-white hover:border-stone-300 hover:bg-stone-50/50'}`}>
-                              <div className="flex justify-between items-center">
-                                <span className={`text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-700'}`}>{dayNum}</span>
-                                <button onClick={(e) => { e.stopPropagation(); openApptAtSlot(dateStr, '10:00'); }} className="opacity-0 group-hover:opacity-100 h-6 w-6 bg-[#2C4A3B] text-white rounded-lg flex items-center justify-center transition-opacity hover:scale-105 shadow-xs"><Plus size={14} /></button>
-                              </div>
-                              <div className="space-y-1 overflow-y-hidden flex-1 mt-1">
-                                {dayAppointments.slice(0, 2).map((appt, i) => (
-                                  <div key={i} className="text-[10px] bg-white border border-stone-200/80 rounded px-1.5 py-0.5 truncate font-semibold text-stone-800 shadow-2xs flex items-center justify-between">
-                                    <span>{appt.time} • {appt.patient_name}</span>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${appt.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
-                                  </div>
-                                ))}
-                                {dayAppointments.length > 2 && <div className="text-[9px] text-stone-400 font-bold pl-0.5">+{dayAppointments.length - 2} más</div>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {calendarView === 'semana' && (
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[800px]">
-                        <div className="grid grid-cols-8 border-b border-stone-100 pb-3 text-center">
-                          <div className="text-[11px] font-bold text-stone-400 uppercase tracking-widest flex items-center justify-center">Hora</div>
-                          {weekDays.map((d, i) => {
-                            const dateStr = formatDateYMD(d);
-                            const isToday = todayString === dateStr;
-                            return (
-                              <div key={i} className="flex flex-col items-center">
-                                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{dayNamesShort[i]}</span>
-                                <span className={`text-xs font-bold mt-1 h-7 w-7 rounded-full flex items-center justify-center ${isToday ? 'bg-[#2C4A3B] text-white' : 'text-stone-800'}`}>{d.getDate()}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="divide-y divide-stone-100">
-                          {TIME_SLOTS.map((hour) => (
-                            <div key={hour} className="grid grid-cols-8 min-h-[64px] group">
-                              <div className="text-[11px] font-semibold text-stone-400 py-3 text-center border-r border-stone-100/60 bg-stone-50/30">{hour}</div>
-                              {weekDays.map((d, idx) => {
-                                const dateStr = formatDateYMD(d);
-                                const apptInSlot = appointments.find(a => a.date === dateStr && a.time.startsWith(hour.slice(0, 2)));
-                                return (
-                                  <div key={idx} onClick={() => !apptInSlot && openApptAtSlot(dateStr, hour)} className="border-r border-stone-100/60 p-1 relative hover:bg-[#F4F7F5]/40 transition-colors cursor-pointer">
-                                    {apptInSlot ? (
-                                      <div className="h-full bg-white border border-[#2C4A3B]/30 rounded-xl p-2 shadow-xs flex flex-col justify-between">
-                                        <div>
-                                          <div className="flex justify-between items-center text-[10px] font-bold text-[#2C4A3B]">
-                                            <span>{apptInSlot.time}</span><span className={`h-1.5 w-1.5 rounded-full ${apptInSlot.status === 'pendiente' ? 'bg-orange-400' : 'bg-emerald-500'}`} />
-                                          </div>
-                                          <p className="text-xs font-bold text-stone-900 truncate mt-0.5">{apptInSlot.patient_name}</p>
-                                        </div>
-                                        <div className="flex items-center justify-between text-[9px] text-stone-400 font-semibold">
-                                          <span>Box {apptInSlot.box_number || 1}</span><span className="capitalize">{apptInSlot.modality}</span>
-                                        </div>
-                                      </div>
-                                    ) : <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100"><Plus size={14} className="text-stone-300" /></div>}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {calendarView === 'dia' && (
-                    <div className="space-y-3 max-w-4xl mx-auto">
-                      {TIME_SLOTS.map((hour) => {
-                        const apptsInHour = appointments.filter(a => a.date === activeDateStr && a.time.startsWith(hour.slice(0, 2)));
-                        return (
-                          <div key={hour} className="flex gap-4 items-start border-b border-stone-100 pb-3">
-                            <div className="w-16 text-right pt-2"><span className="text-xs font-bold text-stone-400">{hour}</span></div>
-                            <div className="flex-1">
-                              {apptsInHour.length === 0 ? (
-                                <button onClick={() => openApptAtSlot(activeDateStr, hour)} className="w-full text-left py-3 px-4 rounded-2xl border border-dashed border-stone-200 text-xs font-semibold text-stone-400 hover:border-[#2C4A3B] hover:text-[#2C4A3B] hover:bg-[#F4F7F5] transition-all flex items-center gap-2">
-                                  <Plus size={14} /> Espacio disponible a las {hour} • Clic para agendar
-                                </button>
-                              ) : (
-                                <div className="space-y-2">
-                                  {apptsInHour.map((appt) => (
-                                    <div key={appt.id} className="bg-white border border-stone-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between">
-                                      <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-xl bg-[#F4F7F5] text-[#2C4A3B] flex items-center justify-center font-bold text-xs">{appt.time}</div>
-                                        <div>
-                                          <div className="flex items-center gap-2">
-                                            <h4 className="font-bold text-sm text-stone-900">{appt.patient_name}</h4>
-                                            <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded font-bold ${appt.status === 'pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>{appt.status}</span>
-                                          </div>
-                                          <p className="text-xs text-stone-500 mt-0.5">Terapeuta: <strong>{appt.professional_name}</strong> {appt.patient_phone && `• ${appt.patient_phone}`}</p>
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-1.5 bg-stone-50 border border-stone-200 px-3 py-1.5 rounded-xl">
-                                          <MapPin size={13} className="text-[#2C4A3B]" />
-                                          <select value={appt.box_number || 1} onChange={(e) => handleChangeAppointmentBox(appt.id, Number(e.target.value))} className="text-xs font-bold text-stone-900 bg-transparent outline-none cursor-pointer">
-                                            {Array.from({ length: boxesCount }, (_, i) => i + 1).map(n => <option key={n} value={n}>Box {n}</option>)}
-                                          </select>
-                                        </div>
-                                        <button onClick={() => { setSelectedPatient(appt); setActiveTab('pacientes'); }} className="text-xs font-semibold px-3.5 py-2 bg-[#2C4A3B] text-white rounded-xl hover:bg-[#233b2f]">Ficha IA</button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'equipo' && (
-              <motion.div key="equipo" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-8">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión de Infraestructura y Especialistas</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Equipo Clínico y Salas</h2>
-                    <p className="text-sm text-stone-500 mt-1">Control de boxes de atención, terapeutas activos y asignación de espacios.</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button onClick={() => setIsNewTherapistModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
-                      <UserPlus size={16} /> Incorporar Profesional
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="font-bold text-base text-stone-900">Salas de Consulta (Boxes Activos)</h3>
-                      <p className="text-xs text-stone-400">Espacios físicos disponibles para sesiones presenciales.</p>
-                    </div>
-                    <div className="flex items-center gap-2 bg-white border border-stone-200/80 p-1.5 rounded-2xl shadow-2xs">
-                      <button onClick={() => handleUpdateBoxesCount(-1)} disabled={boxesCount <= 1} className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Reducir Box"><Minus size={15} /></button>
-                      <span className="text-xs font-bold px-2 text-stone-800">{boxesCount} Boxes</span>
-                      <button onClick={() => handleUpdateBoxesCount(1)} className="p-1.5 rounded-xl hover:bg-stone-100 text-[#2C4A3B]" title="Añadir Box"><Plus size={15} /></button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {Array.from({ length: boxesCount }, (_, i) => {
-                      const boxNum = i + 1;
-                      const apptsInBox = todayAppts.filter(a => Number(a.box_number || 1) === boxNum);
-                      const isOccupied = apptsInBox.length > 0;
+                      const isDragOver = dragOverCell === cellKey;
 
                       return (
-                        <div key={boxNum} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-3">
-                              <div className="h-11 w-11 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center font-bold text-sm">B{boxNum}</div>
+                        <div
+                          key={cellKey}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            if (isWorkingDay) setDragOverCell(cellKey);
+                          }}
+                          onDragLeave={() => setDragOverCell(null)}
+                          onDrop={() => handleDropOnSlot(day.index, day.iso, hour)}
+                          onClick={() => {
+                            if (!apt && !blocked && isWorkingDay) {
+                              setSlotActionMode('book');
+                              setSlotModal({
+                                dayIndex: day.index,
+                                isoDate: day.iso,
+                                dayLabel: `${day.label} ${day.dateNum} Nov`,
+                                time: hour,
+                              });
+                            }
+                          }}
+                          className={`p-2 border-r last:border-r-0 border-[#E4ECE7] relative transition-all ${
+                            !isWorkingDay
+                              ? 'bg-stone-100/50 cursor-not-allowed'
+                              : isDragOver
+                              ? 'bg-[#EBF3EE] ring-2 ring-inset ring-[#2C4A3B]'
+                              : !apt && !blocked
+                              ? 'hover:bg-[#F9F8F6] cursor-pointer group'
+                              : ''
+                          }`}
+                        >
+                          {/* Indicador sutil en celda vacía */}
+                          {!apt && !blocked && isWorkingDay && (
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity h-full w-full flex flex-col items-center justify-center text-[11px] font-semibold text-[#2C4A3B]/70 gap-1">
+                              <Plus size={16} />
+                              <span>Agendar / Bloquear</span>
+                            </div>
+                          )}
+
+                          {/* Estado: Horario Bloqueado */}
+                          {blocked && (
+                            <div className="h-full w-full rounded-2xl bg-stone-100 border border-dashed border-stone-300 p-2.5 flex flex-col justify-between text-xs text-stone-500">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-[11px] flex items-center gap-1 text-stone-600">
+                                  <Ban size={12} /> Bloqueado
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBlockedSlots((prev) =>
+                                      prev.filter((b) => b.id !== blocked.id)
+                                    );
+                                    showToast('Bloque horario liberado');
+                                  }}
+                                  className="text-[10px] font-bold text-rose-600 hover:underline"
+                                >
+                                  Desbloquear
+                                </button>
+                              </div>
+                              <p className="text-[11px] truncate font-medium">{blocked.reason}</p>
+                            </div>
+                          )}
+
+                          {/* Estado: Cita Agendada (Arrastrable + Clic Derecho) */}
+                          {apt && (
+                            <div
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, apt.id)}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setContextMenu({
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                  apt,
+                                });
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setContextMenu({
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                  apt,
+                                });
+                              }}
+                              className={`h-full w-full rounded-2xl p-2.5 border shadow-xs cursor-grab active:cursor-grabbing transition-all hover:shadow-md flex flex-col justify-between select-none ${
+                                apt.paymentStatus === 'Pagado'
+                                  ? 'bg-[#EBF3EE]/90 border-[#2C4A3B]/30'
+                                  : 'bg-white border-[#C87D65]/40'
+                              }`}
+                            >
                               <div>
-                                <h4 className="font-bold text-sm text-stone-900">Box de Consulta {boxNum}</h4>
-                                <span className="text-[11px] text-stone-400">Atención Presencial</span>
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      apt.modality === 'Online'
+                                        ? 'bg-sky-100 text-sky-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}
+                                  >
+                                    {apt.modality === 'Online' ? (
+                                      <Video size={10} />
+                                    ) : (
+                                      <MapPin size={10} />
+                                    )}
+                                    {apt.modality}
+                                  </span>
+
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      apt.paymentStatus === 'Pagado'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}
+                                  >
+                                    {apt.paymentStatus}
+                                  </span>
+                                </div>
+
+                                <p className="font-bold text-xs text-stone-900 truncate">
+                                  {apt.patientName}
+                                </p>
+                                <p className="text-[10px] text-stone-500 truncate">
+                                  {apt.serviceName}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-stone-200/60 text-[10px] text-stone-500">
+                                <span className="font-semibold text-[#2C4A3B]">
+                                  {apt.clinicalStatus}
+                                </span>
+                                <span>Clic der. opciones</span>
                               </div>
                             </div>
-                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${isOccupied ? 'bg-amber-50 text-amber-700 border border-amber-200/60' : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'}`}>
-                              {isOccupied ? `${apptsInBox.length} Cita(s) Hoy` : 'Disponible'}
-                            </span>
-                          </div>
-                          <div className="pt-3 border-t border-stone-100 text-xs">
-                            {isOccupied ? (
-                              <div className="space-y-1.5">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Sesiones agendadas hoy:</span>
-                                {apptsInBox.slice(0, 2).map((a, idx) => (
-                                  <div key={idx} className="p-2.5 rounded-xl bg-stone-50 border border-stone-100 text-[11px]">
-                                    <span className="font-bold text-stone-900 block">{a.time} hrs • {a.patient_name}</span>
-                                    <span className="text-stone-500">Terapeuta: {a.professional_name}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-stone-400 italic text-[11px] py-1">Sin sesiones asignadas en este box para hoy.</p>
-                            )}
-                          </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
-                </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+        {/* =========================================================
+            MÓDULO 2: DIRECTORIO DE PACIENTES & SERVICIOS CLÍNICOS
+           ========================================================= */}
+        {activeTab === 'pacientes' && (
+          <div className="space-y-6">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-6 border border-[#E4ECE7] flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
+                  Gestión Clínica & Modalidad
+                </span>
+                <h2 className="text-2xl font-bold text-stone-900">
+                  Pacientes, Servicios Asignados y Pagos
+                </h2>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab('agenda');
+                  setSlotActionMode('book');
+                  setSlotModal({
+                    dayIndex: 1,
+                    isoDate: '2026-11-09',
+                    dayLabel: 'Lunes 09 Nov',
+                    time: '09:00',
+                  });
+                }}
+                className="inline-flex items-center gap-2 px-5 py-3 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-2xl text-xs font-semibold transition-all shadow-sm"
+              >
+                <Plus size={16} />
+                <span>Nuevo Paciente / Agendar</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {appointments.map((apt) => {
+                const prof =
+                  professionals.find((p) => p.id === apt.professionalId) || currentProf;
+                return (
+                  <div
+                    key={apt.id}
+                    className="bg-white rounded-3xl p-6 border border-[#E4ECE7] shadow-xs flex flex-col justify-between space-y-5"
+                  >
                     <div>
-                      <h3 className="font-bold text-base text-stone-900">Profesionales Acreditados ({therapists.length})</h3>
-                      <p className="text-xs text-stone-400">Terapeutas y especialistas con agenda activa en el centro.</p>
-                    </div>
-                  </div>
-                  {therapists.length === 0 ? (
-                    <div className="bg-white rounded-3xl border border-stone-100 p-12 text-center shadow-xs space-y-3">
-                      <div className="h-16 w-16 bg-[#F4F7F5] rounded-2xl flex items-center justify-center text-[#2C4A3B] mx-auto border border-[#E4ECE7]"><UserCheck size={28} /></div>
-                      <h4 className="font-bold text-stone-900 text-base">Directorio Vacío</h4>
-                      <p className="text-xs text-stone-500 max-w-sm mx-auto">Aún no hay terapeutas registrados. Haz clic en "Incorporar Profesional".</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                      {therapists.map((therapist) => (
-                        <div key={therapist.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-3">
-                              <div className="h-11 w-11 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] text-[#2C4A3B] flex items-center justify-center font-bold text-sm">{therapist.name.charAt(0)}</div>
-                              <div>
-                                <h4 className="font-bold text-sm text-stone-900">{therapist.name}</h4>
-                                <span className="text-[11px] font-semibold text-[#2C4A3B] block">{therapist.specialty || 'Psicoterapia'}</span>
-                              </div>
-                            </div>
-                            <button onClick={() => handleDeleteTherapist(therapist.id, therapist.name)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                          </div>
-                          <div className="space-y-1.5 pt-3 border-t border-stone-100 text-[11px] text-stone-500">
-                            <p className="truncate">📧 {therapist.email}</p>
-                            {therapist.phone && <p>📱 {therapist.phone}</p>}
-                            <div className="pt-1 flex items-center justify-between">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Rol:</span>
-                              <span className="font-bold text-stone-800 capitalize">{therapist.role || 'Terapeuta'}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'servicios' && (
-              <motion.div key="servicios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Catálogo Clínico</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Servicios y Terapias</h2>
-                    <p className="text-sm text-stone-500 mt-1">Administra los tipos de sesiones, duraciones y aranceles ofrecidos por tu centro.</p>
-                  </div>
-                  <button onClick={() => setIsNewServiceModalOpen(true)} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
-                    <Plus size={16} /> Nuevo Servicio
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                  {services.length === 0 ? (
-                    <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-stone-100">
-                      <Briefcase className="mx-auto text-stone-300 mb-3" size={40} />
-                      <p className="font-semibold text-stone-700 text-sm">No hay servicios registrados.</p>
-                      <p className="text-xs text-stone-400 mt-1">Haz clic en "Nuevo Servicio" para agregar prestaciones clínicas.</p>
-                    </div>
-                  ) : (
-                    services.map((srv) => (
-                      <div key={srv.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs flex flex-col justify-between space-y-4 hover:border-stone-200 transition-all">
+                      <div className="flex items-start justify-between gap-2 mb-3">
                         <div>
-                          <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-stone-900 text-base">{srv.name}</h3>
-                            <button onClick={() => handleDeleteService(srv.id)} className="text-stone-300 hover:text-red-500 p-1.5 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                          </div>
-                          <p className="text-xs text-stone-500 mt-2 line-clamp-2">{srv.description || 'Prestación clínica orientada a atención especializada.'}</p>
+                          <h3 className="font-bold text-base text-stone-900">
+                            {apt.patientName}
+                          </h3>
+                          <p className="text-xs text-stone-500">
+                            Atiende: <strong>{prof.name}</strong>
+                          </p>
                         </div>
-                        <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs text-stone-500 font-medium"><Clock size={14} className="text-[#2C4A3B]" /><span>{srv.duration || 50} min</span></div>
-                          <span className="font-bold text-stone-900 text-base">${Number(srv.price || 35000).toLocaleString('es-CL')}</span>
-                        </div>
+                        <button
+                          onClick={() => togglePaymentStatus(apt.id)}
+                          className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                            apt.paymentStatus === 'Pagado'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {apt.paymentStatus} · ${apt.price.toLocaleString('es-CL')}
+                        </button>
                       </div>
-                    ))
-                  )}
-                </div>
-              </motion.div>
-            )}
 
-            {activeTab === 'pacientes' && (
-              <motion.div key="pacientes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                <div className="bg-white rounded-3xl border border-stone-100 p-6 space-y-4 h-fit shadow-xs xl:col-span-1">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-stone-900 text-lg">Pacientes ({filteredPatients.length})</h3>
-                      <p className="text-xs text-stone-400">Directorio clínico del centro</p>
-                    </div>
-                    <button onClick={() => setIsNewPatientModalOpen(true)} className="bg-[#2C4A3B] text-white px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><UserPlus size={14} /> Inscribir</button>
-                  </div>
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3.5 top-3 text-stone-400" />
-                    <input type="text" placeholder="Buscar por nombre..." value={searchPatient} onChange={e => setSearchPatient(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs outline-none focus:bg-white" />
-                  </div>
-                  <div className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
-                    {filteredPatients.length === 0 ? (
-                      <div className="text-center py-10 text-stone-400 space-y-2"><UserCircle size={32} className="mx-auto opacity-50" /><p className="text-xs">No hay pacientes.</p></div>
-                    ) : (
-                      filteredPatients.map((p, idx) => (
-                        <div key={idx} className="relative group">
-                          <button onClick={() => { setSelectedPatient(p); setAiStructuredNotes(''); }} className={`w-full text-left p-3.5 rounded-2xl border transition-all flex flex-col justify-center ${selectedPatient?.patient_name === p.patient_name ? 'border-[#2C4A3B] bg-[#F4F7F5]/60 shadow-2xs' : 'border-stone-100 hover:bg-stone-50'}`}>
-                            <div className="pr-8 truncate">
-                              <p className="font-bold text-sm text-stone-900 truncate">{p.patient_name}</p>
-                              <p className="text-xs text-stone-400 truncate mt-0.5">{p.patient_email || 'Sin correo'}</p>
-                            </div>
-                          </button>
-                          <button onClick={(e) => handleDeletePatient(e, p)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="lg:col-span-2 xl:col-span-3 space-y-6">
-                  {!selectedPatient ? (
-                    <div className="bg-white rounded-3xl border border-stone-100 p-16 flex flex-col items-center justify-center text-center shadow-xs">
-                      <div className="h-16 w-16 bg-stone-50 rounded-2xl flex items-center justify-center border border-stone-100 mb-4"><Sparkles size={28} className="text-stone-300" /></div>
-                      <h3 className="text-lg font-bold text-stone-900">Workspace Clínico Vacío</h3>
-                      <p className="text-sm text-stone-500 max-w-sm mt-2">Selecciona un paciente del directorio para comenzar a dictar su sesión con IA.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs space-y-6">
-                        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-100 pb-4">
-                          <div>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Ficha Activa</span>
-                            <h3 className="text-2xl font-bold text-stone-900 mt-0.5">{selectedPatient.patient_name}</h3>
-                          </div>
-                          <button onClick={toggleRecording} className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}>
-                            {isRecording ? <><MicOff size={15} /> Detener Grabación</> : <><Mic size={15} /> Grabar / Dictar Sesión</>}
-                          </button>
-                        </div>
+                      {/* Selector directo de Servicio Clínico */}
+                      <div className="space-y-3 bg-[#F9F8F6] p-4 rounded-2xl border border-[#E4ECE7] text-xs">
                         <div>
-                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block mb-2">Apuntes clínicos crudos</label>
-                          <textarea rows={4} value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="Habla con el micrófono encendido para que la IA escuche..." className="w-full p-4 rounded-2xl bg-stone-50 border border-stone-200 text-sm outline-none focus:bg-white transition-colors" />
+                          <label className="text-[10px] font-bold uppercase text-stone-400 block mb-1">
+                            Servicio Clínico
+                          </label>
+                          <select
+                            value={apt.serviceName}
+                            onChange={(e) => {
+                              const svc = CLINICAL_SERVICES.find(
+                                (s) => s.name === e.target.value
+                              );
+                              setAppointments((prev) =>
+                                prev.map((a) =>
+                                  a.id === apt.id
+                                    ? {
+                                        ...a,
+                                        serviceName: e.target.value,
+                                        price: svc ? svc.price : a.price,
+                                      }
+                                    : a
+                                )
+                              );
+                              showToast('Servicio actualizado', e.target.value);
+                            }}
+                            className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs font-semibold text-stone-800"
+                          >
+                            {CLINICAL_SERVICES.map((s) => (
+                              <option key={s.name} value={s.name}>
+                                {s.name} (${s.price.toLocaleString('es-CL')})
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                          <button onClick={handleProcessWithAI} disabled={aiLoading || !rawNotes.trim()} className="bg-[#2C4A3B] text-white px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] disabled:opacity-50">
-                            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Estructurar con IA
-                          </button>
-                        </div>
-                        {aiStructuredNotes && (
-                          <div className="p-5 rounded-2xl bg-[#F4F7F5] border border-[#E4ECE7] space-y-3">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-xs font-bold text-[#2C4A3B] uppercase tracking-wider">Evolución Estructurada</h4>
-                              <button onClick={handleSaveToPatientHistory} className="bg-[#2C4A3B] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:bg-[#233b2f]"><Check size={13} /> Guardar Ficha</button>
-                            </div>
-                            <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans leading-relaxed">{aiStructuredNotes}</pre>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {activePatientHistory.length > 0 && (
-                        <div className="bg-white rounded-3xl border border-stone-100 p-6 sm:p-8 shadow-xs">
-                          <h4 className="font-bold text-stone-900 mb-4">Historial de Sesiones Anteriores</h4>
-                          <div className="space-y-4">
-                            {activePatientHistory.map((hist: any, index: number) => (
-                              <div key={index} className="p-4 rounded-2xl border border-stone-100 bg-stone-50">
-                                <div className="flex justify-between text-xs text-stone-500 font-bold mb-2">
-                                  <span>{hist.date}</span>
-                                  <span>Terapeuta: {hist.therapist}</span>
-                                </div>
-                                <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans">{hist.summary}</pre>
-                              </div>
+
+                        {/* Selector directo Online vs Presencial */}
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-stone-500 font-medium">Modalidad:</span>
+                          <div className="flex gap-1.5">
+                            {(['Online', 'Presencial'] as const).map((mod) => (
+                              <button
+                                key={mod}
+                                type="button"
+                                onClick={() => {
+                                  setAppointments((prev) =>
+                                    prev.map((a) =>
+                                      a.id === apt.id ? { ...a, modality: mod } : a
+                                    )
+                                  );
+                                  showToast(`Cambiado a modalidad ${mod}`);
+                                }}
+                                className={`px-3 py-1.5 rounded-xl font-semibold text-xs transition-all flex items-center gap-1 ${
+                                  apt.modality === mod
+                                    ? 'bg-[#2C4A3B] text-white'
+                                    : 'bg-white border border-stone-200 text-stone-600'
+                                }`}
+                              >
+                                {mod === 'Online' ? <Video size={12} /> : <MapPin size={12} />}
+                                {mod}
+                              </button>
                             ))}
                           </div>
                         </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            )}
 
-            {activeTab === 'finanzas' && (
-              <motion.div key="finanzas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Gestión Contable</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Finanzas y Facturación</h2>
-                    <p className="text-sm text-stone-500 mt-1">Control consolidado de ingresos, comisiones de terapeutas y transacciones clínicas de la sede.</p>
-                  </div>
-                  <button onClick={handleExportReportCSV} className="bg-[#2C4A3B] text-white px-5 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2 hover:bg-[#233b2f] shadow-xs">
-                    <Download size={16} /> Exportar Reporte Financiero
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Bruta</p>
-                    <p className="text-3xl font-bold text-stone-900">${dynamicGross.toLocaleString('es-CL')}</p>
-                    <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold pt-1"><ArrowUpRight size={14} /> <span>Calculado en tiempo real</span></div>
-                  </div>
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Ingresos Netos (Centro)</p>
-                    <p className="text-3xl font-bold text-[#2C4A3B]">${dynamicNet.toLocaleString('es-CL')}</p>
-                    <span className="text-xs text-stone-500 block pt-1">Comisión institucional aplicada (88%)</span>
-                  </div>
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 space-y-2 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Sesiones Pagadas</p>
-                    <p className="text-3xl font-bold text-stone-900">{paidAppointments.length} <span className="text-sm font-normal text-stone-400">citas</span></p>
-                    <span className="text-xs text-stone-500 block pt-1">Sincronizado con base de datos</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'resenas' && (
-              <motion.div key="resenas" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-6">
-                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Satisfacción y Feedback</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Evaluaciones de Pacientes</h2>
-                    <p className="text-sm text-stone-500 mt-1">Calificaciones recopiladas automatizadamente tras las consultas en esta sede.</p>
-                  </div>
-                  <div className="flex items-center gap-4 bg-[#F4F7F5] border border-[#E4ECE7] px-5 py-3 rounded-2xl">
-                    <Star className="text-amber-500 fill-amber-500" size={22} />
-                    <div>
-                      <p className="text-lg font-bold text-stone-900 leading-none">{averageRating} / 5.0</p>
-                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{reviewsList.length > 0 ? `${reviewsList.length} evaluaciones` : 'Sin evaluaciones'}</span>
-                    </div>
-                  </div>
-                </div>
-                {reviewsList.length === 0 ? (
-                  <div className="bg-white rounded-3xl border border-stone-100 p-16 flex flex-col items-center justify-center text-center shadow-xs">
-                    <div className="h-16 w-16 bg-[#F4F7F5] rounded-2xl flex items-center justify-center text-[#2C4A3B] mb-4 border border-[#E4ECE7]"><Star size={28} className="text-[#2C4A3B]" /></div>
-                    <h3 className="text-lg font-bold text-stone-900">Aún no hay evaluaciones registradas</h3>
-                    <p className="text-sm text-stone-500 max-w-md mt-2 leading-relaxed">Cuando los pacientes asistan a sus citas, el Asistente WhatsApp les enviará una encuesta y aparecerá aquí.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {reviewsList.map((rev) => (
-                      <div key={rev.id} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-xs space-y-4 flex flex-col justify-between hover:border-stone-200 transition-all">
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center"><h3 className="font-bold text-stone-900 text-sm">{rev.patient_name || 'Paciente'}</h3><span className="text-[11px] text-stone-400">{rev.date || 'Reciente'}</span></div>
-                          <div className="flex items-center gap-1">{Array.from({ length: 5 }).map((_, i) => <Star key={i} size={14} className={i < rev.rating ? 'text-amber-500 fill-amber-500' : 'text-stone-200'} />)}</div>
-                          <p className="text-xs text-stone-600 italic leading-relaxed">"{rev.comment}"</p>
-                        </div>
-                        <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[11px]">
-                          <span className="text-stone-400">Profesional:</span><span className="font-bold text-[#2C4A3B]">{rev.therapist_name || profile?.name}</span>
+                        <div className="pt-2 border-t border-stone-200/60 text-[11px] text-stone-600 space-y-1">
+                          <p>
+                            <strong>Fecha:</strong> {apt.isoDate} a las {apt.time} hrs
+                          </p>
+                          <p className="truncate">
+                            <strong>Ubicación:</strong>{' '}
+                            {apt.modality === 'Presencial'
+                              ? prof.presencialAddress
+                              : prof.onlineRoomUrl}
+                          </p>
+                          <p>
+                            <strong>Contacto:</strong> +{apt.patientPhone} · {apt.patientEmail}
+                          </p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
+                    </div>
 
-            {activeTab === 'reportes' && (
-              <motion.div key="reportes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="max-w-[90rem] mx-auto space-y-8">
-                <div className="bg-white p-6 sm:p-8 rounded-3xl border border-stone-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#5F8575]">Business Intelligence</span>
-                    <h2 className="text-2xl font-bold text-stone-900 mt-0.5">Reportes y Rendimiento</h2>
-                  </div>
-                  <button onClick={handleExportReportCSV} className="bg-[#2C4A3B] text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5"><Download size={14} /> Exportar CSV</button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xs">
-                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Facturación Sede</p>
-                    <h3 className="text-2xl font-bold text-stone-900 mt-1">${dynamicGross.toLocaleString('es-CL')}</h3>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* TAB DOCUMENTOS */}
-            {activeTab === 'documentos' && (
-              <DocumentosTab 
-                centerName={activeCenter?.name || 'la sede'} 
-                centerId={activeCenter?.id} 
-              />
-            )}
-
-            {/* TAB COMUNICACIONES (NUEVO MOTOR) */}
-            {activeTab === 'comunicaciones' && (
-              <ComunicacionesTab centerId={activeCenter?.id} />
-            )}
-
-            {/* OTRAS PESTAÑAS (PLACEHOLDERS DE CONFIGURACIÓN) */}
-            {['vitrina', 'conexiones', 'sala_online', 'gana_meses', 'suscripcion', 'ayuda', 'configuracion'].includes(activeTab) && (
-              <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="h-full flex flex-col items-center justify-center text-center max-w-[90rem] mx-auto py-20">
-                <div className="h-20 w-20 bg-stone-100 rounded-3xl flex items-center justify-center text-stone-400 mb-4 shadow-sm border border-stone-200/50"><Settings size={40} /></div>
-                <h2 className="text-2xl font-bold text-stone-900 capitalize">{activeTab.replace('_', ' ')}</h2>
-                <p className="text-stone-500 text-sm mt-2 max-w-sm mx-auto">Este módulo está enlazado dinámicamente a tu nueva cuenta Multi-Tenant en la sede {activeCenter?.name}.</p>
-              </motion.div>
-            )}
-
-          </AnimatePresence>
-        </div>
-      </main>
-
-      {/* --- INICIO DE MODALES --- */}
-      <AnimatePresence>
-        {isNewApptModalOpen && (
-          <div onClick={() => setIsNewApptModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-2xl w-full p-6 sm:p-8 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <div className="flex justify-between items-center border-b border-stone-100 pb-4">
-                <div>
-                  <h3 className="font-bold text-xl text-stone-900">Admisión de Nuevo Paciente y Cita</h3>
-                  <p className="text-xs text-stone-400 mt-0.5">Asignando a sede: <strong>{activeCenter?.name}</strong></p>
-                </div>
-                <button onClick={() => setIsNewApptModalOpen(false)} className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-50"><X size={20}/></button>
-              </div>
-              <form onSubmit={handleCreateAppointment} className="space-y-6">
-                <div className="bg-stone-50/70 p-5 rounded-2xl border border-stone-100 space-y-4">
-                  <div className="flex items-center gap-2"><span className="h-6 w-6 rounded-full bg-[#2C4A3B] text-white font-bold text-xs flex items-center justify-center">1</span><h4 className="font-bold text-xs text-stone-700 uppercase tracking-widest">Datos Personales</h4></div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Nombre *</label><input type="text" required placeholder="Nombre del paciente" value={pFirstName} onChange={e => setPFirstName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                    <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Apellido *</label><input type="text" required placeholder="Apellido del paciente" value={pLastName} onChange={e => setPLastName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Documento / RUN *</label><input type="text" required placeholder="Ej: 12.345.678-9" value={pDocument} onChange={e => setPDocument(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                    <div>
-                      <label className="text-[11px] font-bold text-stone-500 block mb-1">Previsión *</label>
-                      <select value={pPrevision} onChange={e => setPPrevision(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20"><option value="">Selecciona la previsión</option><option value="Fonasa">Fonasa</option><option value="Isapre">Isapre</option><option value="Particular">Particular</option></select>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => triggerNotificationForApt(apt)}
+                        className="py-2.5 px-3 bg-[#EBF3EE] hover:bg-[#dbeadd] text-[#2C4A3B] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <Send size={13} />
+                        <span>Enviar API</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDirectWhatsApp(apt)}
+                        className="py-2.5 px-3 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        <MessageSquare size={13} />
+                        <span>WhatsApp Directo</span>
+                      </button>
                     </div>
                   </div>
-                </div>
-                <div className="bg-stone-50/70 p-5 rounded-2xl border border-stone-100 space-y-4">
-                  <div className="flex items-center gap-2"><span className="h-6 w-6 rounded-full bg-[#2C4A3B] text-white font-bold text-xs flex items-center justify-center">2</span><h4 className="font-bold text-xs text-stone-700 uppercase tracking-widest">Contacto y Cita</h4></div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Email *</label><input type="email" required placeholder="correo@ejemplo.com" value={pEmail} onChange={e => setPEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                    <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Teléfono *</label><input type="tel" required placeholder="+56912345678" value={pPhone} onChange={e => setPPhone(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            MÓDULO 3: PROFESIONALES, DÍAS DE ATENCIÓN Y DIRECCIÓN PRESENCIAL
+           ========================================================= */}
+        {activeTab === 'profesionales' && (
+          <div className="space-y-6">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-6 border border-[#E4ECE7]">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block">
+                Configuración de Especialistas
+              </span>
+              <h2 className="text-2xl font-bold text-stone-900">
+                Horarios de Atención, Modalidades y Dirección Presencial
+              </h2>
+              <p className="text-xs text-stone-500 mt-1">
+                Cualquier cambio en los días de atención, horario o dirección de consulta se refleja inmediatamente en la Agenda Interactiva y en las confirmaciones enviadas a los pacientes.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {professionals.map((prof) => (
+                <div
+                  key={prof.id}
+                  className="bg-white rounded-[2rem] p-7 border border-[#E4ECE7] shadow-xs space-y-6"
+                >
+                  <div className="flex items-center justify-between border-b border-[#E4ECE7] pb-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-[#2C4A3B] text-white flex items-center justify-center font-bold text-base">
+                        {prof.avatar}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg text-stone-900">{prof.name}</h3>
+                        <p className="text-xs text-stone-500">{prof.specialty}</p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-xs font-bold">
+                      Activo
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-stone-200/60">
-                    <div><label className="text-[11px] font-bold text-stone-700 block mb-1">Fecha de Sesión *</label><input type="date" required value={apptDate} onChange={e => setApptDate(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                    <div><label className="text-[11px] font-bold text-stone-700 block mb-1">Hora *</label><input type="time" required value={apptTime} onChange={e => setApptTime(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-white text-xs outline-none focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
+
+                  {/* 1. Días que atiende */}
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-2.5">
+                      Días de Atención Habilitados
+                    </label>
+                    <div className="grid grid-cols-6 gap-2">
+                      {WEEK_DAYS.map((d) => {
+                        const active = prof.workingDays.includes(d.index);
+                        return (
+                          <button
+                            key={d.index}
+                            type="button"
+                            onClick={() => toggleProfWorkingDay(prof.id, d.index)}
+                            className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                              active
+                                ? 'bg-[#2C4A3B] text-white border-[#2C4A3B] shadow-xs'
+                                : 'bg-stone-50 text-stone-400 border-stone-200'
+                            }`}
+                          >
+                            {d.short}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. Rango Horario y Modalidad que ofrece */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold uppercase text-stone-400 block mb-1">
+                        Inicio Jornada
+                      </label>
+                      <select
+                        value={prof.startHour}
+                        onChange={(e) =>
+                          setProfessionals((prev) =>
+                            prev.map((p) =>
+                              p.id === prof.id ? { ...p, startHour: e.target.value } : p
+                            )
+                          )
+                        }
+                        className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-3 py-2.5 text-xs font-semibold"
+                      >
+                        {ALL_HOURS.map((h) => (
+                          <option key={h} value={h}>
+                            {h} hrs
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold uppercase text-stone-400 block mb-1">
+                        Fin Jornada
+                      </label>
+                      <select
+                        value={prof.endHour}
+                        onChange={(e) =>
+                          setProfessionals((prev) =>
+                            prev.map((p) =>
+                              p.id === prof.id ? { ...p, endHour: e.target.value } : p
+                            )
+                          )
+                        }
+                        className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-3 py-2.5 text-xs font-semibold"
+                      >
+                        {ALL_HOURS.map((h) => (
+                          <option key={h} value={h}>
+                            {h} hrs
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold uppercase text-stone-400 block mb-1">
+                        Modalidad Ofrecida
+                      </label>
+                      <select
+                        value={prof.modalityMode}
+                        onChange={(e) =>
+                          setProfessionals((prev) =>
+                            prev.map((p) =>
+                              p.id === prof.id
+                                ? { ...p, modalityMode: e.target.value as any }
+                                : p
+                            )
+                          )
+                        }
+                        className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-3 py-2.5 text-xs font-semibold"
+                      >
+                        <option value="Ambas (Híbrido)">Ambas (Híbrido)</option>
+                        <option value="Solo Online">Solo Online</option>
+                        <option value="Solo Presencial">Solo Presencial</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 3. Dirección Consulta Presencial */}
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
+                      <Building2 size={14} className="text-[#C87D65]" />
+                      <span>Dirección de Atención Presencial (Consulta / Box)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={prof.presencialAddress}
+                      onChange={(e) =>
+                        setProfessionals((prev) =>
+                          prev.map((p) =>
+                            p.id === prof.id
+                              ? { ...p, presencialAddress: e.target.value }
+                              : p
+                          )
+                        )
+                      }
+                      placeholder="Ej. Av. Nueva Providencia 1881, Of. 1204"
+                      className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-4 py-3 text-xs font-medium focus:outline-none focus:border-[#2C4A3B]"
+                    />
+                  </div>
+
+                  {/* 4. Enlace de Videollamada Online */}
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5 mb-1.5">
+                      <Video size={14} className="text-[#2C4A3B]" />
+                      <span>Enlace Sala Online (Google Meet / Zoom)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={prof.onlineRoomUrl}
+                      onChange={(e) =>
+                        setProfessionals((prev) =>
+                          prev.map((p) =>
+                            p.id === prof.id ? { ...p, onlineRoomUrl: e.target.value } : p
+                          )
+                        )
+                      }
+                      placeholder="https://meet.google.com/..."
+                      className="w-full bg-[#F9F8F6] border border-[#E4ECE7] rounded-xl px-4 py-3 text-xs font-medium focus:outline-none focus:border-[#2C4A3B]"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        showToast(
+                          'Configuración guardada',
+                          `Horarios y dirección de ${prof.name} actualizados.`
+                        )
+                      }
+                      className="px-5 py-2.5 bg-[#2C4A3B] text-white rounded-xl text-xs font-semibold hover:bg-[#233B2F] transition-all"
+                    >
+                      Guardar Cambios del Profesional
+                    </button>
                   </div>
                 </div>
-                <button type="submit" disabled={savingAppt} className="w-full bg-[#2C4A3B] text-white py-4 rounded-2xl font-bold text-sm hover:bg-[#233b2f] transition-all shadow-md flex items-center justify-center gap-2">{savingAppt ? <><Loader2 size={16} className="animate-spin" /> Registrando paciente...</> : 'Guardar Paciente y Confirmar Cita'}</button>
-              </form>
-            </motion.div>
+              ))}
+            </div>
           </div>
+        )}
+      </main>
+
+      {/* =========================================================
+          MENÚ CONTEXTUAL DE CLIC DERECHO SOBRE LA CITA
+         ========================================================= */}
+      <AnimatePresence>
+        {contextMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{
+              top: Math.min(contextMenu.y, typeof window !== 'undefined' ? window.innerHeight - 320 : 400),
+              left: Math.min(contextMenu.x, typeof window !== 'undefined' ? window.innerWidth - 280 : 400),
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-50 w-68 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-[#E4ECE7] p-2 text-xs"
+          >
+            <div className="px-3 py-2 border-b border-stone-100 mb-1">
+              <p className="font-bold text-stone-900 truncate">{contextMenu.apt.patientName}</p>
+              <p className="text-[11px] text-stone-500 truncate">
+                {contextMenu.apt.serviceName} · {contextMenu.apt.time} hrs
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                togglePaymentStatus(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-[#EBF3EE] text-stone-800 font-semibold transition-colors"
+            >
+              <CreditCard size={15} className="text-emerald-700" />
+              <span>
+                {contextMenu.apt.paymentStatus === 'Pagado'
+                  ? 'Marcar como Pendiente de Pago'
+                  : 'Marcar como Pagado ($)'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                toggleModality(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
+            >
+              <RefreshCw size={15} className="text-[#2C4A3B]" />
+              <span>
+                Cambiar a {contextMenu.apt.modality === 'Online' ? 'Presencial' : 'Online'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                updateClinicalStatus(contextMenu.apt.id, 'Atendida');
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
+            >
+              <Check size={15} className="text-[#2C4A3B]" />
+              <span>Marcar Sesión como Atendida</span>
+            </button>
+
+            <button
+              onClick={() => {
+                triggerNotificationForApt(contextMenu.apt);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-stone-100 text-stone-700 font-medium transition-colors"
+            >
+              <Send size={15} className="text-[#C87D65]" />
+              <span>Reenviar Correo + WhatsApp API</span>
+            </button>
+
+            <button
+              onClick={() => {
+                openDirectWhatsApp(contextMenu.apt);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-emerald-800 font-semibold transition-colors"
+            >
+              <MessageSquare size={15} className="text-emerald-600" />
+              <span>Abrir WhatsApp Directo (Con Dirección)</span>
+            </button>
+
+            <div className="my-1 border-t border-stone-100" />
+
+            <button
+              onClick={() => {
+                deleteAppointment(contextMenu.apt.id);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-rose-50 text-rose-600 font-semibold transition-colors"
+            >
+              <Trash2 size={15} />
+              <span>Cancelar y Liberar Horario</span>
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
 
+      {/* =========================================================
+          MODAL DE CELDA VACÍA: AGENDAR PACIENTE O BLOQUEAR HORARIO
+         ========================================================= */}
       <AnimatePresence>
-        {isNewPatientModalOpen && (
-          <div onClick={() => setIsNewPatientModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
-              <div className="flex justify-between items-center"><h3 className="font-bold text-lg text-stone-900">Inscribir Nuevo Paciente</h3><button onClick={() => setIsNewPatientModalOpen(false)}><X size={20}/></button></div>
-              <form onSubmit={handleCreatePatient} className="space-y-3.5">
-                <input type="text" required value={newPatientName} onChange={e => setNewPatientName(e.target.value)} placeholder="Nombre Completo del Paciente" className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-sm outline-none focus:bg-white" />
-                <button type="submit" className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-[#233b2f] transition-colors">Guardar Paciente</button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isNewServiceModalOpen && (
-          <div onClick={() => setIsNewServiceModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5">
-              <div className="flex justify-between items-center border-b border-stone-100 pb-4"><h3 className="font-bold text-lg text-stone-900">Crear Nuevo Servicio</h3><button onClick={() => setIsNewServiceModalOpen(false)} className="text-stone-400 hover:text-stone-700"><X size={20}/></button></div>
-              <form onSubmit={handleCreateService} className="space-y-4">
-                <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Nombre del Servicio *</label><input type="text" required placeholder="Ej: Psicoterapia Infanto-Juvenil" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Precio ($ CLP) *</label><input type="number" required placeholder="35000" value={newServicePrice} onChange={e => setNewServicePrice(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
-                  <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Duración (min) *</label><input type="number" required placeholder="50" value={newServiceDuration} onChange={e => setNewServiceDuration(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
+        {slotModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2rem] max-w-md w-full p-7 border border-[#E4ECE7] shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
+                    {slotModal.dayLabel} · {slotModal.time} hrs
+                  </span>
+                  <h3 className="text-xl font-bold text-stone-900">
+                    Gestionar Bloque Horario
+                  </h3>
                 </div>
-                <div><label className="text-[11px] font-bold text-stone-500 block mb-1">Descripción breve</label><textarea rows={3} placeholder="Detalles de la prestación clínica..." value={newServiceDescription} onChange={e => setNewServiceDescription(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
-                <button type="submit" disabled={savingService} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#233b2f] transition-all">{savingService ? 'Guardando...' : 'Guardar Servicio'}</button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isNewTherapistModalOpen && (
-          <div onClick={() => setIsNewTherapistModalOpen(false)} className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5">
-              <div className="flex justify-between items-center border-b border-stone-100 pb-4">
-                <div><h3 className="font-bold text-lg text-stone-900">Incorporar Profesional</h3><p className="text-xs text-stone-400">Vincular a {activeCenter?.name}</p></div>
-                <button onClick={() => setIsNewTherapistModalOpen(false)} className="text-stone-400 hover:text-stone-700"><X size={20}/></button>
+                <button
+                  onClick={() => setSlotModal(null)}
+                  className="p-2 rounded-full hover:bg-stone-100 text-stone-500"
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <form onSubmit={handleCreateTherapist} className="space-y-4">
-                <div><label className="text-[11px] font-bold text-stone-600 block mb-1">Nombre Completo *</label><input type="text" required placeholder="Ej: Dra. Sofía Valdés" value={newTherapistName} onChange={e => setNewTherapistName(e.target.value)} className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20" /></div>
-                <div><label className="text-[11px] font-bold text-stone-600 block mb-1">Especialidad Clínica *</label><select value={newTherapistSpecialty} onChange={e => setNewTherapistSpecialty(e.target.value)} className="w-full p-3.5 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2C4A3B]/20"><option value="Psicología Clínica Adultos">Psicología Clínica Adultos</option><option value="Psiquiatría Adultos">Psiquiatría Adultos</option></select></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><label className="text-[11px] font-bold text-stone-600 block mb-1">Email Profesional *</label><input type="email" required placeholder="terapeuta@kairos.cl" value={newTherapistEmail} onChange={e => setNewTherapistEmail(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
-                  <div><label className="text-[11px] font-bold text-stone-600 block mb-1">Teléfono</label><input type="tel" placeholder="+56912345678" value={newTherapistPhone} onChange={e => setNewTherapistPhone(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white" /></div>
-                </div>
-                <div><label className="text-[11px] font-bold text-stone-600 block mb-1">Rol de Acceso</label><select value={newTherapistRole} onChange={e => setNewTherapistRole(e.target.value)} className="w-full p-3 rounded-xl border border-stone-200 bg-stone-50 text-xs outline-none focus:bg-white"><option value="therapist">Terapeuta (Agenda y Fichas)</option><option value="admin">Administrador Clínico</option></select></div>
-                <button type="submit" disabled={savingTherapist} className="w-full bg-[#2C4A3B] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#233b2f] transition-all flex items-center justify-center gap-2">{savingTherapist ? <><Loader2 size={15} className="animate-spin" /> Guardando...</> : 'Vincular al Centro'}</button>
+
+              {/* Selector Agendar vs Bloquear */}
+              <div className="grid grid-cols-2 gap-2 bg-[#F9F8F6] p-1.5 rounded-2xl border border-[#E4ECE7] mb-5">
+                <button
+                  type="button"
+                  onClick={() => setSlotActionMode('book')}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    slotActionMode === 'book'
+                      ? 'bg-[#2C4A3B] text-white'
+                      : 'text-stone-600'
+                  }`}
+                >
+                  Agendar Paciente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSlotActionMode('block')}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    slotActionMode === 'block'
+                      ? 'bg-stone-800 text-white'
+                      : 'text-stone-600'
+                  }`}
+                >
+                  Bloquear Horario
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateSlotAction} className="space-y-4 text-xs">
+                {slotActionMode === 'block' ? (
+                  <div>
+                    <label className="font-bold uppercase text-stone-500 block mb-1.5">
+                      Motivo del Bloqueo
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={blockReasonInput}
+                      onChange={(e) => setBlockReasonInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-stone-200 text-sm"
+                      placeholder="Ej. Almuerzo, Supervisión Clínica..."
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="font-bold uppercase text-stone-500 block mb-1">
+                        Nombre del Paciente
+                      </label>
+                      <input
+                        required
+                        type="text"
+                        value={newBookingForm.patientName}
+                        onChange={(e) =>
+                          setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm"
+                        placeholder="Ej. Sofía Domínguez"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Correo Electrónico
+                        </label>
+                        <input
+                          required
+                          type="email"
+                          value={newBookingForm.patientEmail}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientEmail: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-xs"
+                          placeholder="paciente@correo.cl"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          WhatsApp (569...)
+                        </label>
+                        <input
+                          required
+                          type="tel"
+                          value={newBookingForm.patientPhone}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientPhone: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-xs"
+                          placeholder="56961699991"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-bold uppercase text-stone-500 block mb-1">
+                        Servicio Clínico
+                      </label>
+                      <select
+                        value={newBookingForm.serviceName}
+                        onChange={(e) =>
+                          setNewBookingForm({
+                            ...newBookingForm,
+                            serviceName: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                      >
+                        {CLINICAL_SERVICES.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name} (${s.price.toLocaleString('es-CL')})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Modalidad
+                        </label>
+                        <select
+                          value={newBookingForm.modality}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              modality: e.target.value as ModalityType,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          <option value="Online">Online (Videollamada)</option>
+                          <option value="Presencial">Consulta Presencial</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-bold uppercase text-stone-500 block mb-1">
+                          Estado de Pago
+                        </label>
+                        <select
+                          value={newBookingForm.paymentStatus}
+                          onChange={(e) =>
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              paymentStatus: e.target.value as PaymentStatus,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
+                        >
+                          <option value="Pendiente">Pendiente</option>
+                          <option value="Pagado">Pagado</option>
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#233B2F] text-white rounded-xl font-bold text-xs transition-all shadow-md"
+                >
+                  {slotActionMode === 'block'
+                    ? 'Confirmar Bloqueo de Horario'
+                    : 'Agendar y Disparar Confirmación'}
+                </button>
               </form>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
