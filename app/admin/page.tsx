@@ -35,7 +35,6 @@ import {
   CalendarDays,
   TrendingUp,
   BrainCircuit,
-  Calculator,
   ImagePlus,
   UserCheck,
   Mic,
@@ -644,7 +643,7 @@ function AdminDashboardContent() {
   const [appointments, setAppointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(INITIAL_BLOCKED_SLOTS);
 
-  // Estado para Importar / Exportar Planilla Excel / CSV de Pacientes
+  // Estado Importar / Exportar Planilla Excel / CSV
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [importedPreviewRows, setImportedPreviewRows] = useState<PatientRecord[]>([]);
   const [importFileName, setImportFileName] = useState<string>('');
@@ -699,7 +698,7 @@ function AdminDashboardContent() {
     apt: AppointmentItem;
   } | null>(null);
 
-  // Modal de Celda Vacía (Agendar con Repetición)
+  // Modal de Celda Vacía
   const [slotModal, setSlotModal] = useState<{
     dayIndex: number;
     isoDate: string;
@@ -773,6 +772,17 @@ function AdminDashboardContent() {
     if (savedPatients) setPatients(JSON.parse(savedPatients));
     if (savedApts) setAppointments(JSON.parse(savedApts));
     if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
+
+    const onStorageSync = (e: StorageEvent) => {
+      if (e.key === 'kairos_apts_v7' && e.newValue) {
+        setAppointments(JSON.parse(e.newValue));
+      }
+      if (e.key === 'kairos_patients_v7' && e.newValue) {
+        setPatients(JSON.parse(e.newValue));
+      }
+    };
+    window.addEventListener('storage', onStorageSync);
+    return () => window.removeEventListener('storage', onStorageSync);
   }, []);
 
   useEffect(() => {
@@ -823,7 +833,6 @@ function AdminDashboardContent() {
   // MOTOR DE IMPORTACIÓN Y EXPORTACIÓN DE PACIENTES (EXCEL / CSV)
   // =========================================================
   const handleExportPatientsToExcelCsv = () => {
-    // BOM UTF-8 (\uFEFF) y separador ';' para que Microsoft Excel en español abra tildes y columnas directo
     const headers = [
       'Nombre Completo',
       'RUT',
@@ -911,7 +920,6 @@ function AdminDashboardContent() {
 
       if (lines.length === 0) return;
 
-      // Detectar delimitador automáticamente (; de Excel en español, , de CSV estándar o Tabulador de copiar/pegar Excel)
       const firstLine = lines[0];
       const delimiter = firstLine.includes(';')
         ? ';'
@@ -926,8 +934,16 @@ function AdminDashboardContent() {
 
       const firstRowCols = splitRow(firstLine).map((c) => c.toLowerCase());
       const hasHeader =
-        firstRowCols.some((c) => c.includes('nombre') || c.includes('paciente') || c.includes('name')) ||
-        firstRowCols.some((c) => c.includes('rut') || c.includes('dni') || c.includes('email') || c.includes('correo'));
+        firstRowCols.some(
+          (c) => c.includes('nombre') || c.includes('paciente') || c.includes('name')
+        ) ||
+        firstRowCols.some(
+          (c) =>
+            c.includes('rut') ||
+            c.includes('dni') ||
+            c.includes('email') ||
+            c.includes('correo')
+        );
 
       const findIdx = (keywords: string[], fallbackIdx: number) => {
         if (!hasHeader) return fallbackIdx;
@@ -940,7 +956,10 @@ function AdminDashboardContent() {
       const nameIdx = findIdx(['nombre', 'paciente', 'name', 'cliente'], 0);
       const rutIdx = findIdx(['rut', 'run', 'dni', 'documento'], 1);
       const emailIdx = findIdx(['email', 'correo', 'mail'], 2);
-      const phoneIdx = findIdx(['telefono', 'teléfono', 'whatsapp', 'celular', 'fono', 'movil'], 3);
+      const phoneIdx = findIdx(
+        ['telefono', 'teléfono', 'whatsapp', 'celular', 'fono', 'movil'],
+        3
+      );
       const serviceIdx = findIdx(['servicio', 'terapia', 'prestacion'], 4);
       const modalityIdx = findIdx(['modalidad', 'tipo', 'atencion'], 5);
 
@@ -955,7 +974,8 @@ function AdminDashboardContent() {
         const rawRut = cols[rutIdx] ?? 'Sin RUT';
         const rawEmail = cols[emailIdx] ?? '';
         const rawPhone = normalizePhoneDigits(cols[phoneIdx] ?? '');
-        const rawService = cols[serviceIdx] || (services[0]?.name ?? 'Psicoterapia Individual Adulto');
+        const rawService =
+          cols[serviceIdx] || (services[0]?.name ?? 'Psicoterapia Individual Adulto');
         const rawModStr = (cols[modalityIdx] ?? '').toLowerCase();
         const mod: ModalityType = rawModStr.includes('online') ? 'Online' : 'Presencial';
 
@@ -1002,7 +1022,8 @@ function AdminDashboardContent() {
                 ? incoming.patientEmail
                 : nextList[existingIndex].patientEmail,
             patientPhone: incoming.patientPhone || nextList[existingIndex].patientPhone,
-            defaultService: incoming.defaultService || nextList[existingIndex].defaultService,
+            defaultService:
+              incoming.defaultService || nextList[existingIndex].defaultService,
           };
           updatedCount++;
         } else {
@@ -1132,7 +1153,9 @@ function AdminDashboardContent() {
 
       const paidApts = profApts.filter((a) => a.paymentStatus === 'Pagado');
       const pendingApts = profApts.filter((a) => a.paymentStatus === 'Pendiente');
-      const presencialSessionsCount = profApts.filter((a) => a.modality === 'Presencial').length;
+      const presencialSessionsCount = profApts.filter(
+        (a) => a.modality === 'Presencial'
+      ).length;
 
       const grossTotal = profApts.reduce((acc, cur) => acc + cur.price, 0);
       const grossPaid = paidApts.reduce((acc, cur) => acc + cur.price, 0);
@@ -1176,9 +1199,14 @@ function AdminDashboardContent() {
     const totalPendingCenter = byProf.reduce((acc, r) => acc + r.grossPending, 0);
     const totalCenterRetention = byProf.reduce((acc, r) => acc + r.centerRetention, 0);
     const totalNetProfessionals = byProf.reduce((acc, r) => acc + r.netProfessional, 0);
-    const totalPresencialBoxUses = byProf.reduce((acc, r) => acc + r.presencialSessionsCount, 0);
+    const totalPresencialBoxUses = byProf.reduce(
+      (acc, r) => acc + r.presencialSessionsCount,
+      0
+    );
     const avgRevenuePerBoxSession =
-      totalPresencialBoxUses > 0 ? Math.round(totalCenterRetention / totalPresencialBoxUses) : 0;
+      totalPresencialBoxUses > 0
+        ? Math.round(totalCenterRetention / totalPresencialBoxUses)
+        : 0;
 
     const avgCenterRetentionRate =
       byProf.length > 0
@@ -1219,7 +1247,9 @@ function AdminDashboardContent() {
     setWeekOffset(diffWeeks);
   };
 
-  // Escucha ambiental con IA Grok
+  // =========================================================
+  // ESCUCHA AMBIENTAL CON IA GROK CONECTADA A /api/ia/ficha
+  // =========================================================
   const startAmbientListening = () => {
     setIsListeningSession(true);
     setListeningSeconds(0);
@@ -1252,7 +1282,7 @@ function AdminDashboardContent() {
     }
   };
 
-  const stopAmbientListeningAndSummarize = () => {
+  const stopAmbientListeningAndSummarize = async () => {
     setIsListeningSession(false);
     if (timerRef.current) clearInterval(timerRef.current);
     if (speechRecRef.current) {
@@ -1264,47 +1294,53 @@ function AdminDashboardContent() {
     if (!fichaPatient) return;
     setIsGeneratingGrok(true);
 
-    setTimeout(() => {
+    try {
       const durationMin = Math.max(1, Math.round(listeningSeconds / 60));
-      const contextHint =
-        capturedAudioContext.trim().length > 5
-          ? `Se identificaron temáticas clave abordadas durante la sesión (${capturedAudioContext
-              .slice(0, 140)
-              .trim()}...).`
-          : rawSessionNotes.trim().length > 0
-          ? `Eje trabajado en sesión: ${rawSessionNotes.trim()}.`
-          : `Sesión de ${fichaPatient.defaultService} desarrollada con adecuada disposición afectiva y alianza terapéutica.`;
-
-      const summary = [
-        `• RESUMEN DE ESCUCHA AMBIENTAL IA GROK (${durationMin} min escuchados):`,
-        `  ${contextHint}`,
-        `• SÍNTESIS CLÍNICA Y ESTADO AFECTIVO:`,
-        `  Paciente ${fichaPatient.patientName} mantiene discurso coherente, capacidad reflexiva conservada y apertura al trabajo clínico.`,
-        `• INTERVENCIÓN Y ACUERDOS TERAPÉUTICOS:`,
-        `  Se realiza devolución integrativa, regulación emocional y definición de objetivos para la siguiente sesión.`,
-      ].join('\n');
-
-      setGrokPreviewNote(summary);
+      const res = await fetch('/api/ia/ficha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName: fichaPatient.patientName,
+          serviceName: fichaPatient.defaultService,
+          modality: fichaPatient.defaultModality,
+          durationMin,
+          rawContext: capturedAudioContext || rawSessionNotes,
+        }),
+      });
+      const data = await res.json();
+      if (data?.structuredNote) {
+        setGrokPreviewNote(data.structuredNote);
+        showToast('Resumen IA Grok generado', 'Listo para guardar en la ficha clínica.');
+      }
+    } catch {
+      showToast('Resumen local generado', undefined, 'warn');
+    } finally {
       setIsGeneratingGrok(false);
-      showToast('Resumen IA generado desde la escucha', 'Revisa y guarda en la ficha clínica.');
-    }, 600);
+    }
   };
 
-  const handleGenerateGrokFromNotes = () => {
+  const handleGenerateGrokFromNotes = async () => {
     if (!rawSessionNotes.trim() || !fichaPatient) return;
     setIsGeneratingGrok(true);
-    setTimeout(() => {
-      const structured = [
-        `• SÍNTESIS CLÍNICA (IA Grok · ${centerBrandName}):`,
-        `  Paciente ${fichaPatient.patientName} en seguimiento de ${fichaPatient.defaultService}.`,
-        `• OBSERVACIÓN CLÍNICA RESUMIDA:`,
-        `  ${rawSessionNotes.trim()}`,
-        `• PLAN TERAPÉUTICO:`,
-        `  Continuar pauta de intervención y evaluación evolutiva en próxima sesión.`,
-      ].join('\n');
-      setGrokPreviewNote(structured);
+    try {
+      const res = await fetch('/api/ia/ficha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName: fichaPatient.patientName,
+          serviceName: fichaPatient.defaultService,
+          modality: fichaPatient.defaultModality,
+          durationMin: 50,
+          rawContext: rawSessionNotes.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data?.structuredNote) {
+        setGrokPreviewNote(data.structuredNote);
+      }
+    } finally {
       setIsGeneratingGrok(false);
-    }, 400);
+    }
   };
 
   const handleSaveEvolutionToPatientFicha = () => {
@@ -2338,7 +2374,9 @@ function AdminDashboardContent() {
                             </span>
                             <span className="text-[11px] font-semibold text-[#2C4A3B]">
                               {assignedProfsToday.length > 0
-                                ? `Asignado hoy: ${assignedProfsToday.map((p) => p.name).join(', ')}`
+                                ? `Asignado hoy: ${assignedProfsToday
+                                    .map((p) => p.name)
+                                    .join(', ')}`
                                 : 'Sin terapeuta fijo hoy'}
                             </span>
                           </div>
@@ -2492,7 +2530,9 @@ function AdminDashboardContent() {
                         <div
                           key={hour}
                           className={`py-3 px-4 flex items-center justify-between gap-4 ${
-                            !isWithinDayHours ? 'bg-stone-100/60 opacity-55' : 'hover:bg-[#F9F8F6]'
+                            !isWithinDayHours
+                              ? 'bg-stone-100/60 opacity-55'
+                              : 'hover:bg-[#F9F8F6]'
                           }`}
                         >
                           <div className="w-20 shrink-0">
@@ -2880,7 +2920,6 @@ function AdminDashboardContent() {
                   ))}
                 </div>
 
-                {/* BOTONES DE IMPORTAR Y EXPORTAR PLANILLA EXCEL / CSV + NUEVO PACIENTE */}
                 <div className="flex flex-wrap items-center gap-2.5">
                   <button
                     type="button"
@@ -2918,7 +2957,8 @@ function AdminDashboardContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredPatients.map((pat) => {
                   const prof =
-                    professionals.find((p) => p.id === pat.assignedProfessionalId) ?? currentProf;
+                    professionals.find((p) => p.id === pat.assignedProfessionalId) ??
+                    currentProf;
                   const patAppointments = appointments.filter(
                     (a) =>
                       a.patientId === pat.id ||
@@ -3817,7 +3857,10 @@ function AdminDashboardContent() {
                           type="text"
                           value={newBookingForm.patientName}
                           onChange={(e) =>
-                            setNewBookingForm({ ...newBookingForm, patientName: e.target.value })
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientName: e.target.value,
+                            })
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
                         />
@@ -3830,7 +3873,10 @@ function AdminDashboardContent() {
                           type="text"
                           value={newBookingForm.patientRUT}
                           onChange={(e) =>
-                            setNewBookingForm({ ...newBookingForm, patientRUT: e.target.value })
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              patientRUT: e.target.value,
+                            })
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200"
                         />
@@ -3882,7 +3928,10 @@ function AdminDashboardContent() {
                         <select
                           value={newBookingForm.serviceName}
                           onChange={(e) =>
-                            setNewBookingForm({ ...newBookingForm, serviceName: e.target.value })
+                            setNewBookingForm({
+                              ...newBookingForm,
+                              serviceName: e.target.value,
+                            })
                           }
                           className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-semibold"
                         >
@@ -4037,9 +4086,7 @@ function AdminDashboardContent() {
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
-                          isListeningSession
-                            ? 'bg-rose-500 animate-pulse'
-                            : 'bg-[#2C4A3B]'
+                          isListeningSession ? 'bg-rose-500 animate-pulse' : 'bg-[#2C4A3B]'
                         }`}
                       >
                         <Mic size={18} className="text-white" />
@@ -4100,7 +4147,9 @@ function AdminDashboardContent() {
                       className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-stone-200 text-stone-800 rounded-xl text-xs font-bold disabled:opacity-50"
                     >
                       <Sparkles size={14} className="text-[#2C4A3B]" />
-                      <span>Resumir Apuntes con IA</span>
+                      <span>
+                        {isGeneratingGrok ? 'Procesando con IA Grok...' : 'Resumir Apuntes con IA'}
+                      </span>
                     </button>
 
                     <button
