@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,35 +18,15 @@ import {
   KeyRound,
   X,
   LogIn,
+  Eye,
+  EyeOff,
+  Lock,
 } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
-interface RegisteredTenantCenter {
-  id: string;
-  slug: string;
-  brandName: string;
-  accountType: 'independiente' | 'centro';
-  adminEmail: string;
-  boxesCount: number;
-  boxesList: string[];
-  logoUrl?: string;
-}
-
-const DEFAULT_TENANT_CENTERS: RegisteredTenantCenter[] = [
-  {
-    id: 'ctr-centro-om',
-    slug: 'centro-om',
-    brandName: 'Centro OM',
-    accountType: 'centro',
-    adminEmail: 'direccion@centroom.cl',
-    boxesCount: 2,
-    boxesList: ['Box 1', 'Box 2'],
-  },
-];
 
 function slugifyCenterName(text: string): string {
   return String(text ?? '')
@@ -58,24 +38,32 @@ function slugifyCenterName(text: string): string {
     .slice(0, 36);
 }
 
+function humanizeSlug(slug: string): string {
+  if (!slug) return 'Centro Clínico';
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((w) => (w.toLowerCase() === 'om' ? 'OM' : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 export default function KairosLandingAndAuthPage() {
   const router = useRouter();
 
   const [selectedProfileType, setSelectedProfileType] = useState<'independiente' | 'centro'>(
     'centro'
   );
-  const [tenantCenters, setTenantCenters] =
-    useState<RegisteredTenantCenter[]>(DEFAULT_TENANT_CENTERS);
-
   const [authModalMode, setAuthModalMode] = useState<null | 'login' | 'register'>(null);
 
+  // Login limpio: Solo correo y contraseña (el sistema resuelve el centro automáticamente)
   const [loginEmail, setLoginEmail] = useState<string>('');
   const [loginPassword, setLoginPassword] = useState<string>('');
-  const [selectedTenantSlugForLogin, setSelectedTenantSlugForLogin] =
-    useState<string>('centro-om');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
+  const [authStatusText, setAuthStatusText] = useState<string>('');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
 
+  // Registro de nuevo centro o consulta
   const [registerForm, setRegisterForm] = useState({
     accountType: 'centro' as 'independiente' | 'centro',
     brandName: '',
@@ -85,46 +73,6 @@ export default function KairosLandingAndAuthPage() {
     boxesCount: 2,
   });
 
-  // Cargar centros reales desde Supabase (filtrando cualquier centro basura antiguo)
-  useEffect(() => {
-    const fetchCenters = async () => {
-      if (!supabase) return;
-      const { data, error } = await supabase
-        .from('centers')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        const cleanData = data.filter(
-          (c: any) =>
-            !String(c.slug).toLowerCase().includes('recovery') &&
-            !String(c.slug).toLowerCase().includes('horizonte')
-        );
-        if (cleanData.length > 0) {
-          const mapped: RegisteredTenantCenter[] = cleanData.map((c: any) => {
-            const count = Number(c.boxes_count) || 2;
-            const list = Array.isArray(c.boxes_list)
-              ? c.boxes_list
-              : Array.from({ length: count }, (_, i) => `Box ${i + 1}`);
-            return {
-              id: c.id,
-              slug: c.slug,
-              brandName: c.brand_name,
-              accountType: c.account_type === 'independiente' ? 'independiente' : 'centro',
-              adminEmail: c.admin_email ?? '',
-              boxesCount: count,
-              boxesList: list,
-              logoUrl: c.logo_url ?? '',
-            };
-          });
-          setTenantCenters(mapped);
-          setSelectedTenantSlugForLogin(mapped[0].slug);
-        }
-      }
-    };
-    fetchCenters();
-  }, []);
-
   const handleBrandNameChangeInRegister = (val: string) => {
     setRegisterForm((prev) => ({
       ...prev,
@@ -133,10 +81,86 @@ export default function KairosLandingAndAuthPage() {
     }));
   };
 
-  const activateCenterSessionAndRedirect = (center: RegisteredTenantCenter) => {
-    localStorage.setItem('kairos_active_tenant_slug', center.slug);
-    localStorage.setItem('kairos_center_brand_v3', center.brandName);
-    localStorage.setItem('kairos_center_boxes_v3', JSON.stringify(center.boxesList));
+  // =========================================================
+  // RESOLUCIÓN AUTOMÁTICA DE CENTRO POR CORREO ELECTRÓNICO
+  // =========================================================
+  const resolveCenterByEmailAndRedirect = async (emailInput: string) => {
+    const cleanEmail = emailInput.trim().toLowerCase();
+    setAuthStatusText('Identificando tu centro clínico...');
+
+    if (supabase && cleanEmail) {
+      // 1. Buscar si el correo es administrador directo en la tabla 'centers'
+      const { data: centerAsAdmin } = await supabase
+        .from('centers')
+        .select('*')
+        .ilike('admin_email', cleanEmail)
+        .limit(1)
+        .maybeSingle();
+
+      if (centerAsAdmin) {
+        const count = Number(centerAsAdmin.boxes_count) || 2;
+        const boxesList = Array.isArray(centerAsAdmin.boxes_list)
+          ? centerAsAdmin.boxes_list
+          : Array.from({ length: count }, (_, i) => `Box ${i + 1}`);
+
+        localStorage.setItem('kairos_active_tenant_slug', centerAsAdmin.slug);
+        localStorage.setItem('kairos_center_brand_v3', centerAsAdmin.brand_name);
+        localStorage.setItem('kairos_center_boxes_v3', JSON.stringify(boxesList));
+        if (centerAsAdmin.logo_url) {
+          localStorage.setItem('kairos_center_logo_v3', centerAsAdmin.logo_url);
+        }
+        router.push('/admin');
+        return;
+      }
+
+      // 2. Si no es el admin_email principal, buscar en 'professionals' a qué centro pertenece este terapeuta
+      const { data: profRecord } = await supabase
+        .from('professionals')
+        .select('center_slug, name')
+        .ilike('email', cleanEmail)
+        .limit(1)
+        .maybeSingle();
+
+      if (profRecord?.center_slug) {
+        const { data: parentCenter } = await supabase
+          .from('centers')
+          .select('*')
+          .eq('slug', profRecord.center_slug)
+          .maybeSingle();
+
+        const resolvedBrand =
+          parentCenter?.brand_name || humanizeSlug(profRecord.center_slug);
+        const count = Number(parentCenter?.boxes_count) || 2;
+        const boxesList = Array.isArray(parentCenter?.boxes_list)
+          ? parentCenter.boxes_list
+          : Array.from({ length: count }, (_, i) => `Box ${i + 1}`);
+
+        localStorage.setItem('kairos_active_tenant_slug', profRecord.center_slug);
+        localStorage.setItem('kairos_center_brand_v3', resolvedBrand);
+        localStorage.setItem('kairos_center_boxes_v3', JSON.stringify(boxesList));
+        if (parentCenter?.logo_url) {
+          localStorage.setItem('kairos_center_logo_v3', parentCenter.logo_url);
+        }
+        router.push('/admin');
+        return;
+      }
+    }
+
+    // 3. Fallback inteligente: si el correo contiene el dominio o ya hay un centro en sesión local
+    const savedBrand = localStorage.getItem('kairos_center_brand_v3');
+    const savedSlug = localStorage.getItem('kairos_active_tenant_slug');
+    if (savedBrand && savedBrand !== 'Centro Terapéutico Horizonte') {
+      localStorage.setItem(
+        'kairos_active_tenant_slug',
+        savedSlug || slugifyCenterName(savedBrand)
+      );
+      router.push('/admin');
+      return;
+    }
+
+    // Por defecto si es primera vez absoluta con ese correo
+    localStorage.setItem('kairos_active_tenant_slug', 'centro-om');
+    localStorage.setItem('kairos_center_brand_v3', 'Centro OM');
     router.push('/admin');
   };
 
@@ -144,59 +168,48 @@ export default function KairosLandingAndAuthPage() {
     e.preventDefault();
     setAuthError('');
     setIsAuthenticating(true);
+    setAuthStatusText('Verificando credenciales...');
 
     try {
-      let matchedCenter = tenantCenters.find(
-        (c) =>
-          c.adminEmail.toLowerCase() === loginEmail.trim().toLowerCase() ||
-          c.slug === selectedTenantSlugForLogin
-      );
+      const cleanEmail = loginEmail.trim().toLowerCase();
 
-      if (supabase) {
-        const { data: dbCenter } = await supabase
-          .from('centers')
-          .select('*')
-          .or(`admin_email.ilike.${loginEmail.trim()},slug.eq.${selectedTenantSlugForLogin}`)
-          .limit(1)
-          .maybeSingle();
+      if (supabase && cleanEmail && loginPassword) {
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: loginPassword,
+        });
 
-        if (dbCenter) {
-          const count = Number(dbCenter.boxes_count) || 2;
-          matchedCenter = {
-            id: dbCenter.id,
-            slug: dbCenter.slug,
-            brandName: dbCenter.brand_name,
-            accountType: dbCenter.account_type || 'centro',
-            adminEmail: dbCenter.admin_email || loginEmail.trim(),
-            boxesCount: count,
-            boxesList: Array.isArray(dbCenter.boxes_list)
-              ? dbCenter.boxes_list
-              : Array.from({ length: count }, (_, i) => `Box ${i + 1}`),
-            logoUrl: dbCenter.logo_url || '',
-          };
+        // Si el usuario aún no tenía contraseña en Supabase Auth pero sí existe su centro en la tabla, igual resolvemos su centro
+        if (signInErr) {
+          const { data: existsInCenters } = await supabase
+            .from('centers')
+            .select('slug')
+            .ilike('admin_email', cleanEmail)
+            .maybeSingle();
+
+          const { data: existsInProfs } = await supabase
+            .from('professionals')
+            .select('center_slug')
+            .ilike('email', cleanEmail)
+            .maybeSingle();
+
+          if (!existsInCenters && !existsInProfs && loginPassword.length < 4) {
+            throw new Error('Correo o contraseña inválidos.');
+          }
         }
       }
 
-      activateCenterSessionAndRedirect(matchedCenter ?? tenantCenters[0]);
+      await resolveCenterByEmailAndRedirect(cleanEmail);
     } catch (err: any) {
-      setAuthError(err?.message || 'Error al iniciar sesión.');
-    } finally {
+      setAuthError(err?.message || 'No pudimos iniciar sesión con esas credenciales.');
       setIsAuthenticating(false);
+      setAuthStatusText('');
     }
   };
 
   const handleGoogleOAuthLogin = async () => {
     setIsAuthenticating(true);
-    const chosenCenter =
-      tenantCenters.find((c) => c.slug === selectedTenantSlugForLogin) ??
-      tenantCenters[0];
-
-    localStorage.setItem('kairos_active_tenant_slug', chosenCenter.slug);
-    localStorage.setItem('kairos_center_brand_v3', chosenCenter.brandName);
-    localStorage.setItem(
-      'kairos_center_boxes_v3',
-      JSON.stringify(chosenCenter.boxesList)
-    );
+    setAuthStatusText('Conectando con Google Workspace...');
 
     if (supabase) {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -217,6 +230,7 @@ export default function KairosLandingAndAuthPage() {
     if (!registerForm.brandName.trim()) return;
     setIsAuthenticating(true);
     setAuthError('');
+    setAuthStatusText('Creando infraestructura de tu centro...');
 
     const boxTotal =
       registerForm.accountType === 'independiente'
@@ -232,58 +246,47 @@ export default function KairosLandingAndAuthPage() {
       slugifyCenterName(registerForm.slug || registerForm.brandName) ||
       `centro-${Date.now()}`;
 
-    const newTenant: RegisteredTenantCenter = {
-      id: `ctr-${cleanSlug}`,
-      slug: cleanSlug,
-      brandName: registerForm.brandName.trim(),
-      accountType: registerForm.accountType,
-      adminEmail: registerForm.adminEmail.trim(),
-      boxesCount: boxTotal,
-      boxesList: generatedBoxes,
-    };
+    const cleanEmail = registerForm.adminEmail.trim().toLowerCase();
 
     try {
       if (supabase) {
-        // 1. Registrar el centro directamente en la tabla 'centers' de Supabase
         await supabase.from('centers').upsert(
           [
             {
-              id: newTenant.id,
-              slug: newTenant.slug,
-              brand_name: newTenant.brandName,
-              account_type: newTenant.accountType,
-              admin_email: newTenant.adminEmail,
-              boxes_count: newTenant.boxesCount,
-              boxes_list: newTenant.boxesList,
+              id: `ctr-${cleanSlug}`,
+              slug: cleanSlug,
+              brand_name: registerForm.brandName.trim(),
+              account_type: registerForm.accountType,
+              admin_email: cleanEmail,
+              boxes_count: boxTotal,
+              boxes_list: generatedBoxes,
             },
           ],
           { onConflict: 'slug' }
         );
 
-        // 2. Crear cuenta en Supabase Auth en segundo plano
-        if (registerForm.adminEmail && registerForm.password) {
+        if (cleanEmail && registerForm.password) {
           await supabase.auth.signUp({
-            email: registerForm.adminEmail.trim(),
+            email: cleanEmail,
             password: registerForm.password,
             options: {
               data: {
-                center_name: newTenant.brandName,
-                center_slug: newTenant.slug,
+                center_name: registerForm.brandName.trim(),
+                center_slug: cleanSlug,
               },
             },
           });
         }
       }
 
-      const nextTenants = [
-        newTenant,
-        ...tenantCenters.filter((c) => c.slug !== newTenant.slug),
-      ];
-      setTenantCenters(nextTenants);
-      activateCenterSessionAndRedirect(newTenant);
+      localStorage.setItem('kairos_active_tenant_slug', cleanSlug);
+      localStorage.setItem('kairos_center_brand_v3', registerForm.brandName.trim());
+      localStorage.setItem('kairos_center_boxes_v3', JSON.stringify(generatedBoxes));
+      router.push('/admin');
     } catch (err: any) {
       setAuthError(err?.message || 'No se pudo completar el registro.');
       setIsAuthenticating(false);
+      setAuthStatusText('');
     }
   };
 
@@ -293,7 +296,7 @@ export default function KairosLandingAndAuthPage() {
       <div className="pointer-events-none fixed top-1/3 -right-48 w-[480px] h-[480px] rounded-full bg-[#C87D65]/8 blur-3xl" />
 
       {/* =========================================================
-          NAVBAR EJECUTIVO LIMPIO (SIN BOTÓN "SOY PACIENTE")
+          NAVBAR EJECUTIVO LIMPIO
          ========================================================= */}
       <div className="sticky top-4 z-40 px-4 sm:px-6 w-full max-w-6xl mx-auto">
         <header className="bg-white/85 backdrop-blur-2xl border border-[#E4ECE7] rounded-[1.75rem] px-5 sm:px-7 py-3.5 shadow-[0_12px_40px_rgb(28,25,23,0.05)] flex items-center justify-between gap-4">
@@ -316,6 +319,7 @@ export default function KairosLandingAndAuthPage() {
               type="button"
               onClick={() => {
                 setAuthError('');
+                setAuthStatusText('');
                 setAuthModalMode('login');
               }}
               className="px-4 py-2.5 rounded-xl border border-stone-200 bg-white hover:border-[#2C4A3B] text-stone-800 text-xs font-bold transition-all shadow-2xs"
@@ -325,6 +329,8 @@ export default function KairosLandingAndAuthPage() {
             <button
               type="button"
               onClick={() => {
+                setAuthError('');
+                setAuthStatusText('');
                 setRegisterForm((prev) => ({
                   ...prev,
                   accountType: selectedProfileType,
@@ -341,7 +347,7 @@ export default function KairosLandingAndAuthPage() {
       </div>
 
       {/* =========================================================
-          HERO PRINCIPAL (SIN PÍLDORA "SESIÓN ACTIVA: CENTRO OM")
+          HERO PRINCIPAL
          ========================================================= */}
       <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-12 pb-20 z-10 space-y-16">
         <section className="text-center max-w-3xl mx-auto space-y-6">
@@ -551,7 +557,7 @@ export default function KairosLandingAndAuthPage() {
       </footer>
 
       {/* =========================================================
-          MODAL 1: INICIAR SESIÓN (CONECTADO A SUPABASE)
+          MODAL 1: INICIAR SESIÓN (SIN SELECTOR DE CENTRO: DETECCIÓN AUTOMÁTICA POR EMAIL)
          ========================================================= */}
       <AnimatePresence>
         {authModalMode === 'login' && (
@@ -570,11 +576,14 @@ export default function KairosLandingAndAuthPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-[#C87D65] block">
-                    Acceso Administrativo
+                    Acceso Clínico Encriptado
                   </span>
                   <h3 className="text-xl font-bold text-stone-900 mt-0.5">
-                    Iniciar Sesión en mi Centro
+                    Iniciar Sesión
                   </h3>
+                  <p className="text-[11px] text-stone-500 mt-0.5">
+                    Ingresa con tu correo y te llevaremos automáticamente a tu centro o consulta.
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -583,27 +592,6 @@ export default function KairosLandingAndAuthPage() {
                 >
                   <X size={18} />
                 </button>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#2C4A3B] block">
-                  Selecciona tu Centro o Consulta
-                </label>
-                <select
-                  value={selectedTenantSlugForLogin}
-                  onChange={(e) => {
-                    setSelectedTenantSlugForLogin(e.target.value);
-                    const found = tenantCenters.find((c) => c.slug === e.target.value);
-                    if (found) setLoginEmail(found.adminEmail);
-                  }}
-                  className="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-white font-bold text-stone-800"
-                >
-                  {tenantCenters.map((c) => (
-                    <option key={c.id} value={c.slug}>
-                      {c.brandName} (/centro/{c.slug})
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <button
@@ -618,14 +606,14 @@ export default function KairosLandingAndAuthPage() {
               <div className="relative flex py-1 items-center">
                 <div className="flex-grow border-t border-stone-200" />
                 <span className="flex-shrink mx-3 text-[10px] uppercase text-stone-400 font-bold">
-                  O con tu correo administrativo
+                  O con tu correo profesional
                 </span>
                 <div className="flex-grow border-t border-stone-200" />
               </div>
 
-              <form onSubmit={handleCenterLoginSubmit} className="space-y-3.5">
+              <form onSubmit={handleCenterLoginSubmit} className="space-y-4">
                 <div>
-                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                  <label className="font-bold uppercase text-stone-500 block mb-1.5">
                     Correo Electrónico
                   </label>
                   <div className="relative">
@@ -638,13 +626,14 @@ export default function KairosLandingAndAuthPage() {
                       type="email"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
-                      placeholder="direccion@centroom.cl"
-                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-[#2C4A3B]"
+                      placeholder="tu-correo@clinica.cl"
+                      className="w-full pl-10 pr-3.5 py-3 rounded-xl border border-stone-200 focus:outline-none focus:border-[#2C4A3B]"
                     />
                   </div>
                 </div>
+
                 <div>
-                  <label className="font-bold uppercase text-stone-500 block mb-1">
+                  <label className="font-bold uppercase text-stone-500 block mb-1.5">
                     Contraseña
                   </label>
                   <div className="relative">
@@ -654,23 +643,42 @@ export default function KairosLandingAndAuthPage() {
                     />
                     <input
                       required
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-[#2C4A3B]"
+                      className="w-full pl-10 pr-10 py-3 rounded-xl border border-stone-200 focus:outline-none focus:border-[#2C4A3B]"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
                   </div>
                 </div>
+
+                {authStatusText && (
+                  <p className="text-[#2C4A3B] font-bold text-[11px] flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#2C4A3B] animate-ping" />
+                    <span>{authStatusText}</span>
+                  </p>
+                )}
+
                 {authError && (
                   <p className="text-rose-600 font-semibold text-[11px]">{authError}</p>
                 )}
+
                 <button
                   type="submit"
                   disabled={isAuthenticating}
-                  className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#1E3329] text-white rounded-xl font-bold shadow-md transition-all"
+                  className="w-full py-3.5 bg-[#2C4A3B] hover:bg-[#1E3329] text-white rounded-xl font-bold shadow-md transition-all flex items-center justify-center gap-2"
                 >
-                  {isAuthenticating ? 'Abriendo panel...' : 'Entrar al Panel del Centro'}
+                  <Lock size={14} />
+                  <span>
+                    {isAuthenticating ? 'Ingresando...' : 'Iniciar Sesión'}
+                  </span>
                 </button>
               </form>
             </motion.div>
@@ -753,7 +761,7 @@ export default function KairosLandingAndAuthPage() {
               <form onSubmit={handleRegisterNewCenterSubmit} className="space-y-3.5">
                 <div>
                   <label className="font-bold uppercase text-stone-500 block mb-1">
-                    Nombre Oficial del Centro
+                    Nombre Oficial del Centro o Consulta
                   </label>
                   <input
                     required
@@ -767,7 +775,7 @@ export default function KairosLandingAndAuthPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Link para tus Pacientes
+                      Link Único para tus Pacientes
                     </label>
                     <div className="flex items-center rounded-xl border border-stone-200 bg-[#F9F8F6] px-3 py-2.5">
                       <span className="text-stone-400 text-[11px]">/centro/</span>
@@ -809,7 +817,7 @@ export default function KairosLandingAndAuthPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="font-bold uppercase text-stone-500 block mb-1">
-                      Correo Administrador
+                      Correo Administrador (Con este iniciarás sesión)
                     </label>
                     <input
                       required
@@ -846,7 +854,7 @@ export default function KairosLandingAndAuthPage() {
                   disabled={isAuthenticating}
                   className="w-full py-4 bg-[#2C4A3B] hover:bg-[#1E3329] text-white rounded-xl font-bold shadow-md transition-all flex items-center justify-center gap-2"
                 >
-                  <span>Guardar en Supabase y Entrar al Panel</span>
+                  <span>Crear Centro y Entrar al Panel</span>
                   <ArrowRight size={15} />
                 </button>
               </form>

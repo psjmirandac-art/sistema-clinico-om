@@ -27,11 +27,13 @@ import {
   Trash2,
   Check,
   Lock,
+  Presentation,
+  Users,
+  Calendar as CalendarIcon,
 } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const defaultCenterId = process.env.NEXT_PUBLIC_CENTER_ID ?? 'centro-principal';
 
 const supabase =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
@@ -80,7 +82,6 @@ function slugifyText(text: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-// Convierte "centro-om" -> "Centro OM" automáticamente desde la URL
 function humanizeSlug(slug: string): string {
   if (!slug) return 'Centro Clínico';
   return decodeURIComponent(slug)
@@ -116,7 +117,6 @@ function getHoursUntilSession(isoDate: string, time: string, nowIso: string): nu
   return Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
 }
 
-// Horarios reales configurados en Centro OM (Martes 09-21, Miércoles 09-11 y 17-20, Jueves 09-11)
 function buildCentroOmDefaultSchedule(boxName: string) {
   return {
     1: {
@@ -198,13 +198,6 @@ const CENTRO_OM_SERVICES = [
     durationMinutes: 50,
     price: 45000,
   },
-  {
-    id: 'srv-2',
-    professionalId: 'all',
-    name: 'Psicoterapia Clínica Online / Presencial',
-    durationMinutes: 50,
-    price: 45000,
-  },
 ];
 
 function BookingGlassSkeleton() {
@@ -225,9 +218,9 @@ function CentroBookingContent() {
   const rawSlug = typeof params?.slug === 'string' ? params.slug : 'centro-om';
   const normalizedUrlSlug = slugifyText(rawSlug);
 
-  const [portalMode, setPortalMode] = useState<'book' | 'manage'>('book');
+  // 3 Modos en el Portal del Paciente: Agendar Cita | Talleres Grupales | Reagendar / Cancelar
+  const [portalMode, setPortalMode] = useState<'book' | 'workshops' | 'manage'>('book');
 
-  // El nombre inicial se toma directamente del [slug] de la URL (ej: "centro-om" -> "Centro OM")
   const [centerBrandName, setCenterBrandName] = useState<string>(() =>
     humanizeSlug(rawSlug)
   );
@@ -236,6 +229,7 @@ function CentroBookingContent() {
 
   const [professionals, setProfessionals] = useState<any[]>(CENTRO_OM_PROFESSIONALS);
   const [services, setServices] = useState<any[]>(CENTRO_OM_SERVICES);
+  const [workshops, setWorkshops] = useState<any[]>([]);
   const [patientsDirectory, setPatientsDirectory] = useState<any[]>([]);
   const [existingApts, setExistingApts] = useState<any[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<any[]>([]);
@@ -248,6 +242,12 @@ function CentroBookingContent() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethodOption>('webpay');
   const [paymentTransactionCode, setPaymentTransactionCode] = useState<string>('');
+
+  // Inscripción a un Taller Grupal desde el portal público
+  const [selectedWorkshopForEnroll, setSelectedWorkshopForEnroll] = useState<any | null>(
+    null
+  );
+  const [workshopEnrollFeedback, setWorkshopEnrollFeedback] = useState<string>('');
 
   const [lookupRutInput, setLookupRutInput] = useState<string>('');
   const [reschedulingAptId, setReschedulingAptId] = useState<string | null>(null);
@@ -262,108 +262,43 @@ function CentroBookingContent() {
     telefonoOchoDigitos: '',
   });
 
-  // Sincronización inteligente: Lee el [slug] de la URL + LocalStorage de /admin + Supabase
+  // =========================================================
+  // CARGA EN VIVO DESDE SUPABASE POR [slug] + RESPALDO LOCAL
+  // =========================================================
   useEffect(() => {
     setAnchorDateIso(new Date().toISOString());
 
-    const urlHumanName = humanizeSlug(rawSlug);
-    const savedNameV3 = localStorage.getItem('kairos_center_brand_v3');
-    const savedNameV2 = localStorage.getItem('kairos_center_brand_v2');
-    const savedTenantsRaw = localStorage.getItem('kairos_tenants_registry_v1');
-
-    // 1. Resolver el Nombre y Boxes exactos según el [slug] de la URL
-    let resolvedName = urlHumanName;
-    if (savedTenantsRaw) {
-      try {
-        const tenants = JSON.parse(savedTenantsRaw);
-        const matchedTenant = Array.isArray(tenants)
-          ? tenants.find((t: any) => slugifyText(t.slug) === normalizedUrlSlug)
-          : null;
-        if (matchedTenant?.brandName) {
-          resolvedName = matchedTenant.brandName;
-          if (Array.isArray(matchedTenant.boxesList) && matchedTenant.boxesList.length > 0) {
-            setCenterBoxes(matchedTenant.boxesList);
-          }
-        }
-      } catch {}
-    }
-
-    // Si en /admin está guardado el mismo centro (ej. "Centro OM") o uno personalizado que no sea el demo viejo
-    const candidateAdminName = savedNameV3 ?? savedNameV2 ?? '';
-    if (
-      candidateAdminName &&
-      candidateAdminName !== 'Centro Terapéutico Horizonte' &&
-      (slugifyText(candidateAdminName) === normalizedUrlSlug ||
-        rawSlug === 'mi-centro' ||
-        rawSlug === 'kairos-central')
-    ) {
-      resolvedName = candidateAdminName;
-    }
-
-    setCenterBrandName(resolvedName);
-
-    // 2. Resolver el Logo del Centro
-    const savedLogo =
-      localStorage.getItem('kairos_center_logo_v3') ??
-      localStorage.getItem('kairos_center_logo_v2');
-    if (savedLogo) setCenterLogoUrl(savedLogo);
-
-    // 3. Resolver Boxes
+    const savedLogo = localStorage.getItem('kairos_center_logo_v3');
     const savedBoxes = localStorage.getItem('kairos_center_boxes_v3');
+    const savedProfs = localStorage.getItem('kairos_profs_v7');
+    const savedSrvs = localStorage.getItem('kairos_services_v7');
+    const savedWorkshops = localStorage.getItem('kairos_workshops_v1');
+    const savedPatients = localStorage.getItem('kairos_patients_v7');
+    const savedApts = localStorage.getItem('kairos_apts_v7');
+
+    if (savedLogo) setCenterLogoUrl(savedLogo);
     if (savedBoxes) {
       try {
-        const parsedBoxes = JSON.parse(savedBoxes);
-        if (Array.isArray(parsedBoxes) && parsedBoxes.length > 0) {
-          setCenterBoxes(parsedBoxes);
-        }
+        setCenterBoxes(JSON.parse(savedBoxes));
       } catch {}
     }
-
-    // 4. Resolver Profesionales reales desde /admin (Filtrando cualquier dato demo antiguo de Alejandro Silva)
-    const savedProfsRaw =
-      localStorage.getItem('kairos_profs_v7') ??
-      localStorage.getItem('kairos_profs_v6') ??
-      localStorage.getItem('kairos_profs_v5');
-
-    if (savedProfsRaw) {
+    if (savedProfs) {
       try {
-        const parsedProfs = JSON.parse(savedProfsRaw);
-        if (Array.isArray(parsedProfs) && parsedProfs.length > 0) {
-          const isOldDemoList = parsedProfs.some(
-            (p: any) =>
-              String(p.name).includes('Alejandro Silva') ||
-              String(p.name).includes('Alejandro Kairós')
-          );
-          if (!isOldDemoList) {
-            setProfessionals(parsedProfs);
-          } else {
-            setProfessionals(CENTRO_OM_PROFESSIONALS);
-          }
-        }
+        const p = JSON.parse(savedProfs);
+        if (Array.isArray(p) && p.length > 0) setProfessionals(p);
       } catch {}
     }
-
-    // 5. Resolver Servicios (Si en /admin hay 0 servicios creados aún, mantiene el servicio base activo)
-    const savedSrvsRaw =
-      localStorage.getItem('kairos_services_v7') ??
-      localStorage.getItem('kairos_services_v6');
-    if (savedSrvsRaw) {
+    if (savedSrvs) {
       try {
-        const parsedSrvs = JSON.parse(savedSrvsRaw);
-        if (Array.isArray(parsedSrvs) && parsedSrvs.length > 0) {
-          setServices(parsedSrvs);
-        }
+        const s = JSON.parse(savedSrvs);
+        if (Array.isArray(s) && s.length > 0) setServices(s);
       } catch {}
     }
-
-    // 6. Resolver Pacientes, Citas y Bloqueos
-    const savedPatients = localStorage.getItem('kairos_patients_v7');
-    const savedApts =
-      localStorage.getItem('kairos_apts_v7') ?? localStorage.getItem('kairos_apts_prod');
-    const savedBlocks =
-      localStorage.getItem('kairos_blocks_v7') ??
-      localStorage.getItem('kairos_blocks_prod');
-
+    if (savedWorkshops) {
+      try {
+        setWorkshops(JSON.parse(savedWorkshops));
+      } catch {}
+    }
     if (savedPatients) {
       try {
         setPatientsDirectory(JSON.parse(savedPatients));
@@ -374,62 +309,91 @@ function CentroBookingContent() {
         setExistingApts(JSON.parse(savedApts));
       } catch {}
     }
-    if (savedBlocks) {
-      try {
-        setBlockedSlots(JSON.parse(savedBlocks));
-      } catch {}
-    }
 
-    // Escuchar cambios en vivo si el admin edita en otra pestaña
-    const handleStorageChange = () => {
-      const updatedName = localStorage.getItem('kairos_center_brand_v3');
-      const updatedLogo = localStorage.getItem('kairos_center_logo_v3');
-      const updatedProfs = localStorage.getItem('kairos_profs_v7');
-      if (updatedName && updatedName !== 'Centro Terapéutico Horizonte') {
-        setCenterBrandName(updatedName);
+    const fetchPortalDataFromSupabase = async () => {
+      if (!supabase) return;
+
+      const { data: cData } = await supabase
+        .from('centers')
+        .select('*')
+        .eq('slug', normalizedUrlSlug)
+        .maybeSingle();
+
+      if (cData && cData.brand_name !== 'Centro Terapéutico Horizonte') {
+        setCenterBrandName(cData.brand_name);
+        if (cData.logo_url) setCenterLogoUrl(cData.logo_url);
+        if (Array.isArray(cData.boxes_list) && cData.boxes_list.length > 0) {
+          setCenterBoxes(cData.boxes_list);
+        }
       }
-      if (updatedLogo) setCenterLogoUrl(updatedLogo);
-      if (updatedProfs) {
-        try {
-          const p = JSON.parse(updatedProfs);
-          if (Array.isArray(p) && p.length > 0) setProfessionals(p);
-        } catch {}
+
+      const { data: profsData } = await supabase
+        .from('professionals')
+        .select('*')
+        .eq('center_slug', normalizedUrlSlug);
+
+      if (Array.isArray(profsData) && profsData.length > 0) {
+        setProfessionals(
+          profsData.map((p: any) => ({
+            id: String(p.id).replace(`${normalizedUrlSlug}-`, ''),
+            name: p.name,
+            specialty: p.specialty || 'Psicoterapia Clínica',
+            avatar: p.avatar || String(p.name).slice(0, 2).toUpperCase(),
+            email: p.email || '',
+            presencialAddress: p.presencial_address || `Consulta ${humanizeSlug(rawSlug)}`,
+            onlineRoomUrl: p.online_room_url || 'https://meet.google.com/krs-om',
+            scheduleByDay:
+              p.schedule_by_day || buildCentroOmDefaultSchedule('Box 1'),
+          }))
+        );
+      }
+
+      const { data: srvData } = await supabase
+        .from('services')
+        .select('*')
+        .eq('center_slug', normalizedUrlSlug);
+
+      if (Array.isArray(srvData) && srvData.length > 0) {
+        setServices(
+          srvData.map((s: any) => ({
+            id: s.id,
+            professionalId: s.professional_id || 'all',
+            name: s.name,
+            durationMinutes: Number(s.duration_minutes) || 50,
+            price: Number(s.price) || 45000,
+          }))
+        );
+      }
+
+      const { data: wsData } = await supabase
+        .from('workshops')
+        .select('*')
+        .eq('center_slug', normalizedUrlSlug);
+
+      if (Array.isArray(wsData) && wsData.length > 0) {
+        setWorkshops(
+          wsData.map((w: any) => ({
+            id: String(w.id).replace(`${normalizedUrlSlug}-`, ''),
+            name: w.name,
+            description: w.description || '',
+            facilitatorName: w.facilitator_name || 'Especialista',
+            capacity: Number(w.capacity) || 12,
+            enrolledCount: Number(w.enrolled_count) || 0,
+            price: Number(w.price) || 25000,
+            date: w.date || '2026-11-14',
+            time: w.time || '11:00',
+            modality: w.modality || 'Presencial',
+            boxOrLocation: w.box_or_location || 'Sala Grupal',
+            imageUrl:
+              w.image_url ||
+              'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&q=80&w=800',
+          }))
+        );
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    fetchPortalDataFromSupabase();
   }, [rawSlug, normalizedUrlSlug]);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      const session = data?.session;
-      if (session?.user) {
-        setIsPatientGoogleLogged(true);
-        setPatientData((prev) => ({
-          ...prev,
-          nombre: session.user.user_metadata?.full_name ?? prev.nombre,
-          email: session.user.email ?? prev.email,
-        }));
-      }
-      if (session?.provider_token) {
-        setGoogleAccessToken(session.provider_token);
-      }
-    });
-  }, []);
-
-  const handlePatientGoogleSignIn = async () => {
-    if (supabase) {
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          scopes: 'https://www.googleapis.com/auth/calendar.events',
-          redirectTo: window.location.href,
-        },
-      });
-    }
-  };
 
   const activeProfs = useMemo(
     () => (professionals.length > 0 ? professionals : CENTRO_OM_PROFESSIONALS),
@@ -671,23 +635,42 @@ function CentroBookingContent() {
       const patientId = existingPat ? existingPat.id : `pat-${Date.now()}`;
 
       if (!existingPat) {
-        const updatedDirectory = [
-          ...patientsDirectory,
-          {
-            id: patientId,
-            patientName: patientData.nombre.trim(),
-            patientRUT: patientData.rut.trim() || 'Sin RUT',
-            patientEmail: patientData.email.trim(),
-            patientPhone: fullE164Phone,
-            defaultService: selectedService,
-            defaultModality: modality,
-            assignedProfessionalId: selectedProf.id,
-            clinicalStatusTag: 'Activo',
-            clinicalHistory: [],
-          },
-        ];
+        const newPatObj = {
+          id: patientId,
+          patientName: patientData.nombre.trim(),
+          patientRUT: patientData.rut.trim() || 'Sin RUT',
+          patientEmail: patientData.email.trim(),
+          patientPhone: fullE164Phone,
+          defaultService: selectedService,
+          defaultModality: modality,
+          assignedProfessionalId: selectedProf.id,
+          clinicalStatusTag: 'Activo',
+          clinicalHistory: [],
+        };
+        const updatedDirectory = [...patientsDirectory, newPatObj];
         setPatientsDirectory(updatedDirectory);
         localStorage.setItem('kairos_patients_v7', JSON.stringify(updatedDirectory));
+
+        if (supabase) {
+          await supabase.from('patients').upsert(
+            [
+              {
+                id: `${normalizedUrlSlug}-${patientId}`,
+                center_slug: normalizedUrlSlug,
+                patient_name: newPatObj.patientName,
+                patient_rut: newPatObj.patientRUT,
+                patient_email: newPatObj.patientEmail,
+                patient_phone: newPatObj.patientPhone,
+                default_service: newPatObj.defaultService,
+                default_modality: newPatObj.defaultModality,
+                assigned_professional_id: newPatObj.assignedProfessionalId,
+                clinical_status_tag: 'Activo',
+                clinical_history: [],
+              },
+            ],
+            { onConflict: 'id' }
+          );
+        }
       }
 
       const newApt = {
@@ -715,32 +698,69 @@ function CentroBookingContent() {
       localStorage.setItem('kairos_apts_v7', JSON.stringify(updatedApts));
       localStorage.setItem('kairos_apts_prod', JSON.stringify(updatedApts));
 
-      const locationAddress =
-        modality === 'Presencial'
-          ? `${selectedProf.presencialAddress} (${finalBoxAssigned})`
-          : assignedMeetUrl || selectedProf.onlineRoomUrl;
-
-      fetch('/api/notificaciones/confirmacion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientName: newApt.patientName,
-          patientEmail: newApt.patientEmail,
-          date: currentDayObj.fullLabel,
-          isoDate: currentDayObj.iso,
-          time: selectedTime,
-          serviceName: selectedService,
-          modality: modality === 'Presencial' ? 'Consulta Presencial' : 'Online (Google Meet)',
-          locationAddress,
-          professionalName: selectedProf.name,
-          centerName: centerBrandName,
-        }),
-      }).catch(() => {});
+      if (supabase) {
+        await supabase.from('appointments').upsert(
+          [
+            {
+              id: `${normalizedUrlSlug}-${newApt.id}`,
+              center_slug: normalizedUrlSlug,
+              patient_id: newApt.patientId,
+              patient_name: newApt.patientName,
+              patient_rut: newApt.patientRUT,
+              patient_email: newApt.patientEmail,
+              patient_phone: newApt.patientPhone,
+              professional_id: newApt.professionalId,
+              service_name: newApt.serviceName,
+              modality: newApt.modality,
+              box_name: newApt.boxName,
+              meet_url: newApt.meetUrl,
+              iso_date: newApt.isoDate,
+              time: newApt.time,
+              price: newApt.price,
+              payment_status: 'Pagado',
+              clinical_status: 'Confirmada',
+              notes: newApt.notes,
+            },
+          ],
+          { onConflict: 'id' }
+        );
+      }
 
       setStep('success');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Inscripción directa del paciente a un Taller Grupal
+  const handleEnrollInWorkshop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedWorkshopForEnroll) return;
+
+    const updatedWs = workshops.map((w) =>
+      w.id === selectedWorkshopForEnroll.id
+        ? { ...w, enrolledCount: Math.min(w.capacity, (Number(w.enrolledCount) || 0) + 1) }
+        : w
+    );
+    setWorkshops(updatedWs);
+    localStorage.setItem('kairos_workshops_v1', JSON.stringify(updatedWs));
+
+    if (supabase) {
+      await supabase
+        .from('workshops')
+        .update({
+          enrolled_count: Math.min(
+            selectedWorkshopForEnroll.capacity,
+            (Number(selectedWorkshopForEnroll.enrolledCount) || 0) + 1
+          ),
+        })
+        .eq('id', `${normalizedUrlSlug}-${selectedWorkshopForEnroll.id}`);
+    }
+
+    setWorkshopEnrollFeedback(
+      `¡Inscripción confirmada en "${selectedWorkshopForEnroll.name}"! Te enviamos los detalles a ${patientData.email}.`
+    );
+    setSelectedWorkshopForEnroll(null);
   };
 
   const patientFoundAppointments = useMemo(() => {
@@ -846,6 +866,7 @@ function CentroBookingContent() {
           </div>
         </div>
 
+        {/* Conmutador: Agendar Cita | Talleres Grupales | Reagendar / Cancelar */}
         <div className="flex items-center gap-2">
           <div className="bg-white/90 backdrop-blur-md p-1 rounded-2xl border border-[#E4ECE7] flex items-center">
             <button
@@ -862,6 +883,21 @@ function CentroBookingContent() {
             <button
               type="button"
               onClick={() => {
+                setPortalMode('workshops');
+                setWorkshopEnrollFeedback('');
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                portalMode === 'workshops'
+                  ? 'bg-[#2C4A3B] text-white'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Presentation size={14} />
+              <span>Talleres ({workshops.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setPortalMode('manage');
                 setManageFeedback('');
               }}
@@ -872,25 +908,151 @@ function CentroBookingContent() {
               }`}
             >
               <CalendarClock size={14} />
-              <span>Reagendar / Cancelar</span>
+              <span>Reagendar</span>
             </button>
           </div>
-
-          {!isPatientGoogleLogged && (
-            <button
-              type="button"
-              onClick={handlePatientGoogleSignIn}
-              className="hidden sm:inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/90 backdrop-blur-md border border-[#E4ECE7] text-xs font-bold text-stone-700 hover:border-[#2C4A3B] transition-all"
-            >
-              <LogIn size={14} className="text-[#2C4A3B]" />
-              <span>Google</span>
-            </button>
-          )}
         </div>
       </header>
 
       <section className="w-full max-w-2xl mx-auto px-4 py-6 z-10 my-auto">
-        {portalMode === 'manage' ? (
+        {portalMode === 'workshops' ? (
+          /* =========================================================
+             VITRINA PÚBLICA DE TALLERES GRUPALES DEL CENTRO
+             ========================================================= */
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white/90 backdrop-blur-xl rounded-[2rem] p-6 sm:p-10 shadow-[0_20px_60px_rgb(44,74,59,0.06)] border border-[#E4ECE7] space-y-6"
+          >
+            <div>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#C87D65] block mb-1">
+                Actividades Grupales · {centerBrandName}
+              </span>
+              <h1 className="text-2xl font-bold text-stone-900">
+                Talleres y Encuentros Clínicos
+              </h1>
+            </div>
+
+            {workshopEnrollFeedback && (
+              <div className="p-4 rounded-2xl bg-[#EBF3EE] border border-[#2C4A3B]/30 text-xs font-bold text-[#2C4A3B]">
+                {workshopEnrollFeedback}
+              </div>
+            )}
+
+            {workshops.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-[#F9F8F6] border border-[#E4ECE7] text-center text-xs text-stone-500">
+                Pronto publicaremos nuevos talleres grupales en {centerBrandName}.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {workshops.map((ws) => {
+                  const spotsLeft = Math.max(
+                    0,
+                    Number(ws.capacity) - (Number(ws.enrolledCount) || 0)
+                  );
+                  return (
+                    <div
+                      key={ws.id}
+                      className="rounded-3xl overflow-hidden border border-[#E4ECE7] bg-[#F9F8F6] flex flex-col sm:flex-row"
+                    >
+                      <div className="sm:w-48 h-44 sm:h-auto shrink-0 bg-stone-200 relative">
+                        <img
+                          src={ws.imageUrl}
+                          alt={ws.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="p-5 flex-1 flex flex-col justify-between space-y-3 text-xs">
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-bold text-[#C87D65]">
+                            <span>Facilitador: {ws.facilitatorName}</span>
+                            <span>
+                              {ws.date} · {ws.time} hrs
+                            </span>
+                          </div>
+                          <h3 className="font-bold text-base text-stone-900 mt-1">
+                            {ws.name}
+                          </h3>
+                          <p className="text-stone-500 mt-1 leading-relaxed">
+                            {ws.description}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-3 border-t border-stone-200/70">
+                          <div>
+                            <span className="text-base font-bold text-[#2C4A3B] block">
+                              ${Number(ws.price).toLocaleString('es-CL')} CLP
+                            </span>
+                            <span className="text-[10px] text-stone-500 font-semibold">
+                              {spotsLeft} cupos disponibles (de {ws.capacity})
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={spotsLeft === 0}
+                            onClick={() => setSelectedWorkshopForEnroll(ws)}
+                            className="px-4 py-2.5 rounded-xl bg-[#2C4A3B] hover:bg-[#1E3329] text-white font-bold disabled:opacity-50"
+                          >
+                            {spotsLeft === 0 ? 'Cupos Agotados' : 'Inscribirme'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedWorkshopForEnroll && (
+              <form
+                onSubmit={handleEnrollInWorkshop}
+                className="p-5 rounded-3xl bg-white border border-[#2C4A3B] space-y-3 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <strong className="text-sm text-stone-900">
+                    Inscripción: {selectedWorkshopForEnroll.name}
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedWorkshopForEnroll(null)}
+                    className="text-stone-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <input
+                    required
+                    type="text"
+                    placeholder="Tu Nombre y Apellido"
+                    value={patientData.nombre}
+                    onChange={(e) =>
+                      setPatientData({ ...patientData, nombre: e.target.value })
+                    }
+                    className="px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
+                  <input
+                    required
+                    type="email"
+                    placeholder="Tu Correo Electrónico"
+                    value={patientData.email}
+                    onChange={(e) =>
+                      setPatientData({ ...patientData, email: e.target.value })
+                    }
+                    className="px-3.5 py-2.5 rounded-xl border border-stone-200"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-[#2C4A3B] text-white rounded-xl font-bold"
+                >
+                  Confirmar Cupo en el Taller
+                </button>
+              </form>
+            )}
+          </motion.div>
+        ) : portalMode === 'manage' ? (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1104,7 +1266,7 @@ function CentroBookingContent() {
                   </div>
                 </div>
 
-                {/* 2. Especialistas reales del Centro (Jaime Miranda, Ivette Olivares, etc.) */}
+                {/* 2. Especialistas reales del Centro */}
                 <div className="mb-6">
                   <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
                     Especialista en {centerBrandName}
@@ -1174,14 +1336,6 @@ function CentroBookingContent() {
                       );
                     })}
                   </div>
-                  {modality === 'Presencial' && selectedProf?.presencialAddress && (
-                    <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5 bg-amber-50/70 border border-amber-200/70 px-3.5 py-2 rounded-xl">
-                      <DoorOpen size={14} className="text-[#C87D65] shrink-0" />
-                      <span>
-                        <strong>Ubicación:</strong> {selectedProf.presencialAddress}
-                      </span>
-                    </p>
-                  )}
                 </div>
 
                 {/* 4. Días Disponibles */}
