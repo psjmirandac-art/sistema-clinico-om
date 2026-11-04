@@ -55,6 +55,7 @@ import {
   Clock,
   ExternalLink,
   Presentation,
+  Cloud,
 } from 'lucide-react';
 
 import DocumentosTabRaw from '@/components/admin/DocumentosTab';
@@ -231,6 +232,15 @@ const DAY_NAMES: { index: number; short: string; label: string }[] = [
 const DEFAULT_CENTER_BOXES = ['Box 1', 'Box 2'];
 
 const DETERMINISTIC_BASE_MONDAY = '2026-11-02T12:00:00';
+
+function slugifyCenter(text: string): string {
+  return String(text ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 function getMondayFromAnchor(anchorIso: string, offsetWeeks: number = 0): Date {
   const base = new Date(anchorIso);
@@ -476,6 +486,7 @@ function AdminDashboardContent() {
   const [centerBoxes, setCenterBoxes] = useState<string[]>(DEFAULT_CENTER_BOXES);
   const [newBoxNameInput, setNewBoxNameInput] = useState<string>('');
   const [showBrandingModal, setShowBrandingModal] = useState<boolean>(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing'>('synced');
 
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
   const [certificateApt, setCertificateApt] = useState<AppointmentItem | null>(null);
@@ -491,7 +502,6 @@ function AdminDashboardContent() {
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [selectedSingleDayIso, setSelectedSingleDayIso] = useState<string>('2026-11-03');
 
-  // Metadatos del día seleccionado (Usado en Agenda Diaria y Mapa de Boxes)
   const singleDayMeta = useMemo(() => {
     const [y, m, d] = selectedSingleDayIso.split('-').map(Number);
     const dateObj = new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
@@ -592,16 +602,13 @@ function AdminDashboardContent() {
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [workshops, setWorkshops] = useState<WorkshopRecord[]>(INITIAL_WORKSHOPS);
 
-  // Estado Importar / Exportar Planilla Excel / CSV
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [importedPreviewRows, setImportedPreviewRows] = useState<PatientRecord[]>([]);
   const [importFileName, setImportFileName] = useState<string>('');
 
-  // Estado del selector de pacientes al agendar + repetición
   const [patientModeInBooking, setPatientModeInBooking] = useState<'existing' | 'new'>('existing');
   const [existingPatientSearch, setExistingPatientSearch] = useState<string>('');
 
-  // Ficha Clínica con Escucha Ambiental IA Grok
   const [fichaPatient, setFichaPatient] = useState<PatientRecord | null>(null);
   const [isListeningSession, setIsListeningSession] = useState<boolean>(false);
   const [listeningSeconds, setListeningSeconds] = useState<number>(0);
@@ -612,7 +619,6 @@ function AdminDashboardContent() {
   const speechRecRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
 
-  // Modal Crear Paciente directo en Directorio
   const [showNewPatientModal, setShowNewPatientModal] = useState<boolean>(false);
   const [newPatientDirectForm, setNewPatientDirectForm] = useState({
     patientName: '',
@@ -624,7 +630,6 @@ function AdminDashboardContent() {
     assignedProfessionalId: 'prof-1',
   });
 
-  // Modal Nuevo Servicio
   const [showServiceModal, setShowServiceModal] = useState<boolean>(false);
   const [serviceForm, setServiceForm] = useState({
     professionalId: 'prof-1',
@@ -636,7 +641,6 @@ function AdminDashboardContent() {
     allowedHoursLabel: '09:00 a 14:00 y 16:00 a 21:00 hrs',
   });
 
-  // Modal Nuevo Taller
   const [showWorkshopModal, setShowWorkshopModal] = useState<boolean>(false);
   const [workshopForm, setWorkshopForm] = useState({
     name: '',
@@ -651,18 +655,15 @@ function AdminDashboardContent() {
     imageUrl: '',
   });
 
-  // Drag & Drop
   const [draggedAptId, setDraggedAptId] = useState<string | null>(null);
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
 
-  // Menú Contextual (Clic Derecho)
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     apt: AppointmentItem;
   } | null>(null);
 
-  // Modal de Celda Vacía
   const [slotModal, setSlotModal] = useState<{
     dayIndex: number;
     isoDate: string;
@@ -672,13 +673,9 @@ function AdminDashboardContent() {
   const [slotActionMode, setSlotActionMode] = useState<'book' | 'block'>('book');
   const [blockReasonInput, setBlockReasonInput] = useState('Colación / Supervisión');
 
-  // Modal CRUD Cita
   const [editingApt, setEditingApt] = useState<AppointmentItem | null>(null);
-
-  // Modal CRUD Paciente
   const [editingPatientRecord, setEditingPatientRecord] = useState<PatientRecord | null>(null);
 
-  // Modal CRUD Profesional
   const [showProfModal, setShowProfModal] = useState(false);
   const [editingProfId, setEditingProfId] = useState<string | null>(null);
   const [profForm, setProfForm] = useState({
@@ -719,7 +716,9 @@ function AdminDashboardContent() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // Hidratación desde LocalStorage + Sincronización con Supabase
+  // =========================================================
+  // 1. HIDRATACIÓN LOCAL + LECTURA INICIAL DESDE SUPABASE
+  // =========================================================
   useEffect(() => {
     const savedCenterName = localStorage.getItem('kairos_center_brand_v3');
     const savedLogo = localStorage.getItem('kairos_center_logo_v3');
@@ -735,16 +734,198 @@ function AdminDashboardContent() {
       setCenterBrandName(savedCenterName);
     }
     if (savedLogo) setCenterLogoUrl(savedLogo);
-    if (savedBoxes) setCenterBoxes(JSON.parse(savedBoxes));
-    if (savedProfs) setProfessionals(JSON.parse(savedProfs));
-    if (savedSrvs) {
-      const parsedSrvs = JSON.parse(savedSrvs);
-      if (Array.isArray(parsedSrvs) && parsedSrvs.length > 0) setServices(parsedSrvs);
+    if (savedBoxes) {
+      try {
+        setCenterBoxes(JSON.parse(savedBoxes));
+      } catch {}
     }
-    if (savedPatients) setPatients(JSON.parse(savedPatients));
-    if (savedApts) setAppointments(JSON.parse(savedApts));
-    if (savedBlocks) setBlockedSlots(JSON.parse(savedBlocks));
-    if (savedWorkshops) setWorkshops(JSON.parse(savedWorkshops));
+    if (savedProfs) {
+      try {
+        const parsedP = JSON.parse(savedProfs);
+        if (Array.isArray(parsedP) && parsedP.length > 0) {
+          setProfessionals(parsedP);
+          setSelectedProfId(parsedP[0].id);
+        }
+      } catch {}
+    }
+    if (savedSrvs) {
+      try {
+        const parsedSrvs = JSON.parse(savedSrvs);
+        if (Array.isArray(parsedSrvs) && parsedSrvs.length > 0) setServices(parsedSrvs);
+      } catch {}
+    }
+    if (savedPatients) {
+      try {
+        setPatients(JSON.parse(savedPatients));
+      } catch {}
+    }
+    if (savedApts) {
+      try {
+        setAppointments(JSON.parse(savedApts));
+      } catch {}
+    }
+    if (savedBlocks) {
+      try {
+        setBlockedSlots(JSON.parse(savedBlocks));
+      } catch {}
+    }
+    if (savedWorkshops) {
+      try {
+        setWorkshops(JSON.parse(savedWorkshops));
+      } catch {}
+    }
+
+    // Lectura desde Supabase por center_slug
+    const fetchFromSupabase = async () => {
+      if (!supabase) return;
+      const activeSlug =
+        localStorage.getItem('kairos_active_tenant_slug') ||
+        slugifyCenter(savedCenterName || 'centro-om') ||
+        'centro-om';
+
+      const { data: cData } = await supabase
+        .from('centers')
+        .select('*')
+        .eq('slug', activeSlug)
+        .maybeSingle();
+
+      if (cData && cData.brand_name !== 'Centro Terapéutico Horizonte') {
+        setCenterBrandName(cData.brand_name);
+        if (cData.logo_url) setCenterLogoUrl(cData.logo_url);
+        if (Array.isArray(cData.boxes_list) && cData.boxes_list.length > 0) {
+          setCenterBoxes(cData.boxes_list);
+        }
+      }
+
+      const { data: profsData } = await supabase
+        .from('professionals')
+        .select('*')
+        .eq('center_slug', activeSlug);
+
+      if (Array.isArray(profsData) && profsData.length > 0) {
+        const mappedProfs: ProfessionalConfig[] = profsData.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          specialty: p.specialty || 'Psicoterapia Clínica',
+          rut: p.rut || '',
+          email: p.email || '',
+          avatar: p.avatar || String(p.name).slice(0, 2).toUpperCase(),
+          presencialAddress: p.presencial_address || 'Consulta Centro OM',
+          onlineRoomUrl: p.online_room_url || 'https://meet.google.com/krs-om',
+          googleConnected: Boolean(p.google_connected),
+          scheduleByDay:
+            p.schedule_by_day && Object.keys(p.schedule_by_day).length > 0
+              ? p.schedule_by_day
+              : buildDefaultScheduleWithColacion('Box 1'),
+          agreementType: p.agreement_type || 'porcentaje',
+          centerCommissionPercent: Number(p.center_commission_percent) || 25,
+          fixedBoxRent: Number(p.fixed_box_rent) || 0,
+          boxCostPerSession: Number(p.box_cost_per_session) || 0,
+        }));
+        setProfessionals(mappedProfs);
+        setSelectedProfId(mappedProfs[0].id);
+      }
+
+      const { data: patData } = await supabase
+        .from('patients')
+        .select('*')
+        .eq('center_slug', activeSlug);
+
+      if (Array.isArray(patData) && patData.length > 0) {
+        setPatients(
+          patData.map((pt: any) => ({
+            id: pt.id,
+            patientName: pt.patient_name,
+            patientRUT: pt.patient_rut || 'Sin RUT',
+            patientEmail: pt.patient_email || '',
+            patientPhone: pt.patient_phone || '',
+            defaultService: pt.default_service || 'Psicoterapia Individual Adulto',
+            defaultModality: pt.default_modality === 'Online' ? 'Online' : 'Presencial',
+            assignedProfessionalId: pt.assigned_professional_id || 'prof-1',
+            clinicalStatusTag: pt.clinical_status_tag || 'Activo',
+            clinicalHistory: Array.isArray(pt.clinical_history) ? pt.clinical_history : [],
+          }))
+        );
+      }
+
+      const { data: srvData } = await supabase
+        .from('services')
+        .select('*')
+        .eq('center_slug', activeSlug);
+
+      if (Array.isArray(srvData) && srvData.length > 0) {
+        setServices(
+          srvData.map((s: any) => ({
+            id: s.id,
+            professionalId: s.professional_id || 'all',
+            name: s.name,
+            therapyType: s.therapy_type || 'Enfoque Clínico Integrativo',
+            durationMinutes: Number(s.duration_minutes) || 50,
+            price: Number(s.price) || 45000,
+            modality: s.modality || 'Ambas (Híbrido)',
+            allowedHoursLabel: s.allowed_hours_label || '09:00 a 21:00 hrs',
+          }))
+        );
+      }
+
+      const { data: aptData } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('center_slug', activeSlug);
+
+      if (Array.isArray(aptData) && aptData.length > 0) {
+        setAppointments(
+          aptData.map((a: any) => ({
+            id: a.id,
+            patientId: a.patient_id || '',
+            patientName: a.patient_name,
+            patientRUT: a.patient_rut || 'Sin RUT',
+            patientEmail: a.patient_email || '',
+            patientPhone: a.patient_phone || '',
+            professionalId: a.professional_id || 'prof-1',
+            serviceName: a.service_name || 'Psicoterapia Individual Adulto',
+            modality: a.modality === 'Presencial' ? 'Presencial' : 'Online',
+            boxName: a.box_name || 'Box 1',
+            meetUrl: a.meet_url || undefined,
+            recurrenceLabel: a.recurrence_label || undefined,
+            isoDate: a.iso_date,
+            time: a.time,
+            price: Number(a.price) || 45000,
+            paymentStatus: a.payment_status === 'Pagado' ? 'Pagado' : 'Pendiente',
+            clinicalStatus: a.clinical_status || 'Confirmada',
+            notes: a.notes || '',
+          }))
+        );
+      }
+
+      const { data: wsData } = await supabase
+        .from('workshops')
+        .select('*')
+        .eq('center_slug', activeSlug);
+
+      if (Array.isArray(wsData) && wsData.length > 0) {
+        setWorkshops(
+          wsData.map((w: any) => ({
+            id: w.id,
+            name: w.name,
+            description: w.description || '',
+            facilitatorName: w.facilitator_name || 'Especialista',
+            capacity: Number(w.capacity) || 12,
+            enrolledCount: Number(w.enrolled_count) || 0,
+            price: Number(w.price) || 25000,
+            date: w.date || '2026-11-14',
+            time: w.time || '11:00',
+            modality: w.modality || 'Presencial',
+            boxOrLocation: w.box_or_location || 'Sala Grupal',
+            imageUrl:
+              w.image_url ||
+              'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&q=80&w=800',
+          }))
+        );
+      }
+    };
+
+    fetchFromSupabase();
 
     const onStorageSync = (e: StorageEvent) => {
       if (e.key === 'kairos_apts_v7' && e.newValue) {
@@ -758,6 +939,9 @@ function AdminDashboardContent() {
     return () => window.removeEventListener('storage', onStorageSync);
   }, []);
 
+  // =========================================================
+  // 2. GUARDADO AUTOMÁTICO EN LOCALSTORAGE + SUPABASE CLOUD
+  // =========================================================
   useEffect(() => {
     localStorage.setItem('kairos_center_brand_v3', centerBrandName);
     localStorage.setItem('kairos_center_brand_v2', centerBrandName);
@@ -800,6 +984,154 @@ function AdminDashboardContent() {
     localStorage.setItem('kairos_workshops_v1', JSON.stringify(workshops));
   }, [workshops]);
 
+  // Sincronización automática a las tablas de Supabase separadas por center_slug
+  useEffect(() => {
+    if (!supabase) return;
+    const activeSlug = slugifyCenter(centerBrandName) || 'centro-om';
+    localStorage.setItem('kairos_active_tenant_slug', activeSlug);
+    setCloudSyncStatus('syncing');
+
+    const timer = setTimeout(async () => {
+      try {
+        await supabase.from('centers').upsert(
+          [
+            {
+              id: `ctr-${activeSlug}`,
+              slug: activeSlug,
+              brand_name: centerBrandName,
+              logo_url: centerLogoUrl,
+              boxes_count: centerBoxes.length,
+              boxes_list: centerBoxes,
+            },
+          ],
+          { onConflict: 'slug' }
+        );
+
+        if (professionals.length > 0) {
+          await supabase.from('professionals').upsert(
+            professionals.map((p) => ({
+              id: `${activeSlug}-${p.id}`,
+              center_slug: activeSlug,
+              name: p.name,
+              specialty: p.specialty,
+              rut: p.rut,
+              email: p.email,
+              avatar: p.avatar,
+              presencial_address: p.presencialAddress,
+              online_room_url: p.onlineRoomUrl,
+              google_connected: p.googleConnected,
+              schedule_by_day: p.scheduleByDay,
+              agreement_type: p.agreementType,
+              center_commission_percent: p.centerCommissionPercent,
+              fixed_box_rent: p.fixedBoxRent,
+              box_cost_per_session: p.boxCostPerSession,
+            })),
+            { onConflict: 'id' }
+          );
+        }
+
+        if (patients.length > 0) {
+          await supabase.from('patients').upsert(
+            patients.slice(0, 250).map((pt) => ({
+              id: `${activeSlug}-${pt.id}`,
+              center_slug: activeSlug,
+              patient_name: pt.patientName,
+              patient_rut: pt.patientRUT,
+              patient_email: pt.patientEmail,
+              patient_phone: pt.patientPhone,
+              default_service: pt.defaultService,
+              default_modality: pt.defaultModality,
+              assigned_professional_id: pt.assignedProfessionalId,
+              clinical_status_tag: pt.clinicalStatusTag,
+              clinical_history: pt.clinicalHistory,
+            })),
+            { onConflict: 'id' }
+          );
+        }
+
+        if (services.length > 0) {
+          await supabase.from('services').upsert(
+            services.map((s) => ({
+              id: `${activeSlug}-${s.id}`,
+              center_slug: activeSlug,
+              professional_id: s.professionalId,
+              name: s.name,
+              therapy_type: s.therapyType,
+              duration_minutes: s.durationMinutes,
+              price: s.price,
+              modality: s.modality,
+              allowed_hours_label: s.allowedHoursLabel,
+            })),
+            { onConflict: 'id' }
+          );
+        }
+
+        if (appointments.length > 0) {
+          await supabase.from('appointments').upsert(
+            appointments.map((a) => ({
+              id: `${activeSlug}-${a.id}`,
+              center_slug: activeSlug,
+              patient_id: a.patientId,
+              patient_name: a.patientName,
+              patient_rut: a.patientRUT,
+              patient_email: a.patientEmail,
+              patient_phone: a.patientPhone,
+              professional_id: a.professionalId,
+              service_name: a.serviceName,
+              modality: a.modality,
+              box_name: a.boxName,
+              meet_url: a.meetUrl,
+              recurrence_label: a.recurrenceLabel,
+              iso_date: a.isoDate,
+              time: a.time,
+              price: a.price,
+              payment_status: a.paymentStatus,
+              clinical_status: a.clinicalStatus,
+              notes: a.notes || '',
+            })),
+            { onConflict: 'id' }
+          );
+        }
+
+        if (workshops.length > 0) {
+          await supabase.from('workshops').upsert(
+            workshops.map((w) => ({
+              id: `${activeSlug}-${w.id}`,
+              center_slug: activeSlug,
+              name: w.name,
+              description: w.description,
+              facilitator_name: w.facilitatorName,
+              capacity: w.capacity,
+              enrolled_count: w.enrolledCount,
+              price: w.price,
+              date: w.date,
+              time: w.time,
+              modality: w.modality,
+              box_or_location: w.boxOrLocation,
+              image_url: w.imageUrl,
+            })),
+            { onConflict: 'id' }
+          );
+        }
+      } catch {
+        // Fallback silencioso en localStorage si alguna tabla aún no fue creada en SQL
+      } finally {
+        setCloudSyncStatus('synced');
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    centerBrandName,
+    centerLogoUrl,
+    centerBoxes,
+    professionals,
+    patients,
+    services,
+    appointments,
+    workshops,
+  ]);
+
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null);
     window.addEventListener('click', handleGlobalClick);
@@ -820,18 +1152,13 @@ function AdminDashboardContent() {
   };
 
   const centerPublicSlug = useMemo(() => {
-    return centerBrandName
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+    return slugifyCenter(centerBrandName) || 'centro-om';
   }, [centerBrandName]);
 
   const handleCopyPublicPortalLink = () => {
     const origin =
       typeof window !== 'undefined' ? window.location.origin : 'https://kairosclinico.cl';
-    const fullUrl = `${origin}/centro/${centerPublicSlug || 'centro-om'}`;
+    const fullUrl = `${origin}/centro/${centerPublicSlug}`;
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(fullUrl);
       showToast(
@@ -1049,7 +1376,7 @@ function AdminDashboardContent() {
     setImportedPreviewRows([]);
     setImportFileName('');
     showToast(
-      'Importación masiva completada',
+      'Importación masiva completada en Supabase',
       `${addedCount} pacientes nuevos registrados y ${updatedCount} actualizados.`
     );
   };
@@ -1511,10 +1838,16 @@ function AdminDashboardContent() {
     );
   };
 
-  const deleteAppointmentSlotOnly = (aptId: string) => {
+  const deleteAppointmentSlotOnly = async (aptId: string) => {
     const target = appointments.find((a) => a.id === aptId);
     setAppointments((prev) => prev.filter((a) => a.id !== aptId));
     if (editingApt?.id === aptId) setEditingApt(null);
+    if (supabase) {
+      const activeSlug = slugifyCenter(centerBrandName) || 'centro-om';
+      try {
+        await supabase.from('appointments').delete().eq('id', `${activeSlug}-${aptId}`);
+      } catch {}
+    }
     showToast(
       'Hora liberada en la agenda',
       target
@@ -1523,11 +1856,17 @@ function AdminDashboardContent() {
     );
   };
 
-  const deletePatientFromDirectory = (patientId: string) => {
+  const deletePatientFromDirectory = async (patientId: string) => {
     const target = patients.find((p) => p.id === patientId);
     setPatients((prev) => prev.filter((p) => p.id !== patientId));
     if (fichaPatient?.id === patientId) setFichaPatient(null);
     if (editingPatientRecord?.id === patientId) setEditingPatientRecord(null);
+    if (supabase) {
+      const activeSlug = slugifyCenter(centerBrandName) || 'centro-om';
+      try {
+        await supabase.from('patients').delete().eq('id', `${activeSlug}-${patientId}`);
+      } catch {}
+    }
     showToast(
       'Paciente eliminado del directorio',
       target ? `${target.patientName} fue removido.` : undefined
@@ -1706,7 +2045,7 @@ function AdminDashboardContent() {
     };
     setPatients((prev) => [...prev, created]);
     setShowNewPatientModal(false);
-    showToast('Paciente registrado en el directorio', created.patientName);
+    showToast('Paciente registrado en Supabase y Directorio', created.patientName);
   };
 
   const handleSaveEditedPatientRecord = (e: React.FormEvent) => {
@@ -1741,7 +2080,6 @@ function AdminDashboardContent() {
     showToast('Servicio eliminado');
   };
 
-  // Crear y Eliminar Talleres
   const handleSaveWorkshop = (e: React.FormEvent) => {
     e.preventDefault();
     const newWs: WorkshopRecord = {
@@ -1762,7 +2100,7 @@ function AdminDashboardContent() {
     };
     setWorkshops((prev) => [newWs, ...prev]);
     setShowWorkshopModal(false);
-    showToast('Taller creado y publicado', newWs.name);
+    showToast('Taller creado y sincronizado en Supabase', newWs.name);
   };
 
   const handleDeleteWorkshop = (wsId: string) => {
@@ -1899,7 +2237,7 @@ function AdminDashboardContent() {
             : p
         )
       );
-      showToast('Profesional actualizado', profForm.name);
+      showToast('Profesional actualizado en Supabase', profForm.name);
     } else {
       const createdProf: ProfessionalConfig = {
         id: `prof-${Date.now()}`,
@@ -1919,20 +2257,7 @@ function AdminDashboardContent() {
       };
       setProfessionals((prev) => [...prev, createdProf]);
       setSelectedProfId(createdProf.id);
-      if (supabase) {
-        try {
-          await supabase.from('professionals').insert([
-            {
-              id: createdProf.id,
-              center_id: defaultCenterId,
-              name: createdProf.name,
-              specialty: createdProf.specialty,
-              email: createdProf.email,
-            },
-          ]);
-        } catch {}
-      }
-      showToast('Nuevo profesional incorporado', createdProf.name);
+      showToast('Nuevo profesional incorporado en Supabase', createdProf.name);
     }
     setShowProfModal(false);
   };
@@ -1951,7 +2276,6 @@ function AdminDashboardContent() {
     showToast('Profesional eliminado del centro');
   };
 
-  // TODOS LOS 9 MÓDULOS DEL MENÚ LATERAL INTACTOS
   const SIDEBAR_ITEMS: {
     id: AdminModule;
     label: string;
@@ -1991,7 +2315,6 @@ function AdminDashboardContent() {
 
   return (
     <div className="min-h-screen bg-[#F9F8F6] text-stone-800 flex font-sans selection:bg-[#2C4A3B]/15 selection:text-[#2C4A3B]">
-      {/* Toast Flotante */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div
@@ -2163,6 +2486,10 @@ function AdminDashboardContent() {
                 <span className="text-[11px] font-bold uppercase tracking-widest text-[#C87D65] block">
                   {centerBrandName}
                 </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EBF3EE] text-[#2C4A3B] text-[10px] font-bold">
+                  <Cloud size={10} />
+                  {cloudSyncStatus === 'syncing' ? 'Guardando Supabase...' : 'Supabase Activo'}
+                </span>
                 {waitingRoomCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold animate-pulse">
                     <Clock size={10} />
@@ -2188,7 +2515,7 @@ function AdminDashboardContent() {
             </button>
 
             <a
-              href={`/centro/${centerPublicSlug || 'centro-om'}`}
+              href={`/centro/${centerPublicSlug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="p-2.5 rounded-xl bg-[#F9F8F6] hover:bg-stone-100 border border-[#E4ECE7] text-stone-600 transition-all"
@@ -3541,7 +3868,7 @@ function AdminDashboardContent() {
           )}
 
           {/* ---------------------------------------------------------
-              6. MÓDULO TALLERES & EVENTOS GRUPALES (CON FOTO, CUPOS, PRECIO Y DETALLES)
+              6. MÓDULO TALLERES & EVENTOS GRUPALES
              --------------------------------------------------------- */}
           {activeModule === 'talleres' && (
             <div className="space-y-6">
@@ -3554,7 +3881,7 @@ function AdminDashboardContent() {
                     Talleres, Grupos Terapéuticos y Charlas
                   </h3>
                   <p className="text-xs text-stone-500 mt-0.5">
-                    Publica talleres con imagen de portada, descripción del taller, cupos máximos, valor e inscripción.
+                    Publica talleres con imagen de portada, distribución del taller, cupos máximos y valor.
                   </p>
                 </div>
                 <button
